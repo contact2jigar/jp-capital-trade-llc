@@ -3,7 +3,7 @@ from streamlit_option_menu import option_menu
 
 st.set_page_config(
     page_title="JP Capital & Trade LLC",
-    page_icon="🏢",
+    page_icon="💼",
     layout="wide",
 )
 
@@ -16,14 +16,14 @@ THEME = {
     "BG_SIDEBAR": "#f8fafc",
     "TEXT_PRIMARY": "#000000",
     "TEXT_SECONDARY": "#64748b",
-    "BORDER": "#e2e8f0"
+    "BORDER": "#cbd5e1"  # Slightly darker border to match the background
 }
 
-# Adjusted CSS for a top-navigation layout + MOBILE optimization
+# 🚀 Pushed as high as possible by zeroing out the padding-top!
 st.markdown(f"""
 <style>
 .main .block-container {{ 
-    padding-top: 1rem !important; 
+    padding-top: 0rem !important; 
     padding-left: 0.5rem !important;
     padding-right: 0.5rem !important;
     background-color: {THEME["BG_MAIN"]};
@@ -32,17 +32,22 @@ section.main > div {{
     max-width: 100% !important;
 }}
 /* Hide standard streamlit headers and toolbars */
-header {{ visibility: hidden; }}
+header {{ visibility: hidden; height: 0px !important; }}
 div[data-testid="stToolbar"] {{ visibility: hidden; }}
 
 /* Style the horizontal option menu to look like a nav bar */
 .nav-link {{
-    font-size: 0.9rem !important;
-    padding: 8px 12px !important;
+    font-size: 0.85rem !important;
+    padding: 6px 10px !important;
 }}
 
-/* 📱 MOBILE FIX: Stacks buttons when screen width is less than 768px */
-@media (max-width: 768px) {{
+/* Eliminate bottom margin from the menu component to pull the page content UP */
+div.stElementContainer {{
+    margin-bottom: 0px !important;
+}}
+
+/* 📱 MOBILE FIX: Stacks buttons when screen width is less than 992px */
+@media (max-width: 992px) {{
     .nav-item {{
         width: 100% !important;
         display: block !important;
@@ -50,41 +55,37 @@ div[data-testid="stToolbar"] {{ visibility: hidden; }}
     }}
     .nav-link {{
         text-align: left !important;
-        padding: 12px !important;
+        padding: 10px !important;
     }}
 }}
 </style>
 """, unsafe_allow_html=True)
 
-# 1. Top Header Branding
-col_brand, col_refresh = st.columns([3, 1])
-with col_brand:
-    st.markdown(
-        f'<h2 style="font-size:1.5rem; color:{THEME["PRIMARY"]}; font-weight:bold; margin-bottom:5px;">JP Capital & Trade LLC</h2>',
-        unsafe_allow_html=True
-    )
-with col_refresh:
-    # Moved your refresh button to the top right to save space
-    st.button("🔄", help="Refresh Application", use_container_width=True)
-
-# 2. Top Navigation Menu (Horizontal by default, stacks on mobile)
+# 1. Full-Width Navigation Menu with Darker Background & Heavy Shadow
 active_menu = option_menu(
     menu_title=None,
     options=[
         "Premium Estimator",
-        "Trade Reconciler",
         "Watchlist",
-        "Stock Scanner",
-        "Blue Chip Scanner"
+        "Blue Chip Scanner",
+        "Trade Reconciler",
+        "Stock Scanner"
     ],
     icons=["arrow-repeat", "calculator", "star", "cpu", "gem"],
     default_index=0,
     orientation="horizontal",
     styles={
-        "container": {"padding": "0px", "background-color": THEME["BG_SIDEBAR"], "border": f"1px solid {THEME['BORDER']}"},
-        "icon": {"font-size": "1rem"},
+        "container": {
+            "padding": "4px 8px !important", 
+            "background-color": "#e2e8f0 !important",  # 🎨 Darker cool slate-gray background
+            "border": f"1px solid {THEME['BORDER']} !important",
+            "box-shadow": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important", # 🕶️ Heavier 3D shadow
+            "border-radius": "8px !important",
+            "margin-top": "0px !important"
+        },
+        "icon": {"font-size": "0.9rem"},
         "nav-link": {
-            "margin": "0px",
+            "margin": "2px 4px",
             "color": THEME["TEXT_PRIMARY"],
             "border-radius": "4px",
             "text-align": "center",
@@ -97,9 +98,9 @@ active_menu = option_menu(
     }
 )
 
-st.divider()
+# ❌ Removed st.divider() to pull page content up immediately under the bar
 
-# 3. Dynamic Page Routing
+# 2. Dynamic Page Routing
 ROUTES = {
     "Trade Reconciler": "reports/TradeReconciler.py",
     "Premium Estimator": "reports/PremiumEstimator.py",
