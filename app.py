@@ -3,7 +3,7 @@ from streamlit_option_menu import option_menu
 
 st.set_page_config(
     page_title="JP Capital & Trade LLC",
-    page_icon="🎯",
+    page_icon="🏢",
     layout="wide",
 )
 
@@ -19,7 +19,7 @@ THEME = {
     "BORDER": "#e2e8f0"
 }
 
-# Adjusted CSS for a top-navigation layout
+# Adjusted CSS for a top-navigation layout + MOBILE optimization
 st.markdown(f"""
 <style>
 .main .block-container {{ 
@@ -40,6 +40,19 @@ div[data-testid="stToolbar"] {{ visibility: hidden; }}
     font-size: 0.9rem !important;
     padding: 8px 12px !important;
 }}
+
+/* 📱 MOBILE FIX: Stacks buttons when screen width is less than 768px */
+@media (max-width: 768px) {{
+    .nav-item {{
+        width: 100% !important;
+        display: block !important;
+        margin-bottom: 4px !important;
+    }}
+    .nav-link {{
+        text-align: left !important;
+        padding: 12px !important;
+    }}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -54,7 +67,7 @@ with col_refresh:
     # Moved your refresh button to the top right to save space
     st.button("🔄", help="Refresh Application", use_container_width=True)
 
-# 2. Top Navigation Menu (Horizontal)
+# 2. Top Navigation Menu (Horizontal by default, stacks on mobile)
 active_menu = option_menu(
     menu_title=None,
     options=[
@@ -66,7 +79,7 @@ active_menu = option_menu(
     ],
     icons=["arrow-repeat", "calculator", "star", "cpu", "gem"],
     default_index=0,
-    orientation="horizontal",  # <-- THIS TURNS IT INTO A TOP BUTTON BAR
+    orientation="horizontal",
     styles={
         "container": {"padding": "0px", "background-color": THEME["BG_SIDEBAR"], "border": f"1px solid {THEME['BORDER']}"},
         "icon": {"font-size": "1rem"},
