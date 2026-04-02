@@ -35,7 +35,7 @@ section.main > div {{
 header {{ visibility: hidden; height: 0px !important; }}
 div[data-testid="stToolbar"] {{ visibility: hidden; }}
 
-/* Style the horizontal option menu to look like a nav bar */
+/* Style the horizontal option menu to look like a nav bar on Desktop */
 .nav-link {{
     font-size: 0.85rem !important;
     padding: 6px 10px !important;
@@ -46,16 +46,26 @@ div.stElementContainer {{
     margin-bottom: 0px !important;
 }}
 
-/* 📱 MOBILE FIX: Stacks buttons when screen width is less than 992px */
-@media (max-width: 992px) {{
+/* 📱 MOBILE CSS FIX: Forces a clean vertical stack on small screens */
+@media (max-width: 768px) {{
+    /* Forces the flexbox container to stack vertically instead of wrapping */
+    .nav-pills {{
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+    }}
+    
     .nav-item {{
         width: 100% !important;
-        display: block !important;
         margin-bottom: 4px !important;
     }}
+    
     .nav-link {{
-        text-align: left !important;
-        padding: 10px !important;
+        text-align: left !important; /* Left-align for better list readability */
+        padding: 10px 15px !important; /* Bigger tap targets for thumbs */
+        font-size: 0.8rem !important; /* Slightly smaller text to prevent text wrapping */
+        display: flex !important;
+        align-items: center !important;
     }}
 }}
 </style>
@@ -71,7 +81,7 @@ active_menu = option_menu(
         "Trade Reconciler",
         "Stock Scanner"
     ],
-    icons=["arrow-repeat", "calculator", "star", "cpu", "gem"],
+    icons=["arrow-repeat", "star", "gem", "calculator", "cpu"],
     default_index=0,
     orientation="horizontal",
     styles={
@@ -83,7 +93,7 @@ active_menu = option_menu(
             "border-radius": "8px !important",
             "margin-top": "0px !important"
         },
-        "icon": {"font-size": "0.9rem"},
+        "icon": {"font-size": "0.9rem", "margin-right": "8px"},
         "nav-link": {
             "margin": "2px 4px",
             "color": THEME["TEXT_PRIMARY"],
@@ -97,8 +107,6 @@ active_menu = option_menu(
         }
     }
 )
-
-# ❌ Removed st.divider() to pull page content up immediately under the bar
 
 # 2. Dynamic Page Routing
 ROUTES = {
