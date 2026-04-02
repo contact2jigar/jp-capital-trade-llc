@@ -200,7 +200,7 @@ def render_portfolio_snapshot(df_raw, load_balances):
                     k401_diff = k401_c - k401_i
                     k401_pct = (k401_diff / k401_i * 100) if k401_i != 0 else 0
                     
-                    st.metric("Monthly", "")
+                    st.metric("Monthly", "N/A", "N/A") 
                     st.metric(f"Est. {exp_month}", f"${k401_c:,.0f}")
                     st.metric("Est. Year-End", f"${k401_target:,.0f}", "Target")
                     st.metric("Capital", f"${k401_i:,.0f}")

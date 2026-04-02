@@ -131,9 +131,9 @@ def render_trade_setup(df_raw):
             sel_acc = st.selectbox("Account", acc_list)
 
         with col5:
-            st.markdown("<div style='margin-top:22px'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
             a1, a2, a3 = st.columns(3)
-            run_pressed = a1.button("▶️", use_container_width=True)
+            run_pressed = a1.button("▶️ Run")
             select_all = a2.toggle("", value=True, label_visibility="collapsed")
 
             if a3.button("🔄", use_container_width=True):
