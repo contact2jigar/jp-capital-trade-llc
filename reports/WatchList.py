@@ -7,7 +7,6 @@ import pandas as pd
 import requests
 from scipy.stats import norm
 import streamlit as st
-from streamlit_option_menu import option_menu
 import yfinance as yf
 
 try:
@@ -52,25 +51,11 @@ MA_100_BG = "#2d5a34"  # Dark Green
 MA_50_BG = "#3e7937"   # Medium Green
 MA_20_BG = "#68a35c"   # Light Green
 
-st.set_page_config(page_title="JP Capital Watchlist", layout="wide")
-
-# =========================
-# 🗄️ SIDEBAR MENU
-# =========================
-with st.sidebar:
-    selected_menu = option_menu(
-        "Main Menu", 
-        ["Watchlist Scanner", "Live Tracker", "Option Analyzer"], 
-        icons=["list-stars", "activity", "graph-up"], 
-        menu_icon="cast", 
-        default_index=0,
-        styles={
-            "container": {"background-color": "#fafafa"},
-            "icon": {"color": PRIMARY_COLOR, "font-size": "18px"}, 
-            "nav-link": {"font-size": "14px", "text-align": "left", "margin":"0px", "--hover-color": "#eee"},
-            "nav-link-selected": {"background-color": PRIMARY_COLOR},
-        }
-    )
+# ==========================================
+# 🚨 SIDEBAR REMOVED
+# ==========================================
+# We bypassed the option_menu and hardcoded the default page to save space!
+selected_menu = "Watchlist Scanner"
 
 # =========================
 # 📊 FETCHERS & HELPERS
@@ -204,7 +189,7 @@ def highlight_moving_averages(row):
     return styles
 
 # =========================
-# 🎯 MENU 1: WATCHLIST SCANNER
+# 🎯 WATCHLIST SCANNER
 # =========================
 if selected_menu == "Watchlist Scanner":
     
@@ -337,7 +322,6 @@ if selected_menu == "Watchlist Scanner":
                         filtered_df = filtered_df[filtered_df['Qty'] != '✖']
                     
                     if not filtered_df.empty:
-                        # Styling applied dynamically based on positional index mapping to columns
                         styler = filtered_df.style.apply(lambda x: [
                             f'background-color: {BG_GREEN_POS if x["Pct_Raw"] >= 0 else BG_RED_NEG}; color: {WHITE_TEXT}; font-weight: bold' if idx == 0 else 
                             f'color: {TXT_GREEN_POS if x["Pct_Raw"] >= 0 else TXT_RED_NEG}; font-weight: bold' if idx in [3, 4] else 
@@ -371,17 +355,3 @@ if selected_menu == "Watchlist Scanner":
         
     else:
         st.info("Click the button above to load your Google Sheet data.")
-
-# =========================
-# 📊 MENU 2: LIVE TRACKER
-# =========================
-elif selected_menu == "Live Tracker":
-    st.subheader("📈 Custom Live Tracker")
-    st.info("Use the original tab controls here for hardcoded indexes.")
-
-# =========================
-# 📈 MENU 3: OPTION ANALYZER
-# =========================
-elif selected_menu == "Option Analyzer":
-    st.subheader("🔍 Option Chain Analyzer")
-    st.info("Place your original Black-Scholes delta option analysis grid logic here.")

@@ -216,7 +216,7 @@ with col2:
         color:{THEME["PRIMARY"]};
         padding-top:6px;
     ">
-        JP Capital & Trade LLC
+        
     </div>
     """, unsafe_allow_html=True)
 

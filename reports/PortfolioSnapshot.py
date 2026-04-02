@@ -28,11 +28,6 @@ def get_market_data():
 def render_portfolio_snapshot(df_raw, load_balances):
 
     # =========================================================
-    # 🔥 TOP PROGRESS BAR (Absolute Top of Page)
-    # =========================================================
-    top_progress_placeholder = st.empty()
-
-    # =========================================================
     # 💰 LOAD BALANCES
     # =========================================================
     bal_df = load_balances()
@@ -100,6 +95,11 @@ def render_portfolio_snapshot(df_raw, load_balances):
 
     st.divider()
 
+    # =========================================================
+    # 🔥 TOP PROGRESS BAR (Moved here: right above the grid!)
+    # =========================================================
+    top_progress_placeholder = st.empty()
+
     # =========================
     # 📉 VIX DISPLAY
     # =========================
@@ -155,74 +155,74 @@ def render_portfolio_snapshot(df_raw, load_balances):
 
         with proj_area.container():
 
-            # ======================
-            # HEADER
-            # ======================
-            h1, h2, h3, h4 = st.columns([1, 1, 1, 1.2])
-            h1.markdown("### 🏢 LLC")
-            h2.markdown("### 💼 IRA")
-            h3.markdown("### 🏦 401")
-            h4.markdown("### 🧮 TOTAL")
+            # 4 columns: Side-by-side in landscape/desktop, stacks on vertical iPhone
+            col_llc, col_ira, col_401, col_total = st.columns(4)
 
-            # ======================
-            # MONTHLY
-            # ======================
-            m1, m2, m3, m4 = st.columns([1, 1, 1, 1.2])
-            m1.metric("Monthly", f"${l_m:,.0f}", f"+{llc_monthly_roi:+.2f}% ROI | {llc_aor:+.2f}% AOR")
-            m2.metric("Monthly", f"${i_m:,.0f}", f"+{ira_monthly_roi:+.2f}% ROI | {ira_aor:+.2f}% AOR")
-            m3.metric("Monthly", "")
-            m4.metric("Monthly", f"${total_monthly_income:,.0f}", f"+{total_monthly_roi:+.2f}% ROI | {total_aor:+.2f}% AOR")
+            # =========================================================
+            # 🏢 CARD 1: LLC
+            # =========================================================
+            with col_llc:
+                with st.container(border=True):
+                    st.markdown("### 🏢 LLC")
+                    
+                    llc_diff = llc_c - llc_i
+                    llc_pct = (llc_diff / llc_i * 100) if llc_i != 0 else 0
+                    
+                    st.metric("Monthly", f"${l_m:,.0f}", f"+{llc_monthly_roi:+.2f}% ROI | {llc_aor:+.2f}% AOR")
+                    st.metric(f"Est. {exp_month}", f"${llc_value:,.0f}")
+                    st.metric("Est. Year-End", f"${calc['l_eoy']:,.0f}", f"+${calc['llc_growth']:,.0f} ({calc['llc_aor']:+.2f}%)")
+                    st.metric("Capital", f"${llc_i:,.0f}")
+                    st.metric("Current", f"${llc_c:,.0f}", f"{llc_diff:+,.0f} ({llc_pct:+.2f}%)")
 
-            # ======================
-            # EXPIRY VALUE
-            # ======================
-            m1, m2, m3, m4 = st.columns([1, 1, 1, 1.2])
-            m1.metric(f"Est. {exp_month}", f"${llc_value:,.0f}")
-            m2.metric(f"Est. {exp_month}", f"${ira_value:,.0f}")
-            m3.metric(f"Est. {exp_month}", f"${k401_c:,.0f}")
-            m4.metric(f"Est. {exp_month}", f"${llc_value + ira_value + k401_c:,.0f}")
+            # =========================================================
+            # 💼 CARD 2: IRA
+            # =========================================================
+            with col_ira:
+                with st.container(border=True):
+                    st.markdown("### 💼 IRA")
+                    
+                    ira_diff = ira_c - ira_i
+                    ira_pct = (ira_diff / ira_i * 100) if ira_i != 0 else 0
+                    
+                    st.metric("Monthly", f"${i_m:,.0f}", f"+{ira_monthly_roi:+.2f}% ROI | {ira_aor:+.2f}% AOR")
+                    st.metric(f"Est. {exp_month}", f"${ira_value:,.0f}")
+                    st.metric("Est. Year-End", f"${calc['i_eoy']:,.0f}", f"+${calc['ira_growth']:,.0f} ({calc['ira_aor']:+.2f}%)")
+                    st.metric("Capital", f"${ira_i:,.0f}")
+                    st.metric("Current", f"${ira_c:,.0f}", f"{ira_diff:+,.0f} ({ira_pct:+.2f}%)")
 
-            # ======================
-            # YEAR-END
-            # ======================
-            m1, m2, m3, m4 = st.columns([1, 1, 1, 1.2])
+            # =========================================================
+            # 🏦 CARD 3: 401
+            # =========================================================
+            with col_401:
+                with st.container(border=True):
+                    st.markdown("### 🏦 401")
+                    
+                    k401_diff = k401_c - k401_i
+                    k401_pct = (k401_diff / k401_i * 100) if k401_i != 0 else 0
+                    
+                    st.metric("Monthly", "")
+                    st.metric(f"Est. {exp_month}", f"${k401_c:,.0f}")
+                    st.metric("Est. Year-End", f"${k401_target:,.0f}", "Target")
+                    st.metric("Capital", f"${k401_i:,.0f}")
+                    st.metric("Current", f"${k401_c:,.0f}", f"{k401_diff:+,.0f} ({k401_pct:+.2f}%)")
 
-            m1.metric("Est. Year-End", f"${calc['l_eoy']:,.0f}", f"+${calc['llc_growth']:,.0f} ({calc['llc_aor']:+.2f}%)")
-            m2.metric("Est. Year-End", f"${calc['i_eoy']:,.0f}", f"+${calc['ira_growth']:,.0f} ({calc['ira_aor']:+.2f}%)")
-            m3.metric("Est. Year-End", f"${k401_target:,.0f}", "Target")
-            m4.metric("Est. Year-End", f"${calc['final_predictor']:,.0f}", f"+${calc['total_gain_rem']:,.0f} ({calc['total_aor']:+.2f}%)")
-
-            # ======================
-            # CAPITAL / YTD
-            # ======================
-            m1, m2, m3, m4 = st.columns([1, 1, 1, 1.2])
-            m1.metric("Capital", f"${llc_i:,.0f}")
-            m2.metric("Capital", f"${ira_i:,.0f}")
-            m3.metric("Capital", f"${k401_i:,.0f}")
-            m4.metric("Capital", f"${(llc_i + ira_i + k401_i):,.0f}")
-
-            # ======================
-            # CURRENT BALANCE (NEW)
-            # ======================
-            llc_diff = llc_c - llc_i
-            ira_diff = ira_c - ira_i
-            k401_diff = k401_c - k401_i
-
-            llc_pct = (llc_diff / llc_i * 100) if llc_i != 0 else 0
-            ira_pct = (ira_diff / ira_i * 100) if ira_i != 0 else 0
-            k401_pct = (k401_diff / k401_i * 100) if k401_i != 0 else 0
-
-            total_c = llc_c + ira_c + k401_c
-            total_i = llc_i + ira_i + k401_i
-
-            total_diff = total_c - total_i
-            total_pct = (total_diff / total_i * 100) if total_i != 0 else 0
-            m1, m2, m3, m4 = st.columns([1, 1, 1, 1.2])
-
-            m1.metric("Current", f"${llc_c:,.0f}", f"{llc_diff:+,.0f} ({llc_pct:+.2f}%)")
-            m2.metric("Current", f"${ira_c:,.0f}", f"{ira_diff:+,.0f} ({ira_pct:+.2f}%)")
-            m3.metric("Current", f"${k401_c:,.0f}", f"{k401_diff:+,.0f} ({k401_pct:+.2f}%)")
-            m4.metric("Current", f"${total_c:,.0f}", f"{total_diff:+,.0f} ({total_pct:+.2f}%)")    
+            # =========================================================
+            # 🧮 CARD 4: TOTAL
+            # =========================================================
+            with col_total:
+                with st.container(border=True):
+                    st.markdown("### 🧮 TOTAL")
+                    
+                    total_c = llc_c + ira_c + k401_c
+                    total_i = llc_i + ira_i + k401_i
+                    total_diff = total_c - total_i
+                    total_pct = (total_diff / total_i * 100) if total_i != 0 else 0
+                    
+                    st.metric("Monthly", f"${total_monthly_income:,.0f}", f"+{total_monthly_roi:+.2f}% ROI | {total_aor:+.2f}% AOR")
+                    st.metric(f"Est. {exp_month}", f"${llc_value + ira_value + k401_c:,.0f}")
+                    st.metric("Est. Year-End", f"${calc['final_predictor']:,.0f}", f"+${calc['total_gain_rem']:,.0f} ({calc['total_aor']:+.2f}%)")
+                    st.metric("Capital", f"${(llc_i + ira_i + k401_i):,.0f}")
+                    st.metric("Current", f"${total_c:,.0f}", f"{total_diff:+,.0f} ({total_pct:+.2f}%)")
 
     # =========================
     # 🔄 CALL SCAN MODULE
