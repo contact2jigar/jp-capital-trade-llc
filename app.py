@@ -1,3 +1,5 @@
+##https://jp-capital-trade-llc.streamlit.app/
+
 import streamlit as st
 
 # 1. Page Configuration
@@ -84,7 +86,7 @@ with st.sidebar:
 ROUTES = {
     "Premium Estimator": "reports/PremiumEstimator.py",
     "Watchlist": "reports/WatchList.py",
-    "Blue Chip Scanner": "reports/index_stock_screener.py",
+    "Blue Chip Scanner": "reports/BlueChipScanner.py",
     "Trade Reconciler": "reports/TradeReconciler.py",
     "Stock Scanner": "reports/stock_scanner.py"
 }
