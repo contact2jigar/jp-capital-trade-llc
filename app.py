@@ -1,5 +1,3 @@
-##https://jp-capital-trade-llc.streamlit.app/
-
 import streamlit as st
 
 # 1. Page Configuration
@@ -59,12 +57,14 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     # Dictionary of display names and their mapped Material Symbol names
+    # 🔥 ADDED: "Live Portfolio Desk" here
     pages = {
-        "Premium Estimator": "trending_up",     # Chart going up
-        "Watchlist": "star",                    # Clean star
-        "Blue Chip Scanner": "diamond",          # Diamond shape
-        "Trade Reconciler": "calculate",         # Calculator
-        "Stock Scanner": "monitoring"            # Analytics dashboard
+        "Premium Estimator": "trending_up",     
+        "Watchlist": "star",                    
+        "Live Portfolio Desk": "analytics",      # Added for dashboard view
+        "Blue Chip Scanner": "diamond",          
+        "Trade Reconciler": "calculate",         
+        "Stock Scanner": "monitoring"            
     }
 
     # Render each link dynamically
@@ -83,9 +83,11 @@ with st.sidebar:
         )
 
 # 5. Dynamic Page Routing
+# 🔥 ADDED: "Live Portfolio Desk" route here
 ROUTES = {
     "Premium Estimator": "reports/PremiumEstimator.py",
     "Watchlist": "reports/WatchList.py",
+    "Live Portfolio Desk": "reports/LivePortfolioDesk.py",
     "Blue Chip Scanner": "reports/BlueChipScanner.py",
     "Trade Reconciler": "reports/TradeReconciler.py",
     "Stock Scanner": "reports/stock_scanner.py"
