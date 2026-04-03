@@ -188,6 +188,12 @@ def highlight_moving_averages(row):
         
     return styles
 
+def icon_title(icon, text):
+    st.markdown(f'<h1 style="display:flex;align-items:center;gap:12px;font-size:42px;font-weight:700;margin-bottom:0.5rem;"><span class="material-symbols-outlined" style="font-size:42px;">{icon}</span>{text}</h1>', unsafe_allow_html=True)
+
+#icon_title("star", "Watchlist")
+st.title("⭐ Watchlist")
+
 # =========================
 # 🎯 WATCHLIST SCANNER
 # =========================

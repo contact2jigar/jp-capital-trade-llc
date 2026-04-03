@@ -190,6 +190,13 @@ if 'scan_results' not in st.session_state: st.session_state.scan_results = None
 if 'active_tab' not in st.session_state: st.session_state.active_tab = "💼 Trade Setup"
 if 'pending_df' not in st.session_state: st.session_state.pending_df = pd.DataFrame()
 
+def icon_title(icon, text):
+    st.markdown(f'<h1 style="display:flex;align-items:center;gap:12px;font-size:42px;font-weight:700;margin-bottom:0.5rem;"><span class="material-symbols-outlined" style="font-size:42px;">{icon}</span>{text}</h1>', unsafe_allow_html=True)
+
+# usage
+#icon_title("trending_up", "Premium Estimator")
+st.title("📈 Premium Estimator")
+
 # =========================
 # 🧭 HEADER (TABS + LOGO)
 # =========================

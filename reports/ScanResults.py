@@ -62,12 +62,13 @@ def render_scan_results(df_raw, render_projection, prog_bar):
         results = []
 
         for i, (_, row) in enumerate(active_trades.iterrows(), start=1):
-            prog_bar.progress(i / len(active_trades), f"Scanning {row['Stock']} ({i}/{len(active_trades)})")
             result_row = None
             opt_type_str = str(row['Opt Typ']).upper()
 
             # --- 🟡 CASH LOGIC ---
             if "CASH" in opt_type_str:
+                # Update progress smoothly for cash items
+                prog_bar.progress(i / len(active_trades), f"Processing {row['Stock']} ({i}/{len(active_trades)}) | Cash")
                 try:
                     orig_row = df_raw[(df_raw['Stock'] == row['Stock']) & (df_raw['Account'] == row['Account'])].iloc[0]
                     cash_val = float(str(orig_row['Profit Loss']).replace(',', ''))
@@ -81,6 +82,8 @@ def render_scan_results(df_raw, render_projection, prog_bar):
 
             # --- 🔵 HOLD LOGIC ---
             elif "HOLD" in opt_type_str:
+                # Update progress smoothly for hold items
+                prog_bar.progress(i / len(active_trades), f"Processing {row['Stock']} ({i}/{len(active_trades)}) | Hold")
                 try:
                     orig_row = df_raw[(df_raw['Stock'] == row['Stock']) & (df_raw['Account'] == row['Account']) & (df_raw['Opt Typ'] == row['Opt Typ'])].iloc[0]
                     
@@ -110,6 +113,10 @@ def render_scan_results(df_raw, render_projection, prog_bar):
                     curr_px = t_obj.fast_info['lastPrice']
                     side = "put" if "PUT" in opt_type_str else "call"
                     e_strike, e_bid, e_delta = get_option_by_delta(row['Stock'], st.session_state.current_exp, side, current_target)
+
+                    # 👉 UPDATED PROGRESS BAR: Fetched data immediately injected into status string
+                    status_msg = f"Scanning {row['Stock']} ({i}/{len(active_trades)}) | Strike: {e_strike:.2f} | Δ: {e_delta:.2f} | Prem: ${e_bid:.2f}"
+                    prog_bar.progress(i / len(active_trades), status_msg)
 
                     excel_strike = 0
                     try:
@@ -142,7 +149,10 @@ def render_scan_results(df_raw, render_projection, prog_bar):
                             "Credit_Raw": credit, "Qty": row['Qty'], "Total Value": f"${total_val:,.0f}",
                             "Strike_Val_Raw": total_val, "Delta": f"{e_delta:.2f}", "ROI": f"{roi:.2f}%", "AOR": f"{roi * (365/days):.2f}%"
                         }
-                except: continue
+                except: 
+                    # Fallback progress so UI doesn't look stalled on failed API tickers
+                    prog_bar.progress(i / len(active_trades), f"Scanning {row['Stock']} ({i}/{len(active_trades)}) - Fetch Failed")
+                    continue
 
             if result_row:
                 results.append(result_row)
