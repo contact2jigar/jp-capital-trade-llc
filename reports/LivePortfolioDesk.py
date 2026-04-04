@@ -1,10 +1,14 @@
 import io
+from datetime import datetime
 import certifi
 import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
 import yfinance as yf
+
+# ⚡ Import the shared calculation function from engine
+from reports.engine import calculate_live_balances
 
 # Pulling from your exact sheet and active open tab
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1x61uDuDKopnn9-DSuX5E3mAiMWk7-g4bPqbVH3D-q7M/export?format=csv&gid=1662549766"
@@ -54,9 +58,9 @@ def highlight_breaches(row):
     return styles
 
 
-# Isolated fragment that auto-refreshes every 60 seconds without destroying the rest of the page layout
+# Isolated fragment that auto-refreshes every 60 seconds
 @st.fragment(run_every=60)
-def auto_updating_portfolio(open_trades, account_cash, all_accounts):
+def auto_updating_portfolio(open_trades, account_cash, all_accounts, sheet_data):
 
     # Move progress bar here so it doesn't flicker the outside page
     prog_bar = st.empty()
@@ -78,7 +82,9 @@ def auto_updating_portfolio(open_trades, account_cash, all_accounts):
     total_assets_count = len(grouped_assets)
 
     portfolio_assets = []
-    account_equity = {}
+    
+    # ⚡ NEW: We calculate the true live balances using the shared engine logic first
+    live_balances = calculate_live_balances(sheet_data)
 
     def update_live_view():
         with metrics_container.container():
@@ -87,10 +93,13 @@ def auto_updating_portfolio(open_trades, account_cash, all_accounts):
                 grand_total = 0.0
 
                 for idx, acct in enumerate(all_accounts):
-                    acct_cash = account_cash.get(acct, 0.0)
-                    acct_eq = account_equity.get(acct, 0.0)
-                    acct_total = acct_cash + acct_eq
+                    # ⚡ Pull the computed value directly from the shared dict
+                    acct_total = live_balances.get(acct, 0.0)
                     grand_total += acct_total
+
+                    # We can isolate cash to solve for equity breakdown display
+                    acct_cash = account_cash.get(acct, 0.0)
+                    acct_eq = acct_total - acct_cash
 
                     with cols[idx]:
                         st.metric(
@@ -113,13 +122,9 @@ def auto_updating_portfolio(open_trades, account_cash, all_accounts):
                 .map(color_movement, subset=["Today's Mvmnt"])
                 .format(
                     {
-                        "Strike": lambda x: f"{x:,.2f}"
-                        if pd.notna(x)
-                        else "-",
+                        "Strike": lambda x: f"{x:,.2f}" if pd.notna(x) else "-",
                         "Total Quantity": "{:d}",
-                        "Current Price": lambda x: f"${x:,.2f}"
-                        if pd.notna(x)
-                        else "-",
+                        "Current Price": lambda x: f"${x:,.2f}" if pd.notna(x) else "-",
                         "Live Asset Value": "${:,.2f}",
                     }
                 )
@@ -178,10 +183,6 @@ def auto_updating_portfolio(open_trades, account_cash, all_accounts):
 
             except Exception:
                 continue
-
-        account_equity[account] = (
-            account_equity.get(account, 0.0) + current_value
-        )
 
         portfolio_assets.append(
             {
@@ -260,19 +261,13 @@ def render_portfolio_desk():
     )
 
     all_accounts = sorted(
-        list(
-            set(open_trades["Account"].unique())
-            - {
-                "Unknown",
-            }
-        )
+        list(set(open_trades["Account"].unique()) - {"Unknown"})
     )
 
     st.subheader("📊 Account Breakdown")
 
-    # CALL THE ISOLATED FRAGMENT HERE
-    # This loops silently and strictly operates inside its own DOM boundaries
-    auto_updating_portfolio(open_trades, account_cash, all_accounts)
+    # ⚡ Added sheet_data here so the engine call can evaluate the raw sheet
+    auto_updating_portfolio(open_trades, account_cash, all_accounts, sheet_data)
 
 
 if __name__ == "__main__":
