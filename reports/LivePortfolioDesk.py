@@ -58,15 +58,31 @@ def highlight_breaches(row):
     return styles
 
 
-# Isolated fragment that auto-refreshes every 60 seconds
-@st.fragment(run_every=60)
+# ⚡ Fragment runs every 300 seconds (5 minutes)
+@st.fragment(run_every=300)
 def auto_updating_portfolio(open_trades, account_cash, all_accounts, sheet_data):
 
-    # Move progress bar here so it doesn't flicker the outside page
+    # Custom Loading Screen Container
+    loading_container = st.empty()
+    
+    # Render the styled loading screen while the background execution takes place
+    loading_container.markdown("""
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #f8fafc; margin-bottom: 20px;">
+            <div style="border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;"></div>
+            <p style="margin-top: 16px; font-size: 16px; color: #475569; font-weight: 500; font-family: sans-serif;">Analyzing portfolio holdings & mapping live balances...</p>
+            <style>
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            </style>
+        </div>
+    """, unsafe_allow_html=True)
+
     prog_bar = st.empty()
 
     # Place inside the fragment so they remain stable containers
-    metrics_container = st.empty()
+    top_table_container = st.empty()
     st.divider()
     table_container = st.empty()
 
@@ -83,36 +99,166 @@ def auto_updating_portfolio(open_trades, account_cash, all_accounts, sheet_data)
 
     portfolio_assets = []
     
-    # ⚡ NEW: We calculate the true live balances using the shared engine logic first
+    # Calculate the true live balances using the shared engine logic first
     live_balances = calculate_live_balances(sheet_data)
 
+    # Empty out the loading screen before looping into data rendering
+    loading_container.empty()
+
     def update_live_view():
-        with metrics_container.container():
-            if all_accounts:
-                cols = st.columns(len(all_accounts) + 1)
-                grand_total = 0.0
+        # --- GET REAL VALUES FOR TOP PIVOT TABLE ---
+        df_assets = pd.DataFrame(portfolio_assets) if portfolio_assets else pd.DataFrame()
 
-                for idx, acct in enumerate(all_accounts):
-                    # ⚡ Pull the computed value directly from the shared dict
-                    acct_total = live_balances.get(acct, 0.0)
-                    grand_total += acct_total
+        def get_opt_val(acct_name, opt_type):
+            if df_assets.empty:
+                return 0.0
+            if acct_name == "TOTAL":
+                filtered = df_assets[df_assets["Opt Type"] == opt_type]
+            else:
+                filtered = df_assets[(df_assets["Account"] == acct_name) & (df_assets["Opt Type"] == opt_type)]
+            return filtered["Live Asset Value"].sum()
 
-                    # We can isolate cash to solve for equity breakdown display
-                    acct_cash = account_cash.get(acct, 0.0)
-                    acct_eq = acct_total - acct_cash
+        llc_worth = live_balances.get("LLC", 0.0)
+        ira_worth = live_balances.get("IRA", 0.0)
+        total_worth = llc_worth + ira_worth
 
-                    with cols[idx]:
-                        st.metric(
-                            label=f"{acct} Worth",
-                            value=f"${acct_total:,.2f}",
-                            help=f"Eq: ${acct_eq:,.2f} | Cash: ${acct_cash:,.2f}",
-                        )
-                with cols[-1]:
-                    st.metric(
-                        label="Grand Total Worth",
-                        value=f"${grand_total:,.2f}",
-                    )
+        llc_puts = get_opt_val("LLC", "PUT")
+        ira_puts = get_opt_val("IRA", "PUT")
+        total_puts = llc_puts + ira_puts
 
+        llc_calls = get_opt_val("LLC", "CALL")
+        ira_calls = get_opt_val("IRA", "CALL")
+        total_calls = llc_calls + ira_calls
+
+        # GRABBING RAW CASH FROM CASH RESERVE (using float cast to ensure accuracy)
+        llc_cash = float(account_cash.get("LLC", 0.0))
+        ira_cash = float(account_cash.get("IRA", 0.0))
+        total_cash = llc_cash + ira_cash
+
+        # Calculate percentages with exact 2 decimal places
+        def get_pct_str(val, total, color_scheme="green"):
+            if total == 0:
+                return ""
+            pct = (val / total) * 100
+            if color_scheme == "green":
+                return f'<span style="display: inline-block; padding: 3px 6px; border-radius: 4px; background-color: #dcfce7; color: #16a34a; font-size: 12px; font-weight: 700; margin-left: 8px;">{pct:.2f}%</span>'
+            elif color_scheme == "amber":
+                return f'<span style="display: inline-block; padding: 3px 6px; border-radius: 4px; background-color: #fef3c7; color: #d97706; font-size: 12px; font-weight: 700; margin-left: 8px;">{pct:.2f}%</span>'
+            else:
+                # Gray pill for cash
+                return f'<span style="display: inline-block; padding: 3px 6px; border-radius: 4px; background-color: #f1f5f9; color: #475569; font-size: 12px; font-weight: 700; margin-left: 8px;">{pct:.2f}%</span>'
+
+        # --- TOP PIVOT TABLE ---
+        top_table_html = f"""
+        <style>
+            .table-container {{
+                width: 100%;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                margin-top: 15px;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            }}
+            .custom-table {{
+                width: 100%;
+                min-width: 600px; 
+                border-collapse: collapse;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            }}
+            .custom-table th {{
+                text-align: left;
+                padding: 14px 16px;
+                background-color: #f8fafc;
+                color: #475569;
+                font-size: 13px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                border-bottom: 2px solid #e2e8f0;
+            }}
+            .custom-table td {{
+                padding: 16px 16px;
+                border-bottom: 1px solid #e2e8f0;
+                color: #0f172a;
+                vertical-align: middle;
+            }}
+            /* Alternating row colors for readability */
+            .custom-table tbody tr:nth-child(even) {{
+                background-color: #f8fafc;
+            }}
+            .custom-table tbody tr:nth-child(odd) {{
+                background-color: #ffffff;
+            }}
+            .custom-table tbody tr:hover {{
+                background-color: #f1f5f9;
+            }}
+            
+            /* Typography hierarchy */
+            .row-label {{
+                font-weight: 600;
+                color: #334155;
+                font-size: 14px;
+            }}
+            .cell-value {{
+                font-size: 16px;
+                font-weight: 500;
+                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            }}
+            .bold-total {{
+                font-size: 16px;
+                font-weight: 700;
+                color: #0f172a;
+            }}
+
+            /* Header badges styling */
+            .badge-llc {{ display: inline-block; padding: 5px 10px; border-radius: 6px; background-color: #e0f2fe; color: #0369a1; font-weight: 700; font-size: 12px; }}
+            .badge-ira {{ display: inline-block; padding: 5px 10px; border-radius: 6px; background-color: #fef3c7; color: #b45309; font-weight: 700; font-size: 12px; }}
+            .badge-total {{ display: inline-block; padding: 5px 10px; border-radius: 6px; background-color: #f1f5f9; color: #0f172a; font-weight: 700; font-size: 12px; }}
+        </style>
+        ### 📊 Account & Options Breakdown
+        <div class="table-container">
+            <table class="custom-table">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">Account</th>
+                        <th style="width: 25%;"><span class="badge-llc">🏢 LLC</span></th>
+                        <th style="width: 25%;"><span class="badge-ira">💼 IRA</span></th>
+                        <th style="width: 25%;"><span class="badge-total">🧮 TOTAL</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="row-label">Worth</td>
+                        <td class="cell-value">${int(llc_worth):,}</td>
+                        <td class="cell-value">${int(ira_worth):,}</td>
+                        <td class="bold-total">${int(total_worth):,}</td>
+                    </tr>
+                    <tr>
+                        <td class="row-label">Put holding</td>
+                        <td class="cell-value">${int(llc_puts):,} {get_pct_str(llc_puts, llc_worth, "green")}</td>
+                        <td class="cell-value">${int(ira_puts):,} {get_pct_str(ira_puts, ira_worth, "green")}</td>
+                        <td class="bold-total">${int(total_puts):,} {get_pct_str(total_puts, total_worth, "green")}</td>
+                    </tr>
+                    <tr>
+                        <td class="row-label">Call holding</td>
+                        <td class="cell-value">${int(llc_calls):,} {get_pct_str(llc_calls, llc_worth, "amber")}</td>
+                        <td class="cell-value">${int(ira_calls):,} {get_pct_str(ira_calls, ira_worth, "amber")}</td>
+                        <td class="bold-total">${int(total_calls):,} {get_pct_str(total_calls, total_worth, "amber")}</td>
+                    </tr>
+                    <tr>
+                        <td class="row-label">Cash</td>
+                        <td class="cell-value">${int(llc_cash):,} {get_pct_str(llc_cash, llc_worth, "gray")}</td>
+                        <td class="cell-value">${int(ira_cash):,} {get_pct_str(ira_cash, ira_worth, "gray")}</td>
+                        <td class="bold-total">${int(total_cash):,} {get_pct_str(total_cash, total_worth, "gray")}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        """
+        top_table_container.markdown(top_table_html, unsafe_allow_html=True)
+
+        # --- SECOND TABLE (SAFE STREAMLIT RENDERING) ---
         if portfolio_assets:
             df_assets = pd.DataFrame(portfolio_assets)
             df_assets = df_assets.sort_values(by="Stock", ascending=True)
@@ -129,11 +275,10 @@ def auto_updating_portfolio(open_trades, account_cash, all_accounts, sheet_data)
                     }
                 )
             )
-            table_container.dataframe(
-                styled_df, use_container_width=True, hide_index=True
-            )
+            
+            with table_container.container():
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
-    # Trigger baseline view
     update_live_view()
 
     for i, row in grouped_assets.iterrows():
@@ -219,7 +364,6 @@ def render_portfolio_desk():
 
     open_trades = sheet_data[sheet_data["Status"] == "Open"].copy()
 
-    # Filter out 401k accounts
     if "Account" in open_trades.columns:
         open_trades = open_trades[
             ~open_trades["Account"].astype(str).str.contains("401", na=False)
@@ -253,9 +397,10 @@ def render_portfolio_desk():
         open_trades["Cash Reserve"], errors="coerce"
     ).fillna(0.0)
 
+    # Sum up the 'Cash Reserve' column instead of 'Qty' for rows mapped to CASH
     cash_rows = open_trades[open_trades["Stock"] == "CASH"]
     account_cash = (
-        cash_rows.groupby("Account")["Qty"].sum().to_dict()
+        cash_rows.groupby("Account")["Cash Reserve"].sum().to_dict()
         if not cash_rows.empty
         else {}
     )
@@ -264,9 +409,7 @@ def render_portfolio_desk():
         list(set(open_trades["Account"].unique()) - {"Unknown"})
     )
 
-    st.subheader("📊 Account Breakdown")
-
-    # ⚡ Added sheet_data here so the engine call can evaluate the raw sheet
+    # Trigger the fragment
     auto_updating_portfolio(open_trades, account_cash, all_accounts, sheet_data)
 
 
