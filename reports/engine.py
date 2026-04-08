@@ -212,109 +212,111 @@ def get_market_data():
 # =========================================================
 # 💰 DYNAMIC BALANCE CALCULATIONS (SHARED)
 # =========================================================
-@st.cache_data(ttl=60)  # Caches for 60 seconds across the whole app
+@st.cache_data(ttl=60)
 def calculate_live_balances(sheet_data):
-    """Calculates live account totals (Cash + Equity) by fetching current
-
-    prices.
+    """
+    Calculates live account totals using logic synchronized with Live Portfolio Desk.
+    CASH and HOLD use Cash Reserve; Options use (Qty * Price * 100).
     """
     if sheet_data.empty:
         return {}
 
-    open_trades = sheet_data[sheet_data["Status"] == "Open"].copy()
+    # 1. Clean and filter the raw data
+    df = sheet_data[sheet_data["Status"] == "Open"].copy()
+    df["Account"] = df["Account"].astype(str).str.strip()
+    df["Opt Typ"] = df["Opt Typ"].astype(str).str.upper().str.strip()
+    df["Stock"] = df["Stock"].astype(str).str.upper().str.strip()
+    
+    # Filter out 401k accounts
+    df = df[~df["Account"].str.contains("401", na=False)]
+    
+    # Ensure numeric types
+    df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(0).abs()
+    df["Strike"] = pd.to_numeric(df["Strike Price"], errors="coerce").fillna(0)
+    df["Cash Reserve"] = pd.to_numeric(df["Cash Reserve"], errors="coerce").fillna(0.0)
+    df["Current Price"] = pd.to_numeric(df["Current Price"], errors="coerce").fillna(0.0)
 
-    # Apply your standard data cleanup from the live sheet
-    if "Account" in open_trades.columns:
-        open_trades = open_trades[
-            ~open_trades["Account"].astype(str).str.contains("401", na=False)
-        ]
-        open_trades["Account"] = open_trades["Account"].astype(str).str.strip()
-    else:
-        open_trades["Account"] = "Unknown"
+    live_balances = {}
 
-    if "Strike Price" in open_trades.columns:
-        open_trades["Strike"] = pd.to_numeric(
-            open_trades["Strike Price"], errors="coerce"
-        )
-    elif "Strike" in open_trades.columns:
-        open_trades["Strike"] = pd.to_numeric(
-            open_trades["Strike"], errors="coerce"
-        )
-    else:
-        open_trades["Strike"] = np.nan
-
-    open_trades["Qty"] = (
-        pd.to_numeric(open_trades["Qty"], errors="coerce").fillna(0).abs()
-    )
-    open_trades["Stock"] = open_trades["Stock"].astype(str).str.upper()
-    open_trades["Opt Typ"] = open_trades["Opt Typ"].astype(str).str.upper()
-    open_trades["Cash Reserve"] = (
-        pd.to_numeric(open_trades["Cash Reserve"], errors="coerce")
-        .fillna(0.0)
-        .abs()
-    )
-
-    # 1. Identify Cash
-    cash_rows = open_trades[open_trades["Stock"] == "CASH"]
-    account_cash = (
-        cash_rows.groupby("Account")["Qty"].sum().to_dict()
-        if not cash_rows.empty
-        else {}
-    )
-
-    # 2. Identify and Group Assets
-    stock_rows = open_trades[open_trades["Stock"] != "CASH"]
-    grouped_assets = (
-        stock_rows.groupby(["Account", "Stock", "Opt Typ", "Strike"])[
-            ["Qty", "Cash Reserve"]
-        ]
-        .sum()
-        .reset_index()
-    )
-
-    account_equity = {}
-
-    # Calculate equity for each grouped holding
-    for _, row in grouped_assets.iterrows():
+    # 2. Process every row with the correct valuation rule
+    for _, row in df.iterrows():
         acct = row["Account"]
         ticker = row["Stock"]
         opt_type = row["Opt Typ"]
+        qty = row["Qty"]
         strike = row["Strike"]
-        total_qty = row["Qty"]
-        static_cash_reserve = row["Cash Reserve"]
+        reserve = row["Cash Reserve"]
+        
+        row_value = 0.0
 
-        if opt_type == "HOLD":
-            current_value = static_cash_reserve
+        # --- Rule A: CASH or HOLD (Direct Value) ---
+        if ticker == "CASH" or opt_type == "HOLD":
+            row_value = reserve
+            
+        # --- Rule B: Options/Stocks (Market Calculation) ---
         else:
             try:
-                # Fast info fetch
-                stock_obj = yf.Ticker(ticker)
-                live_price = stock_obj.fast_info["lastPrice"]
+                # Attempt live price fetch
+                tk = yf.Ticker(ticker)
+                # Using fast_info for speed, mirroring your desk app's px logic
+                px = tk.fast_info["lastPrice"]
 
-                # Capping values based on option types (your exact logic)
                 if opt_type == "CALL":
-                    effective_price = min(live_price, strike)
+                    effective_price = min(px, strike)
                 elif opt_type == "PUT":
-                    effective_price = (
-                        live_price if live_price < strike else strike
-                    )
+                    effective_price = px if px < strike else strike
                 else:
-                    effective_price = live_price
+                    # Default for regular stock assignments or other types
+                    effective_price = px
+                
+                row_value = (qty * effective_price * 100)
+            except:
+                # Fallback to spreadsheet price if Yahoo fails
+                fallback_px = row["Current Price"]
+                row_value = (qty * fallback_px * 100)
 
-                current_value = total_qty * effective_price * 100
-            except Exception:
-                current_value = 0.0
-
-        account_equity[acct] = account_equity.get(acct, 0.0) + current_value
-
-    # 3. Combine Cash and Equity
-    live_balances = {}
-    all_accounts = set(account_cash.keys()).union(set(account_equity.keys()))
-
-    for acct in all_accounts:
-        total_worth = account_cash.get(acct, 0.0) + account_equity.get(
-            acct, 0.0
-        )
-        live_balances[acct] = total_worth
+        # 3. Aggregate by Account
+        live_balances[acct] = live_balances.get(acct, 0.0) + row_value
 
     return live_balances
+
+def get_live_positions_df(df):
+    results = []
+    # Ensure standard cleanup
+    df = df.copy()
+    df["Stock"] = df["Stock"].astype(str).str.upper().str.strip()
+    df["Opt Typ"] = df["Opt Typ"].astype(str).str.upper().str.strip()
+    
+    for _, row in df.iterrows():
+        ticker = row["Stock"]
+        o_type = row["Opt Typ"]
+        reserve = pd.to_numeric(row["Cash Reserve"], errors='coerce') or 0.0
+        qty = abs(pd.to_numeric(row["Qty"], errors='coerce') or 0)
+        strike = pd.to_numeric(row["Strike Price"], errors='coerce') or 0.0
+
+        if ticker == "CASH" or o_type == "HOLD":
+            results.append({
+                "Ticker": ticker, "Account": row["Account"], "Type": "CASH" if ticker=="CASH" else "HOLD",
+                "Last Close": 1.0, "Strike": 0.0, "Chg": 0.0, "Chg (%)": 0.0,
+                "Qty": qty, "Market Value": reserve, "Close Date": row.get("Close Date", "N/A")
+            })
+        else:
+            try:
+                tk = yf.Ticker(ticker)
+                hist = tk.history(period="2d")
+                px = hist['Close'].iloc[-1]
+                prev = hist['Close'].iloc[-2]
+                
+                if o_type == "CALL": mkt_val = (qty * min(px, strike) * 100)
+                elif o_type == "PUT": mkt_val = (qty * (px if px < strike else strike) * 100)
+                else: mkt_val = (qty * px * 100)
+
+                results.append({
+                    "Ticker": ticker, "Account": row["Account"], "Type": o_type,
+                    "Last Close": px, "Strike": strike, "Chg": px - prev, 
+                    "Chg (%)": ((px - prev) / prev) * 100, "Qty": qty, 
+                    "Market Value": mkt_val, "Close Date": row.get("Close Date", "N/A")
+                })
+            except:
+                continue
+    return pd.DataFrame(results)

@@ -210,19 +210,42 @@ if "pending_df" not in st.session_state:
     st.session_state.pending_df = pd.DataFrame()
 
 
+# =====================================================
+# 🔄 STATE MANAGEMENT (STABILIZED)
+# =====================================================
+# Initialize all keys to prevent "AttributeError" when switching tabs
+defaults = {
+    "active_tab": "💼 Trade Setup",
+    "current_exp": (datetime.now() + timedelta(days=(4-datetime.now().weekday()) % 7 + 14)).strftime('%Y-%m-%d'),
+    "call_delta": 0.15,
+    "put_delta": 0.30,
+    "last_g_call": 0.15,
+    "last_g_put": 0.30,
+    "row_deltas": {},
+    "scan_results": None,
+    "pending_df": pd.DataFrame(),
+    "scanning_now": False
+}
+
+for key, val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
+
+# Keep them in sync in case one updates and the other doesn't
+st.session_state.last_g_call = st.session_state.call_delta
+st.session_state.last_g_put = st.session_state.put_delta
+
 def icon_title(icon, text):
     st.markdown(
         f'<h1 style="display:flex;align-items:center;gap:12px;font-size:42px;font-weight:700;margin-bottom:0.5rem;"><span class="material-symbols-outlined" style="font-size:42px;">{icon}</span>{text}</h1>',
         unsafe_allow_html=True,
     )
 
-
 st.title("📈 Premium Estimator")
 
 # =========================
-# 🧭 HEADER (FULL WIDTH)
+# 🧭 HEADER
 # =========================
-# Removed column splitting here to let navigation use full width
 st.session_state.active_tab = st.segmented_control(
     "Navigation",
     options=["💼 Trade Setup", "📊 Portfolio Snapshot", "🔬 Mock Tester"],
@@ -233,21 +256,11 @@ st.session_state.active_tab = st.segmented_control(
 
 df_raw = load_data()
 
-# ============================================================
-# 📈 Trade Setup
-# ============================================================
+# Logic for tabs...
 if st.session_state.active_tab == "💼 Trade Setup":
     render_trade_setup(df_raw)
-
-# ============================================================
-# 📈 TAB: Portfolio Snapshot
-# ============================================================
 elif st.session_state.active_tab == "📊 Portfolio Snapshot":
     render_portfolio_snapshot(df_raw, load_balances)
-
-# ============================================================
-# 🔬 TAB: Mock Tester
-# ============================================================
 elif st.session_state.active_tab == "🔬 Mock Tester":
     st.subheader("Option Chain Data Validation")
     st.markdown(

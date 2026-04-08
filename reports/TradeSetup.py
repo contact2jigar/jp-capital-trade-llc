@@ -56,18 +56,29 @@ def compute_earning_alert(earn_date_str):
 def render_trade_setup(df_raw):
     st.markdown("<style>div[data-testid='stDataEditor'] th {text-align: center !important; white-space: normal !important;}</style>", unsafe_allow_html=True)
     
-    if "last_g_call" not in st.session_state: st.session_state.last_g_call = 0.25
-    if "last_g_put" not in st.session_state: st.session_state.last_g_put = 0.25
-    if "row_deltas" not in st.session_state: st.session_state.row_deltas = {}
+    # Initialization is now handled in the main file, but we keep these as backups
+    if "call_delta" not in st.session_state: st.session_state.call_delta = 0.15
+    if "put_delta" not in st.session_state: st.session_state.put_delta = 0.30
 
     with st.expander("🛠️ Control Panel", expanded=True):
         col1, col2, col3, col4, col5 = st.columns([1.8, 1.8, 1.8, 1.8, 2])
         with col1:
             fridays = get_fridays()
-            st.session_state.current_exp = st.selectbox("Expiry", fridays, index=fridays.index(get_next_third_friday()) if get_next_third_friday() in fridays else 0)
+            # Link directly to session_state
+            st.session_state.current_exp = st.selectbox(
+                "Expiry", 
+                fridays, 
+                index=fridays.index(st.session_state.current_exp) if st.session_state.current_exp in fridays else 0
+            )
         with col2:
-            call_delta = st.number_input("Call Delta", value=0.15, step=0.05)
-            put_delta = st.number_input("Put Delta", value=0.30, step=0.05)
+            # UPDATED: These now update the specific keys the engine expects
+            st.session_state.call_delta = st.number_input("Call Delta", value=st.session_state.call_delta, step=0.05)
+            st.session_state.put_delta = st.number_input("Put Delta", value=st.session_state.put_delta, step=0.05)
+            
+            # Sync the legacy "last_g" names just in case other parts of your code use them
+            st.session_state.last_g_call = st.session_state.call_delta
+            st.session_state.last_g_put = st.session_state.put_delta
+            
         with col3:
             sel_close_date = st.selectbox("Close Date", ["All Dates"] + sorted(df_raw['Close Date'].unique().tolist()) if not df_raw.empty else ["All Dates"])
         with col4:
@@ -75,8 +86,11 @@ def render_trade_setup(df_raw):
         with col5:
             st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
             a1, a2, a3 = st.columns(3)
-            run_pressed, select_all = a1.button("▶️"), a2.toggle("", value=True)
-            if a3.button("🔄"): st.cache_data.clear(); st.rerun()
+            run_pressed = a1.button("▶️")
+            select_all = a2.toggle("", value=True)
+            if a3.button("🔄"): 
+                st.cache_data.clear()
+                st.rerun()
 
     df_filtered = df_raw.copy()
     if not df_filtered.empty:

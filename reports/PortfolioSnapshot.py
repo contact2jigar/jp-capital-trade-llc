@@ -101,7 +101,7 @@ def render_portfolio_snapshot(df_raw, load_balances):
     except:
         vix_label = ""
 
-    st.markdown(f"### 🚀 2026 Performance Projection{vix_label}")
+    st.markdown(f"### 🚀 Performance Projection")
     proj_area = st.empty()
 
     # =========================================================
