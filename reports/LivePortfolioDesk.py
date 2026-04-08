@@ -317,7 +317,7 @@ if not df_raw.empty:
                 f_cols = ["Ticker", "Account", "Type", "Last Close", "Close Date", "Strike", "Market Value", "Chg", "Chg (%)", "Earn", "Earning Alert", "20D MA", "50D MA", "100D MA", "200D MA", "Qty"]
                 disp = queue_df.sort_values(by="Ticker")[[c for c in f_cols if c in queue_df.columns]]
                 styled = disp.style.apply(color_strike, axis=1)
-                if 'Chg' in disp.columns: styled = styled.applymap(color_chg, subset=['Chg', 'Chg (%)'])
+                if 'Chg' in disp.columns: styled = styled.map(color_chg, subset=['Chg', 'Chg (%)'])
                 f_m = {"Strike": "${:.2f}", "Market Value": "${:,.2f}", "Last Close": "${:.2f}", "Chg": "${:.2f}", "20D MA": "${:.2f}", "50D MA": "${:.2f}", "100D MA": "${:.2f}", "200D MA": "${:.2f}", "Chg (%)": "{:.2f}%", "Qty": "{:.0f}"}
                 queue_spot.dataframe(styled.format({k: v for k, v in f_m.items() if k in disp.columns}), hide_index=True, use_container_width=True)
 
