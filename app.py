@@ -61,7 +61,8 @@ with st.sidebar:
     pages = {
         "Premium Estimator": "trending_up",     
         "Watchlist": "star",                    
-        "Live Portfolio Desk": "analytics",      # Added for dashboard view
+        "Live Portfolio Desk": "analytics",
+        "Momentum Tracker": "speed",
         "Blue Chip Scanner": "diamond",          
         "Trade Reconciler": "calculate",         
         "Stock Scanner": "monitoring"            
@@ -88,6 +89,7 @@ ROUTES = {
     "Premium Estimator": "reports/PremiumEstimator.py",
     "Watchlist": "reports/WatchList.py",
     "Live Portfolio Desk": "reports/LivePortfolioDesk.py",
+    "Momentum Tracker": "reports/MomentumTracker.py",
     "Blue Chip Scanner": "reports/BlueChipScanner.py",
     "Trade Reconciler": "reports/TradeReconciler.py",
     "Stock Scanner": "reports/stock_scanner.py"
