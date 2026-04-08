@@ -1,417 +1,262 @@
+import streamlit as st
+import pandas as pd
+import yfinance as yf
+import requests
 import io
-from datetime import datetime
 import certifi
 import numpy as np
-import pandas as pd
-import requests
-import streamlit as st
-import yfinance as yf
+from datetime import datetime, timedelta
 
-# ⚡ Import the shared calculation function from engine
-from reports.engine import calculate_live_balances
+# ========================================================
+# 🎨 UI STYLING
+# ========================================================
+st.set_page_config(layout="wide", page_title="Live Portfolio Desk")
 
-# Pulling from your exact sheet and active open tab
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1x61uDuDKopnn9-DSuX5E3mAiMWk7-g4bPqbVH3D-q7M/export?format=csv&gid=1662549766"
+st.markdown("""
+<style>
+    [data-testid="stDataFrame"]:first-of-type td, 
+    [data-testid="stDataFrame"]:first-of-type th {
+        font-size: 20px !important;
+        height: 50px !important;
+    }
+    div[data-testid='stDataFrame'] th {
+        text-align: center !important; 
+        background-color: #f1f5f9 !important;
+        font-weight: bold !important;
+    }
+    div[data-testid="stDataFrame"] {
+        border: 1.5px solid #334155 !important;
+        border-radius: 10px !important;
+        margin-bottom: 25px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
+# ========================================================
+# 📥 DATA LOADING & HELPERS
+# ========================================================
+URL = "https://docs.google.com/spreadsheets/d/1x61uDuDKopnn9-DSuX5E3mAiMWk7-g4bPqbVH3D-q7M/export?format=csv&gid=1662549766"
 
-@st.cache_data(ttl=10)
-def load_live_data(url):
+@st.cache_data(ttl=300)
+def load_live_data():
     try:
-        response = requests.get(url, verify=certifi.where(), timeout=10)
-        df = pd.read_csv(io.BytesIO(response.content))
+        response = requests.get(URL, verify=certifi.where())
+        df = pd.read_csv(io.StringIO(response.text))
         df.columns = df.columns.str.strip()
-        return df
-    except Exception as e:
-        st.error(f"Failed to fetch sheet data: {e}")
+        stock_col = [c for c in df.columns if "Stock" in c][0]
+        df = df.rename(columns={stock_col: "Stock"})
+        return df[df["Status"] == "Open"].copy()
+    except Exception:
         return pd.DataFrame()
 
-
-def color_movement(val):
-    if "▲" in str(val):
-        return "color: #00cc66; font-weight: bold;"
-    elif "▼" in str(val):
-        return "color: #ff4d4d; font-weight: bold;"
-    return "color: #888888;"
-
-
-def highlight_breaches(row):
-    styles = [""] * len(row)
+def get_earn_emoji(date_str):
+    if not date_str: return "🔴"
     try:
-        col_strike_idx = row.index.get_loc("Strike")
-    except KeyError:
+        today = datetime.now().date()
+        dt = datetime.strptime(date_str, '%Y-%m-%d').date()
+        pre_fri = dt - timedelta(days=(dt.isoweekday() - 5))
+        days = (pre_fri - today).days
+        if days < 0: return f"🔴 ({days}d)"
+        elif days < 14: return f"⚪ ({days}d)"
+        elif days <= 30: return f"💰 ({days}d)"
+        elif days <= 40: return f"🟢 ({days}d)"
+        else: return f"🟡 ({days}d)"
+    except: return "🔴"
+
+def color_chg(val):
+    color = '#008000' if val > 0 else '#FF0000'
+    return f'color: {color}; font-weight: bold;'
+
+def color_strike(row):
+    """Targeted Cell Styling: Red background if ITM/In Danger"""
+    styles = [''] * len(row)
+    if 'Strike' not in row.index or 'Last Close' not in row.index or 'Type' not in row.index:
         return styles
-
-    opt_type = str(row["Opt Type"]).upper()
-    current_price = row["Current Price"]
-    strike = row["Strike"]
-
-    if pd.isna(current_price) or pd.isna(strike):
-        return styles
-
-    if (opt_type == "CALL" and current_price > strike) or (
-        opt_type == "PUT" and current_price < strike
-    ):
-        styles[col_strike_idx] = (
-            "background-color: #ffe6e6; color: #cc0000; font-weight: bold;"
-        )
-
+        
+    idx = row.index.get_loc('Strike')
+    strike = row['Strike']
+    price = row['Last Close']
+    typ = row['Type']
+    
+    # PUT: Danger if Price < Strike | CALL: Danger if Price > Strike
+    if (typ == "PUT" and price < strike) or (typ == "CALL" and price > strike):
+        styles[idx] = 'background-color: #FF0000; color: white; font-weight: bold;'
     return styles
 
-
-# ⚡ Fragment runs every 300 seconds (5 minutes)
-@st.fragment(run_every=300)
-def auto_updating_portfolio(open_trades, account_cash, all_accounts, sheet_data):
-
-    # Custom Loading Screen Container
-    loading_container = st.empty()
-    
-    # Render the styled loading screen while the background execution takes place
-    loading_container.markdown("""
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #f8fafc; margin-bottom: 20px;">
-            <div style="border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;"></div>
-            <p style="margin-top: 16px; font-size: 16px; color: #475569; font-weight: 500; font-family: sans-serif;">Analyzing portfolio holdings & mapping live balances...</p>
-            <style>
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
+# --- HELPERS SECTION ---
+@st.cache_data(ttl=300)
+def get_market_ribbon():
+    """Fetches Price, Daily %, and YTD % for SPY, QQQ, VIX safely."""
+    ribbon_stats = {}
+    for symbol in ["SPY", "QQQ", "^VIX"]:
+        try:
+            # Use period='ytd' directly for more reliable data fetching
+            tk = yf.Ticker(symbol)
+            hist = tk.history(period="ytd")
+            
+            if not hist.empty and len(hist) >= 2:
+                latest_price = hist['Close'].iloc[-1]
+                previous_close = hist['Close'].iloc[-2]
+                year_start_price = hist['Close'].iloc[0]
+                
+                ribbon_stats[symbol] = {
+                    "last_px": latest_price,
+                    "day_pct": ((latest_price - previous_close) / previous_close) * 100,
+                    "ytd_pct": ((latest_price - year_start_price) / year_start_price) * 100
                 }
-            </style>
-        </div>
-    """, unsafe_allow_html=True)
+        except Exception:
+            continue # Silently skip failed tickers to prevent 'd' error
+    return ribbon_stats
 
-    prog_bar = st.empty()
+# --- RENDER SECTION ---
+st.title("📈 Live Portfolio Desk")
 
-    # Place inside the fragment so they remain stable containers
-    top_table_container = st.empty()
-    st.divider()
-    table_container = st.empty()
-
-    stock_rows = open_trades[open_trades["Stock"] != "CASH"]
-    grouped_assets = (
-        stock_rows.groupby(["Account", "Stock", "Opt Typ", "Strike"])[
-            ["Qty", "Cash Reserve"]
-        ]
-        .sum()
-        .reset_index()
-    )
-    grouped_assets["Qty"] = grouped_assets["Qty"].astype(int)
-    total_assets_count = len(grouped_assets)
-
-    portfolio_assets = []
+# Compact Market Ribbon
+mkt_data = get_market_ribbon()
+if mkt_data:
+    display_list = []
+    for ticker, stats in mkt_data.items():
+        clean_name = ticker.replace("^", "")
+        
+        # Determine colors for each metric individually
+        d_clr = "#00c805" if stats['day_pct'] >= 0 else "#ff4b4b"
+        y_clr = "#00c805" if stats['ytd_pct'] >= 0 else "#ff4b4b"
+        
+        # Build HTML with separate color spans
+        ticker_html = (
+            f"**{clean_name}**: {stats['last_px']:,.2f} "
+            f"<span style='color:{d_clr}; font-size: 0.85em;'>{stats['day_pct']:+.2f}% (D)</span> | "
+            f"<span style='color:{y_clr}; font-size: 0.85em;'>{stats['ytd_pct']:+.2f}% (YTD)</span>"
+        )
+        display_list.append(ticker_html)
     
-    # Calculate the true live balances using the shared engine logic first
-    live_balances = calculate_live_balances(sheet_data)
+    st.markdown(f"<h6>{' &nbsp;&nbsp; | &nbsp;&nbsp; '.join(display_list)}</h6>", unsafe_allow_html=True)
+st.divider()
 
-    # Empty out the loading screen before looping into data rendering
-    loading_container.empty()
+df_raw = load_live_data()
 
-    def update_live_view():
-        # --- GET REAL VALUES FOR TOP PIVOT TABLE ---
-        df_assets = pd.DataFrame(portfolio_assets) if portfolio_assets else pd.DataFrame()
+if not df_raw.empty:
+    df_raw["Account"] = df_raw["Account"].astype(str).str.strip()
+    df_raw["Opt Typ"] = df_raw["Opt Typ"].astype(str).str.upper()
+    df_raw["Close Date"] = df_raw["Close Date"].astype(str).str.strip()
 
-        def get_opt_val(acct_name, opt_type):
-            if df_assets.empty:
-                return 0.0
-            if acct_name == "TOTAL":
-                filtered = df_assets[df_assets["Opt Type"] == opt_type]
-            else:
-                filtered = df_assets[(df_assets["Account"] == acct_name) & (df_assets["Opt Type"] == opt_type)]
-            return filtered["Live Asset Value"].sum()
+    with st.expander("🔍 Trade Position Parameters", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            acct_list = ["All"] + sorted(df_raw["Account"].unique().tolist())
+            filter_acct = st.selectbox("Select Account", acct_list)
+        with col2:
+            date_list = ["All"] + sorted([d for d in df_raw["Close Date"].unique() if str(d) != 'nan'])
+            filter_date = st.selectbox("Select Close Date", date_list)
+        with col3:
+            type_list = ["All"] + sorted(df_raw["Opt Typ"].unique().tolist())
+            filter_type = st.selectbox("Select Option Type", type_list)
 
-        llc_worth = live_balances.get("LLC", 0.0)
-        ira_worth = live_balances.get("IRA", 0.0)
-        total_worth = llc_worth + ira_worth
+        run_scan = st.button("📡 Fetch Live Quotes", use_container_width=True)
 
-        llc_puts = get_opt_val("LLC", "PUT")
-        ira_puts = get_opt_val("IRA", "PUT")
-        total_puts = llc_puts + ira_puts
+    # Filter Setup
+    df = df_raw.copy()
+    if filter_acct != "All": df = df[df["Account"] == filter_acct]
+    if filter_date != "All": df = df[df["Close Date"] == filter_date]
+    if filter_type != "All": df = df[df["Opt Typ"] == filter_type]
 
-        llc_calls = get_opt_val("LLC", "CALL")
-        ira_calls = get_opt_val("IRA", "CALL")
-        total_calls = llc_calls + ira_calls
+    df = df[~df["Account"].str.contains("401", na=False)]
+    df["Strike"] = pd.to_numeric(df["Strike Price"], errors="coerce").fillna(0)
+    df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(0).abs()
+    df["Stock"] = df["Stock"].astype(str).str.upper()
 
-        # GRABBING RAW CASH FROM CASH RESERVE (using float cast to ensure accuracy)
-        llc_cash = float(account_cash.get("LLC", 0.0))
-        ira_cash = float(account_cash.get("IRA", 0.0))
-        total_cash = llc_cash + ira_cash
+    if run_scan:
+        tickers = [t for t in df["Stock"].unique() if t != "CASH"]
+        status_text = st.empty()
+        progress_bar = st.progress(0)
+        
+        st.markdown("### 🏦 Account Summary")
+        summary_spot = st.empty()
+        st.markdown("### 📊 Active Trade Positions")
+        queue_spot = st.empty()
 
-        # Calculate percentages with exact 2 decimal places
-        def get_pct_str(val, total, color_scheme="green"):
-            if total == 0:
-                return ""
-            pct = (val / total) * 100
-            if color_scheme == "green":
-                return f'<span style="display: inline-block; padding: 3px 6px; border-radius: 4px; background-color: #dcfce7; color: #16a34a; font-size: 12px; font-weight: 700; margin-left: 8px;">{pct:.2f}%</span>'
-            elif color_scheme == "amber":
-                return f'<span style="display: inline-block; padding: 3px 6px; border-radius: 4px; background-color: #fef3c7; color: #d97706; font-size: 12px; font-weight: 700; margin-left: 8px;">{pct:.2f}%</span>'
-            else:
-                # Gray pill for cash
-                return f'<span style="display: inline-block; padding: 3px 6px; border-radius: 4px; background-color: #f1f5f9; color: #475569; font-size: 12px; font-weight: 700; margin-left: 8px;">{pct:.2f}%</span>'
+        live_results = []
+        cash_rows = df[df["Stock"] == "CASH"]
+        for _, row in cash_rows.iterrows():
+            live_results.append({
+                "Ticker": "CASH", "Account": row["Account"], "Type": "CASH",
+                "Market Value": row["Qty"], "Qty": row["Qty"],
+                "Last Close": 0.0, "Strike": 0.0, "Chg": 0.0, "Chg (%)": 0.0
+            })
 
-        # --- TOP PIVOT TABLE ---
-        top_table_html = f"""
-        <style>
-            .table-container {{
-                width: 100%;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-                margin-top: 15px;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-            }}
-            .custom-table {{
-                width: 100%;
-                min-width: 600px; 
-                border-collapse: collapse;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            }}
-            .custom-table th {{
-                text-align: left;
-                padding: 14px 16px;
-                background-color: #f8fafc;
-                color: #475569;
-                font-size: 13px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                border-bottom: 2px solid #e2e8f0;
-            }}
-            .custom-table td {{
-                padding: 16px 16px;
-                border-bottom: 1px solid #e2e8f0;
-                color: #0f172a;
-                vertical-align: middle;
-            }}
-            /* Alternating row colors for readability */
-            .custom-table tbody tr:nth-child(even) {{
-                background-color: #f8fafc;
-            }}
-            .custom-table tbody tr:nth-child(odd) {{
-                background-color: #ffffff;
-            }}
-            .custom-table tbody tr:hover {{
-                background-color: #f1f5f9;
-            }}
+        for i, t in enumerate(tickers):
+            status_text.text(f"🔍 Fetching Market Data: {t} ({i+1}/{len(tickers)})")
+            progress_bar.progress((i + 1) / len(tickers))
             
-            /* Typography hierarchy */
-            .row-label {{
-                font-weight: 600;
-                color: #334155;
-                font-size: 14px;
-            }}
-            .cell-value {{
-                font-size: 16px;
-                font-weight: 500;
-                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            }}
-            .bold-total {{
-                font-size: 16px;
-                font-weight: 700;
-                color: #0f172a;
-            }}
-
-            /* Header badges styling */
-            .badge-llc {{ display: inline-block; padding: 5px 10px; border-radius: 6px; background-color: #e0f2fe; color: #0369a1; font-weight: 700; font-size: 12px; }}
-            .badge-ira {{ display: inline-block; padding: 5px 10px; border-radius: 6px; background-color: #fef3c7; color: #b45309; font-weight: 700; font-size: 12px; }}
-            .badge-total {{ display: inline-block; padding: 5px 10px; border-radius: 6px; background-color: #f1f5f9; color: #0f172a; font-weight: 700; font-size: 12px; }}
-        </style>
-        ### 📊 Account & Options Breakdown
-        <div class="table-container">
-            <table class="custom-table">
-                <thead>
-                    <tr>
-                        <th style="width: 25%;">Account</th>
-                        <th style="width: 25%;"><span class="badge-llc">🏢 LLC</span></th>
-                        <th style="width: 25%;"><span class="badge-ira">💼 IRA</span></th>
-                        <th style="width: 25%;"><span class="badge-total">🧮 TOTAL</span></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td class="row-label">Worth</td>
-                        <td class="cell-value">${int(llc_worth):,}</td>
-                        <td class="cell-value">${int(ira_worth):,}</td>
-                        <td class="bold-total">${int(total_worth):,}</td>
-                    </tr>
-                    <tr>
-                        <td class="row-label">Put holding</td>
-                        <td class="cell-value">${int(llc_puts):,} {get_pct_str(llc_puts, llc_worth, "green")}</td>
-                        <td class="cell-value">${int(ira_puts):,} {get_pct_str(ira_puts, ira_worth, "green")}</td>
-                        <td class="bold-total">${int(total_puts):,} {get_pct_str(total_puts, total_worth, "green")}</td>
-                    </tr>
-                    <tr>
-                        <td class="row-label">Call holding</td>
-                        <td class="cell-value">${int(llc_calls):,} {get_pct_str(llc_calls, llc_worth, "amber")}</td>
-                        <td class="cell-value">${int(ira_calls):,} {get_pct_str(ira_calls, ira_worth, "amber")}</td>
-                        <td class="bold-total">${int(total_calls):,} {get_pct_str(total_calls, total_worth, "amber")}</td>
-                    </tr>
-                    <tr>
-                        <td class="row-label">Cash</td>
-                        <td class="cell-value">${int(llc_cash):,} {get_pct_str(llc_cash, llc_worth, "gray")}</td>
-                        <td class="cell-value">${int(ira_cash):,} {get_pct_str(ira_cash, ira_worth, "gray")}</td>
-                        <td class="bold-total">${int(total_cash):,} {get_pct_str(total_cash, total_worth, "gray")}</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        """
-        top_table_container.markdown(top_table_html, unsafe_allow_html=True)
-
-        # --- SECOND TABLE (SAFE STREAMLIT RENDERING) ---
-        if portfolio_assets:
-            df_assets = pd.DataFrame(portfolio_assets)
-            df_assets = df_assets.sort_values(by="Stock", ascending=True)
-
-            styled_df = (
-                df_assets.style.apply(highlight_breaches, axis=1)
-                .map(color_movement, subset=["Today's Mvmnt"])
-                .format(
-                    {
-                        "Strike": lambda x: f"{x:,.2f}" if pd.notna(x) else "-",
-                        "Total Quantity": "{:d}",
-                        "Current Price": lambda x: f"${x:,.2f}" if pd.notna(x) else "-",
-                        "Live Asset Value": "${:,.2f}",
-                    }
-                )
-            )
-            
-            with table_container.container():
-                st.dataframe(styled_df, use_container_width=True, hide_index=True)
-
-    update_live_view()
-
-    for i, row in grouped_assets.iterrows():
-        account = row["Account"]
-        ticker = row["Stock"]
-        opt_type = row["Opt Typ"]
-        strike = row["Strike"]
-        total_qty = row["Qty"]
-        static_cash_reserve = row["Cash Reserve"]
-
-        current_step = i + 1
-        prog_msg = f"Streaming {ticker} ({current_step}/{total_assets_count}) | {account} {opt_type}"
-        prog_bar.progress(current_step / total_assets_count, text=prog_msg)
-
-        if opt_type == "HOLD":
-            current_value = static_cash_reserve
-            live_price = np.nan
-            chg_display = "-"
-        else:
             try:
-                stock_obj = yf.Ticker(ticker)
-                live_price = stock_obj.fast_info["lastPrice"]
+                tk = yf.Ticker(t)
+                hist = tk.history(period="1y") 
+                if not hist.empty:
+                    px = hist['Close'].iloc[-1]
+                    prev = hist['Close'].iloc[-2]
+                    
+                    ticker_rows = df[df["Stock"] == t]
+                    for _, row in ticker_rows.iterrows():
+                        o, s, q = row["Opt Typ"], row["Strike"], row["Qty"]
+                        
+                        if o == "HOLD": mkt_val = row.get("Cash Reserve", 0.0)
+                        elif o == "CALL": mkt_val = (q * min(px, s) * 100)
+                        elif o == "PUT": mkt_val = (q * (px if px < s else s) * 100)
+                        else: mkt_val = (q * px * 100)
+                        
+                        live_results.append({
+                            "Ticker": t, "Account": row["Account"], "Type": o,
+                            "Last Close": px, "Close Date": row["Close Date"], "Strike": s,
+                            "Chg": px - prev, "Chg (%)": ((px - prev) / prev) * 100,
+                            "Qty": q, "Market Value": mkt_val,
+                            "20D MA": hist['Close'].rolling(20).mean().iloc[-1],
+                            "50D MA": hist['Close'].rolling(50).mean().iloc[-1],
+                            "100D MA": hist['Close'].rolling(100).mean().iloc[-1],
+                            "200D MA": hist['Close'].rolling(200).mean().iloc[-1],
+                            "Earn": tk.calendar['Earnings Date'][0].strftime('%Y-%m-%d') if tk.calendar and 'Earnings Date' in tk.calendar else ""
+                        })
+            except: continue
 
-                hist = stock_obj.history(period="2d")
-                prev_close = (
-                    hist["Close"].iloc[-2] if len(hist) >= 2 else live_price
-                )
-                day_diff = live_price - prev_close
+            current_df = pd.DataFrame(live_results)
+            
+            # Summary Table
+            l_total = current_df[current_df["Account"].str.contains("LLC", na=False)]["Market Value"].sum()
+            i_total = current_df[current_df["Account"].str.contains("IRA", na=False)]["Market Value"].sum()
+            p_tot = current_df[current_df["Type"] == "PUT"]["Market Value"].sum()
+            c_tot = current_df[current_df["Type"] == "CALL"]["Market Value"].sum()
 
-                if day_diff > 0:
-                    chg_display = f"▲ {day_diff:.2f}"
-                elif day_diff < 0:
-                    chg_display = f"▼ {abs(day_diff):.2f}"
-                else:
-                    chg_display = "0.00"
+            summary_df = pd.DataFrame([
+                {"Account": "Total Value", "LLC": l_total, "IRA": i_total, "Total": l_total + i_total},
+                {"Account": "Total Puts", "LLC": p_tot if filter_acct != "IRA" else 0, "IRA": p_tot if filter_acct != "LLC" else 0, "Total": p_tot},
+                {"Account": "Total Calls", "LLC": c_tot if filter_acct != "IRA" else 0, "IRA": c_tot if filter_acct != "LLC" else 0, "Total": c_tot}
+            ])
+            summary_spot.dataframe(summary_df.style.format({"LLC": "${:,.2f}", "IRA": "${:,.2f}", "Total": "${:,.2f}"}), hide_index=True, use_container_width=True)
 
-                if opt_type == "CALL":
-                    effective_price = min(live_price, strike)
-                elif opt_type == "PUT":
-                    effective_price = (
-                        live_price if live_price < strike else strike
-                    )
-                else:
-                    effective_price = live_price
+            # Trade Positions Table
+            queue_df = current_df[current_df["Ticker"] != "CASH"].copy()
+            if not queue_df.empty:
+                queue_df['Earning Alert'] = queue_df['Earn'].apply(get_earn_emoji)
+                final_cols = ["Ticker", "Account", "Type", "Last Close", "Close Date", "Strike", 
+                              "Chg", "Chg (%)", "Earn", "Earning Alert", 
+                              "20D MA", "50D MA", "100D MA", "200D MA", "Qty"]
+                
+                existing_cols = [c for c in final_cols if c in queue_df.columns]
+                display_df = queue_df.sort_values(by="Ticker")[existing_cols]
+                
+                styled_df = display_df.style.apply(color_strike, axis=1) # Applied to whole row, logic handles cell
+                
+                subset_chg = [c for c in ['Chg', 'Chg (%)'] if c in display_df.columns]
+                if subset_chg:
+                    styled_df = styled_df.applymap(color_chg, subset=subset_chg)
+                
+                f_map = {"Strike": "${:.2f}", "Last Close": "${:.2f}", "Chg": "${:.2f}", 
+                         "20D MA": "${:.2f}", "50D MA": "${:.2f}", "100D MA": "${:.2f}", 
+                         "200D MA": "${:.2f}", "Chg (%)": "{:.2f}%", "Qty": "{:.0f}"}
+                
+                styled_df = styled_df.format({k: v for k, v in f_map.items() if k in display_df.columns})
+                queue_spot.dataframe(styled_df, hide_index=True, use_container_width=True)
 
-                current_value = total_qty * effective_price * 100
-
-            except Exception:
-                continue
-
-        portfolio_assets.append(
-            {
-                "Stock": ticker,
-                "Account": account,
-                "Opt Type": opt_type,
-                "Strike": strike,
-                "Total Quantity": total_qty,
-                "Current Price": live_price,
-                "Live Asset Value": current_value,
-                "Today's Mvmnt": chg_display,
-            }
-        )
-
-        update_live_view()
-
-    prog_bar.empty()
-
-
-def render_portfolio_desk():
-    st.title("🖥️ Live Portfolio Desk")
-
-    col_btn, col_blank = st.columns([1, 4])
-    with col_btn:
-        if st.button("🔄 Refresh Data"):
-            st.cache_data.clear()
-            st.rerun()
-
-    sheet_data = load_live_data(SHEET_URL)
-
-    if sheet_data.empty:
-        st.info("No active data found or connection timed out.")
-        return
-
-    open_trades = sheet_data[sheet_data["Status"] == "Open"].copy()
-
-    if "Account" in open_trades.columns:
-        open_trades = open_trades[
-            ~open_trades["Account"].astype(str).str.contains("401", na=False)
-        ]
-        open_trades["Account"] = open_trades["Account"].astype(str).str.strip()
+        status_text.empty()
+        progress_bar.empty()
     else:
-        open_trades["Account"] = "Unknown"
-
-    if "Strike Price" in open_trades.columns:
-        open_trades["Strike"] = pd.to_numeric(
-            open_trades["Strike Price"], errors="coerce"
-        )
-    elif "Strike" in open_trades.columns:
-        open_trades["Strike"] = pd.to_numeric(
-            open_trades["Strike"], errors="coerce"
-        )
-    else:
-        open_trades["Strike"] = np.nan
-
-    if "Opt Typ" not in open_trades.columns:
-        open_trades["Opt Typ"] = ""
-    if "Cash Reserve" not in open_trades.columns:
-        open_trades["Cash Reserve"] = 0.0
-
-    open_trades["Qty"] = (
-        pd.to_numeric(open_trades["Qty"], errors="coerce").fillna(0).abs()
-    )
-    open_trades["Stock"] = open_trades["Stock"].astype(str).str.upper()
-    open_trades["Opt Typ"] = open_trades["Opt Typ"].astype(str).str.upper()
-    open_trades["Cash Reserve"] = pd.to_numeric(
-        open_trades["Cash Reserve"], errors="coerce"
-    ).fillna(0.0)
-
-    # Sum up the 'Cash Reserve' column instead of 'Qty' for rows mapped to CASH
-    cash_rows = open_trades[open_trades["Stock"] == "CASH"]
-    account_cash = (
-        cash_rows.groupby("Account")["Cash Reserve"].sum().to_dict()
-        if not cash_rows.empty
-        else {}
-    )
-
-    all_accounts = sorted(
-        list(set(open_trades["Account"].unique()) - {"Unknown"})
-    )
-
-    # Trigger the fragment
-    auto_updating_portfolio(open_trades, account_cash, all_accounts, sheet_data)
-
-
-if __name__ == "__main__":
-    render_portfolio_desk()
+        st.info("💡 Adjust parameters above and click 'Fetch Live Quotes' to refresh the desk.")
