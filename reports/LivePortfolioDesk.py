@@ -1,10 +1,10 @@
-import streamlit as st
-import pandas as pd
-import yfinance as yf
-import requests
 import io
 import certifi
+import requests
 import numpy as np
+import pandas as pd
+import yfinance as yf
+import streamlit as st
 from datetime import datetime, timedelta
 
 # ========================================================
@@ -23,6 +23,20 @@ st.markdown("""
         border-radius: 10px !important;
         margin-bottom: 25px;
     }
+    .table-container { 
+        width: 100%; overflow-x: auto; margin-top: 10px; 
+        border: 1px solid #000; border-radius: 4px; margin-bottom: 20px; 
+    }
+    .custom-table { 
+        width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; 
+    }
+    .custom-table th { 
+        text-align: left; padding: 12px; background-color: #f1f5f9; 
+        border-bottom: 1px solid #000; font-weight: 700; 
+    }
+    .custom-table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
+    .metric-col { background-color: #f8fafc; font-weight: 600; width: 20%; }
+    .zebra { background-color: #fafafa; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -39,9 +53,11 @@ def load_live_data():
         url = f"{BASE_URL}&gid={POSITIONS_GID}"
         response = requests.get(url, verify=certifi.where())
         df = pd.read_csv(io.StringIO(response.text))
+        
         df.columns = df.columns.str.strip()
         stock_col = [c for c in df.columns if "Stock" in c][0]
         df = df.rename(columns={stock_col: "Stock"})
+        
         return df[df["Status"] == "Open"].copy()
     except Exception:
         return pd.DataFrame()
@@ -52,10 +68,13 @@ def load_initial_capital():
         url = f"{BASE_URL}&gid={SETTINGS_GID}"
         response = requests.get(url, verify=certifi.where())
         settings_df = pd.read_csv(io.StringIO(response.text))
+        
         settings_df.columns = settings_df.columns.str.strip()
         settings_df['Account'] = settings_df['Account'].str.strip()
+        
         llc_i = settings_df.loc[settings_df['Account'] == 'LLC - Initial', 'Balance'].values[0]
         ira_i = settings_df.loc[settings_df['Account'] == 'IRA - Initial', 'Balance'].values[0]
+        
         return float(llc_i), float(ira_i)
     except Exception:
         return 639000.0, 807700.0
@@ -64,18 +83,21 @@ def load_initial_capital():
 # 🛠️ HELPERS
 # ========================================================
 def get_earn_emoji(date_str):
-    if not date_str or str(date_str) == 'nan' or date_str == "None": return ""
+    if not date_str or str(date_str) == 'nan' or date_str == "None": 
+        return ""
     try:
         today = datetime.now().date()
         dt = datetime.strptime(str(date_str), '%Y-%m-%d').date()
         pre_fri = dt - timedelta(days=(dt.isoweekday() - 5))
         days = (pre_fri - today).days
+        
         if days < 0: return f"🔴 ({days}d)"
         elif days < 14: return f"⚪ ({days}d)"
         elif days <= 30: return f"💰 ({days}d)"
         elif days <= 40: return f"🟢 ({days}d)"
         else: return f"🟡 ({days}d)"
-    except: return ""
+    except: 
+        return ""
 
 def color_chg(val):
     color = '#008000' if val > 0 else '#FF0000'
@@ -83,10 +105,12 @@ def color_chg(val):
 
 def color_strike(row):
     styles = [''] * len(row)
-    if 'Strike' not in row.index or 'Last Close' not in row.index or 'Type' not in row.index:
+    if not all(col in row.index for col in ['Strike', 'Last Close', 'Type']):
         return styles
+        
     idx = row.index.get_loc('Strike')
     strike, price, typ = row['Strike'], row['Last Close'], row['Type']
+    
     if (typ == "PUT" and price < strike) or (typ == "CALL" and price > strike):
         styles[idx] = 'background-color: #FF0000; color: white; font-weight: bold;'
     return styles
@@ -102,12 +126,14 @@ def get_market_ribbon():
                 latest_price = hist['Close'].iloc[-1]
                 previous_close = hist['Close'].iloc[-2]
                 year_start_price = hist['Close'].iloc[0]
+                
                 ribbon_stats[symbol] = {
                     "last_px": latest_price,
                     "day_pct": ((latest_price - previous_close) / previous_close) * 100,
                     "ytd_pct": ((latest_price - year_start_price) / year_start_price) * 100
                 }
-        except: continue
+        except: 
+            continue
     return ribbon_stats
 
 # ========================================================
@@ -115,6 +141,10 @@ def get_market_ribbon():
 # ========================================================
 st.title("📈 Live Portfolio Desk")
 
+if "live_results" not in st.session_state:
+    st.session_state.live_results = None
+
+# --- Market Ribbon ---
 mkt_data = get_market_ribbon()
 if mkt_data:
     display_list = []
@@ -122,6 +152,7 @@ if mkt_data:
         clean_name = ticker.replace("^", "")
         d_clr = "#00c805" if stats['day_pct'] >= 0 else "#ff4b4b"
         y_clr = "#00c805" if stats['ytd_pct'] >= 0 else "#ff4b4b"
+        
         ticker_html = (
             f"**{clean_name}**: {stats['last_px']:,.2f} "
             f"<span style='color:{d_clr}; font-size: 0.85em;'>{stats['day_pct']:+.2f}% (D)</span> | "
@@ -135,11 +166,13 @@ st.divider()
 df_raw = load_live_data()
 
 if not df_raw.empty:
+    # Pre-processing
     df_raw["Account"] = df_raw["Account"].astype(str).str.strip()
     df_raw["Opt Typ"] = df_raw["Opt Typ"].astype(str).str.upper()
     df_raw["Close Date"] = df_raw["Close Date"].astype(str).str.strip()
     df_raw["Cash Reserve"] = pd.to_numeric(df_raw["Cash Reserve"], errors="coerce").fillna(0.0)
 
+    # Sidebar / Controls
     with st.expander("🔍 Trade Position Parameters", expanded=True):
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -152,15 +185,16 @@ if not df_raw.empty:
             type_list = ["All"] + sorted(df_raw["Opt Typ"].unique().tolist())
             filter_type = st.selectbox("Select Option Type", type_list)
 
-        # Space-saving columns for buttons: Fetch first, Sync second
         btn_col1, btn_col2 = st.columns(2)
         with btn_col1:
             run_scan = st.button("📡 Fetch Live Quotes", use_container_width=True)
         with btn_col2:
             if st.button("🔄 Sync Google Sheets", use_container_width=True):
                 st.cache_data.clear()
-                st.toast("Syncing...", icon="📥")
+                st.session_state.live_results = None
+                st.rerun()
 
+    # Filtering Logic
     df = df_raw.copy()
     if filter_acct != "All": df = df[df["Account"] == filter_acct]
     if filter_date != "All": df = df[df["Close Date"] == filter_date]
@@ -171,157 +205,225 @@ if not df_raw.empty:
     df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(0).abs()
     df["Stock"] = df["Stock"].astype(str).str.upper()
 
-    if run_scan:
+    # Placeholders
+    status_text = st.empty()
+    progress_bar = st.empty()
+    
+    st.markdown("### 🏦 Account Summary")
+    summary_spot = st.empty()
+    
+    st.markdown("### ⚙️ Capital Deployment")
+    deployment_spot = st.empty()
+    
+    st.markdown("### 📊 Active Trade Positions")
+    queue_spot = st.empty()
+
+    def render_all_tables(live_list):
+        if not live_list: return
         llc_initial, ira_initial = load_initial_capital()
         total_initial = llc_initial + ira_initial
+        current_df = pd.DataFrame(live_list)
 
-        tickers = [t for t in df["Stock"].unique() if t != "CASH"]
-        status_text = st.empty()
-        progress_bar = st.progress(0)
+        def get_val(acct, typ=None):
+            tmp = current_df
+            if acct != "Total": 
+                tmp = tmp[tmp["Account"].str.contains(acct, na=False)]
+            if typ: 
+                tmp = tmp[tmp["Type"] == typ]
+            return tmp["Market Value"].sum()
+
+        l_total, i_total = get_val("LLC"), get_val("IRA")
+        grand_total = l_total + i_total
+
+        # --- Summary Table Rendering ---
+        def fmt_pl(curr, initial):
+            diff = curr - initial
+            pct = (diff / initial * 100) if initial > 0 else 0
+            color = "#16a34a" if diff >= 0 else "#dc2626"
+            return (
+                f'<div style="font-weight:700;">${curr:,.0f}</div>'
+                f'<div style="color:{color}; font-size:11px; font-weight:600; margin-top:2px;">'
+                f'{diff:+,.0f} | {pct:+.2f}%</div>'
+            )
+
+        def fmt_cell(val, acct_total, color=None):
+            pct = (val / acct_total * 100) if acct_total > 0 else 0
+            style = (
+                f"font-size:11px; margin-top:2px; font-weight:600; "
+                f"color:{'#16a34a' if color=='green' else '#dc2626' if color=='red' else '#64748b'};"
+            )
+            return f'${val:,.0f}<div style="{style}">{pct:.1f}%</div>'
+
+        summary_html = f"""
+        <div class="table-container">
+            <table class="custom-table">
+                <thead>
+                    <tr><th>Metrics</th><th>🏢 LLC</th><th>💼 IRA</th><th>🧮 TOTAL</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="metric-col">📈 Current Value</td>
+                        <td>{fmt_pl(l_total, llc_initial)}</td>
+                        <td>{fmt_pl(i_total, ira_initial)}</td>
+                        <td>{fmt_pl(grand_total, total_initial)}</td>
+                    </tr>
+                    <tr class="zebra">
+                        <td class="metric-col">🛡️ Puts</td>
+                        <td>{fmt_cell(get_val("LLC", "PUT"), l_total, "green")}</td>
+                        <td>{fmt_cell(get_val("IRA", "PUT"), i_total, "green")}</td>
+                        <td>{fmt_cell(get_val("Total", "PUT"), grand_total, "green")}</td>
+                    </tr>
+                    <tr>
+                        <td class="metric-col">🚀 Calls</td>
+                        <td>{fmt_cell(get_val("LLC", "CALL"), l_total, "red")}</td>
+                        <td>{fmt_cell(get_val("IRA", "CALL"), i_total, "red")}</td>
+                        <td>{fmt_cell(get_val("Total", "CALL"), grand_total, "red")}</td>
+                    </tr>
+                    <tr class="zebra">
+                        <td class="metric-col">📊 Holdings</td>
+                        <td>{fmt_cell(get_val("LLC", "HOLD"), l_total)}</td>
+                        <td>{fmt_cell(get_val("IRA", "HOLD"), i_total)}</td>
+                        <td>{fmt_cell(get_val("Total", "HOLD"), grand_total)}</td>
+                    </tr>
+                    <tr class="zebra">
+                        <td class="metric-col">💵 Cash</td>
+                        <td>{fmt_cell(get_val("LLC", "CASH"), l_total)}</td>
+                        <td>{fmt_cell(get_val("IRA", "CASH"), i_total)}</td>
+                        <td>{fmt_cell(get_val("Total", "CASH"), grand_total)}</td>
+                    </tr>
+                    <tr style="background-color:#f0f9ff; border-top: 2px solid #000;">
+                        <td class="metric-col" style="font-weight:bold;">💰 Initial</td>
+                        <td>${llc_initial:,.0f}</td><td>${ira_initial:,.0f}</td><td>${total_initial:,.0f}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>"""
+        summary_spot.markdown(summary_html, unsafe_allow_html=True)
+
+        # --- Deployment Table Rendering ---
+        def calc_dep(acct):
+            total = get_val(acct)
+            calls = get_val(acct, "CALL")
+            puts = get_val(acct, "PUT")
+            cash = get_val(acct, "CASH")
+            hold = get_val(acct, "HOLD")
+            return {
+                "deployed": ((calls + hold)/total*100) if total else 0, 
+                "puts": (puts/total*100) if total else 0, 
+                "cash": (cash/total*100) if total else 0
+            }
+            
+        l_d, i_d, t_d = calc_dep("LLC"), calc_dep("IRA"), calc_dep("Total")
         
-        st.markdown("### 🏦 Account Summary")
-        summary_spot = st.empty()
-        st.markdown("### 📊 Active Trade Positions")
-        queue_spot = st.empty()
+        dep_html = f"""
+        <div class="table-container">
+            <table class="custom-table">
+                <thead>
+                    <tr><th>Metric</th><th>🏢 LLC</th><th>💼 IRA</th><th>🧮 TOTAL</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="metric-col">🔥 Deployed</td>
+                        <td>{l_d['deployed']:.1f}%</td><td>{i_d['deployed']:.1f}%</td><td>{t_d['deployed']:.1f}%</td>
+                    </tr>
+                    <tr class="zebra">
+                        <td class="metric-col">🛡️ Reserved</td>
+                        <td>{l_d['puts']:.1f}%</td><td>{i_d['puts']:.1f}%</td><td>{t_d['puts']:.1f}%</td>
+                    </tr>
+                    <tr>
+                        <td class="metric-col">💵 Cash</td>
+                        <td>{l_d['cash']:.1f}%</td><td>{i_d['cash']:.1f}%</td><td>{t_d['cash']:.1f}%</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>"""
+        deployment_spot.markdown(dep_html, unsafe_allow_html=True)
 
+        # --- Main Position Table ---
+        queue_df = current_df.copy()
+        queue_df['Earning Alert'] = queue_df['Earn'].apply(get_earn_emoji)
+        
+        f_cols = [
+            "Ticker", "Account", "Type", "Last Close", "Close Date", "Strike", 
+            "Market Value", "Chg", "Chg (%)", "Earn", "Earning Alert", 
+            "20D MA", "50D MA", "100D MA", "200D MA", "Qty"
+        ]
+        
+        disp = queue_df.sort_values(by="Ticker")[[c for c in f_cols if c in queue_df.columns]]
+        f_m = {
+            "Strike": "${:.2f}", "Market Value": "${:,.2f}", "Last Close": "${:.2f}", 
+            "Chg": "${:.2f}", "20D MA": "${:.2f}", "50D MA": "${:.2f}", 
+            "100D MA": "${:.2f}", "200D MA": "${:.2f}", "Chg (%)": "{:.2f}%", "Qty": "{:.0f}"
+        }
+        
+        st_style = (
+            disp.style.apply(color_strike, axis=1)
+            .map(color_chg, subset=['Chg', 'Chg (%)'])
+            .format({k: v for k, v in f_m.items() if k in disp.columns})
+        )
+        
+        queue_spot.dataframe(st_style, hide_index=True, use_container_width=True)
+
+    # --- Live Fetching Loop ---
+    if run_scan:
+        tickers = [t for t in df["Stock"].unique() if t != "CASH"]
+        pb = progress_bar.progress(0)
         live_results = []
         
+        # Handle Cash Rows
         cash_df = df[df["Stock"] == "CASH"]
         for _, row in cash_df.iterrows():
             live_results.append({
-                "Ticker": "CASH", "Account": row["Account"], "Type": "CASH",
-                "Last Close": 1.0, "Strike": 0.0, "Chg": 0.0, "Chg (%)": 0.0,
-                "Qty": row["Qty"], "Market Value": row["Cash Reserve"], "Earn": "", "Close Date": "None"
+                "Ticker": "CASH", "Account": row["Account"], "Type": "CASH", 
+                "Last Close": 1.0, "Strike": 0.0, "Chg": 0.0, "Chg (%)": 0.0, 
+                "Qty": row["Qty"], "Market Value": row["Cash Reserve"], 
+                "Earn": "", "Close Date": "None"
             })
 
         for i, t in enumerate(tickers):
-            status_text.text(f"🔍 Fetching Market Data: {t} ({i+1}/{len(tickers)})")
-            progress_bar.progress((i + 1) / len(tickers))
+            status_text.text(f"🔍 Fetching: {t} ({i+1}/{len(tickers)})")
+            pb.progress((i + 1) / len(tickers))
             try:
                 tk = yf.Ticker(t)
                 hist = tk.history(period="1y") 
                 if not hist.empty:
                     px, prev = hist['Close'].iloc[-1], hist['Close'].iloc[-2]
                     ticker_rows = df[df["Stock"] == t]
+                    
                     for _, row in ticker_rows.iterrows():
                         o, s, q = row["Opt Typ"], row["Strike"], row["Qty"]
-                        if o == "HOLD": mkt_val = row["Cash Reserve"] 
-                        elif o == "CALL": mkt_val = (q * min(px, s) * 100)
-                        elif o == "PUT": mkt_val = (q * (px if px < s else s) * 100)
-                        else: mkt_val = (q * px * 100)
                         
+                        # Market Value Logic
+                        if o == "HOLD":
+                            mkt_val = row["Cash Reserve"]
+                        elif o == "CALL":
+                            mkt_val = q * min(px, s) * 100
+                        elif o == "PUT":
+                            mkt_val = q * (px if px < s else s) * 100
+                        else:
+                            mkt_val = q * px * 100
+
                         live_results.append({
-                            "Ticker": t, "Account": row["Account"], "Type": o,
-                            "Last Close": px, "Close Date": row["Close Date"], "Strike": s,
-                            "Chg": px - prev, "Chg (%)": ((px - prev) / prev) * 100,
-                            "Qty": q, "Market Value": mkt_val,
-                            "20D MA": hist['Close'].rolling(20).mean().iloc[-1],
-                            "50D MA": hist['Close'].rolling(50).mean().iloc[-1],
-                            "100D MA": hist['Close'].rolling(100).mean().iloc[-1],
-                            "200D MA": hist['Close'].rolling(200).mean().iloc[-1],
+                            "Ticker": t, "Account": row["Account"], "Type": o, 
+                            "Last Close": px, "Close Date": row["Close Date"], 
+                            "Strike": s, "Chg": px - prev, "Chg (%)": ((px-prev)/prev)*100, 
+                            "Qty": q, "Market Value": mkt_val, 
+                            "20D MA": hist['Close'].rolling(20).mean().iloc[-1], 
+                            "50D MA": hist['Close'].rolling(50).mean().iloc[-1], 
+                            "100D MA": hist['Close'].rolling(100).mean().iloc[-1], 
+                            "200D MA": hist['Close'].rolling(200).mean().iloc[-1], 
                             "Earn": tk.calendar['Earnings Date'][0].strftime('%Y-%m-%d') if tk.calendar and 'Earnings Date' in tk.calendar else ""
                         })
-            except: continue
-
-            current_df = pd.DataFrame(live_results)
-            
-            def get_val(acct, typ=None):
-                tmp = current_df
-                if acct != "Total": tmp = tmp[tmp["Account"].str.contains(acct, na=False)]
-                if typ: tmp = tmp[tmp["Type"] == typ]
-                return tmp["Market Value"].sum()
-
-            l_total, i_total = get_val("LLC"), get_val("IRA")
-            grand_total = l_total + i_total
-
-            def fmt_html_cell(val, acct_total, color=None):
-                pct = (val / acct_total * 100) if acct_total > 0 else 0
-                style = f"font-size:11px; margin-top:2px; font-weight:600;"
-                if color == "green": style += " color:#16a34a;"
-                elif color == "red": style += " color:#dc2626;"
-                else: style += " color:#64748b;"
-                return f'${val:,.0f}<div style="{style}">{pct:.1f}%</div>'
-
-            def fmt_current_val_with_pl(curr, initial):
-                diff = curr - initial
-                pct = (diff / initial * 100) if initial > 0 else 0
-                color = "#16a34a" if diff >= 0 else "#dc2626"
-                sign = "+" if diff >= 0 else ""
-                return f"""
-                <div style="font-weight:700;">${curr:,.0f}</div>
-                <div style="color:{color}; font-size:11px; font-weight:600; margin-top:2px;">
-                    {sign}${diff:,.0f} | {pct:+.2f}%
-                </div>
-                """
-
-            html_table = f"""
-            <style>
-                .table-container {{ width: 100%; overflow-x: auto; margin-top: 10px; border: 1px solid #000; border-radius: 4px; }}
-                .custom-table {{ width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; }}
-                .custom-table th {{ text-align: left; padding: 12px; background-color: #f1f5f9; border-bottom: 1px solid #000; font-weight: 700; }}
-                .custom-table td {{ padding: 12px; border-bottom: 1px solid #e2e8f0; }}
-                .metric-col {{ background-color: #f8fafc; font-weight: 600; width: 20%; }}
-                .zebra {{ background-color: #fafafa; }}
-            </style>
-            <div class="table-container">
-                <table class="custom-table">
-                    <thead>
-                        <tr><th>Metrics</th><th>🏢 LLC</th><th>💼 IRA</th><th>🧮 TOTAL</th></tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class="metric-col">📈 Current Value</td>
-                            <td>{fmt_current_val_with_pl(l_total, llc_initial)}</td>
-                            <td>{fmt_current_val_with_pl(i_total, ira_initial)}</td>
-                            <td>{fmt_current_val_with_pl(grand_total, total_initial)}</td>
-                        </tr>
-                        <tr class="zebra">
-                            <td class="metric-col">🛡️ Puts</td>
-                            <td>{fmt_html_cell(get_val("LLC", "PUT"), l_total, "green")}</td>
-                            <td>{fmt_html_cell(get_val("IRA", "PUT"), i_total, "green")}</td>
-                            <td>{fmt_html_cell(get_val("Total", "PUT"), grand_total, "green")}</td>
-                        </tr>
-                        <tr>
-                            <td class="metric-col">🚀 Calls</td>
-                            <td>{fmt_html_cell(get_val("LLC", "CALL"), l_total, "red")}</td>
-                            <td>{fmt_html_cell(get_val("IRA", "CALL"), i_total, "red")}</td>
-                            <td>{fmt_html_cell(get_val("Total", "CALL"), grand_total, "red")}</td>
-                        </tr>
-                        <tr class="zebra">
-                            <td class="metric-col">💵 Cash</td>
-                            <td>{fmt_html_cell(get_val("LLC", "CASH"), l_total)}</td>
-                            <td>{fmt_html_cell(get_val("IRA", "CASH"), i_total)}</td>
-                            <td>{fmt_html_cell(get_val("Total", "CASH"), grand_total)}</td>
-                        </tr>
-                        <tr>
-                            <td class="metric-col">🛡️ Puts + 💵 Cash</td>
-                            <td>{fmt_html_cell(get_val("LLC", "PUT") + get_val("LLC", "CASH"), l_total, "green")}</td>
-                            <td>{fmt_html_cell(get_val("IRA", "PUT") + get_val("IRA", "CASH"), i_total, "green")}</td>
-                            <td>{fmt_html_cell(get_val("Total", "PUT") + get_val("Total", "CASH"), grand_total, "green")}</td>
-                        </tr>
-                        <tr style="background-color:#f0f9ff; border-top: 2px solid #000;">
-                            <td class="metric-col" style="background-color:#f0f9ff; font-weight:bold;">💰 Capital (Initial)</td>
-                            <td>${llc_initial:,.0f}</td>
-                            <td>${ira_initial:,.0f}</td>
-                            <td>${total_initial:,.0f}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            """
-            summary_spot.markdown(html_table, unsafe_allow_html=True)
-
-            queue_df = current_df.copy()
-            if not queue_df.empty:
-                queue_df['Earning Alert'] = queue_df['Earn'].apply(get_earn_emoji)
-                f_cols = ["Ticker", "Account", "Type", "Last Close", "Close Date", "Strike", "Market Value", "Chg", "Chg (%)", "Earn", "Earning Alert", "20D MA", "50D MA", "100D MA", "200D MA", "Qty"]
-                disp = queue_df.sort_values(by="Ticker")[[c for c in f_cols if c in queue_df.columns]]
-                styled = disp.style.apply(color_strike, axis=1)
-                if 'Chg' in disp.columns: styled = styled.map(color_chg, subset=['Chg', 'Chg (%)'])
-                f_m = {"Strike": "${:.2f}", "Market Value": "${:,.2f}", "Last Close": "${:.2f}", "Chg": "${:.2f}", "20D MA": "${:.2f}", "50D MA": "${:.2f}", "100D MA": "${:.2f}", "200D MA": "${:.2f}", "Chg (%)": "{:.2f}%", "Qty": "{:.0f}"}
-                queue_spot.dataframe(styled.format({k: v for k, v in f_m.items() if k in disp.columns}), hide_index=True, use_container_width=True)
-
+                    
+                    render_all_tables(live_results)
+            except: 
+                continue
+        
+        st.session_state.live_results = live_results
         status_text.empty()
         progress_bar.empty()
+
+    elif st.session_state.live_results:
+        render_all_tables(st.session_state.live_results)
     else:
         st.info("💡 Adjust parameters above and click 'Fetch Live Quotes' to refresh.")

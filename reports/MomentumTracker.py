@@ -1,13 +1,112 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import requests
 import io
-from datetime import datetime
+from scipy.stats import norm
+from datetime import datetime, timedelta
 
 # ========================================================
-# 📥 DATA LOADING
+# 🎨 STYLE ENGINE: DUAL-AXIS SCROLL & STICKY HEADERS
 # ========================================================
+st.set_page_config(layout="wide", page_title="Institutional CSP Engine")
+
+def styled_table(df):
+    html = df.to_html(index=False, escape=False, classes='table table-dark table-striped')
+    return f'<div class="table-container">{html}</div>'
+
+st.markdown("""
+    <style>
+    html, body, [class*="css"] { font-size: 16px; }
+    .reportview-container .main .block-container{ max-width: 98%; padding-top: 1rem; }
+    
+    .streamlit-expanderHeader {
+        background-color: #1e1e1e !important;
+        color: #ffffff !important;
+        border-radius: 5px;
+    }
+    .streamlit-expanderContent {
+        background-color: #121212 !important;
+        color: #ffffff !important;
+        border: 1px solid #333;
+    }          
+              
+    .table-container {
+        max-height: 600px; 
+        overflow-y: auto;
+        overflow-x: auto;
+        border: 1px solid #444;
+        border-radius: 8px;
+        background-color: #000000;
+    }
+
+    table { width: 100%; border-collapse: collapse; min-width: 2000px; color: #ffffff; }
+
+    th { 
+        position: sticky; top: 0; z-index: 10;
+        text-align: left !important; background-color: #222222 !important; color: #ffffff !important; 
+        border: 1px solid #444; padding: 12px !important; font-size: 13px !important;
+        text-transform: uppercase; letter-spacing: 1px;
+    }
+
+    td { 
+        font-family: 'Roboto', sans-serif; 
+        border: 1px solid #333 !important; 
+        padding: 10px !important; font-size: 14px !important; font-weight: 500;
+        vertical-align: middle; white-space: nowrap; color: #ffffff !important;
+    }
+    
+    tr:hover td { background-color: #1a1a1a !important; }
+
+    .price-font { font-family: 'Courier New', monospace; font-weight: bold; }
+    .pos { color: #00ff41 !important; font-weight: bold; } 
+    .neg { color: #ff3131 !important; font-weight: bold; }
+    
+    .csp-strong { background-color: #008f39; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; }
+    .csp-avoid { background-color: #b22222; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; }
+    .h-score { font-weight: bold; padding: 4px 8px; border-radius: 4px; color: white; display: inline-block; min-width: 35px; text-align: center; }
+
+    div.stButton > button:first-child { margin-top: 28px; width: 100%; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# ========================================================
+# 🛠️ GREEKS & INDICATORS
+# ========================================================
+def calculate_rsi(data, window=14):
+    delta = data.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def calculate_delta(S, K, T, r, sigma):
+    if T <= 0: return 0
+    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+    return norm.cdf(d1) - 1
+
+def get_best_put_by_delta(tk, target_expiry, current_price, target_delta=-0.30):
+    try:
+        available = tk.options
+        match = [d for d in available if d.startswith(target_expiry[:7])]
+        if not match: return None
+        chain = tk.option_chain(match[0])
+        puts = chain.puts
+        otm_puts = puts[puts['strike'] < current_price]
+        if otm_puts.empty: return None
+        avg_iv = otm_puts['impliedVolatility'].median()
+        dte = max((datetime.strptime(match[0], '%Y-%m-%d') - datetime.now()).days, 1)
+        T, r = dte / 365.0, 0.04  
+        puts['delta'] = puts.apply(lambda row: calculate_delta(current_price, row['strike'], T, r, avg_iv), axis=1)
+        puts['delta_diff'] = (puts['delta'] - target_delta).abs()
+        best_put = puts.sort_values('delta_diff').iloc[0]
+        premium = (best_put['bid'] + best_put['ask']) / 2
+        roi = (premium / best_put['strike']) * 100
+        aor = roi * (365 / dte)
+        return {"Strike": best_put['strike'], "Premium": f"${premium:.2f}", "ROI": f"{roi:.2f}%", "AOR": f"{aor:.1f}%"}
+    except: return None
+
 WATCHLIST_URL = "https://docs.google.com/spreadsheets/d/1x61uDuDKopnn9-DSuX5E3mAiMWk7-g4bPqbVH3D-q7M/export?format=csv&gid=337359953"
 
 @st.cache_data(ttl=600)
@@ -19,135 +118,265 @@ def load_watchlist_data():
         df_clean = df.dropna(subset=[df.columns[0]]).copy()
         df_clean = df_clean.rename(columns={df.columns[0]: 'Stock', df.columns[1]: 'Stock Type'})
         df_clean['Stock'] = df_clean['Stock'].astype(str).str.strip().str.upper()
-        df_clean['Stock Type'] = df_clean['Stock Type'].astype(str).str.strip()
-        df_clean = df_clean[~df_clean['Stock'].isin(['STOCK', 'TICKER', 'CASH'])]
         return df_clean[['Stock', 'Stock Type']]
-    except:
-        return pd.DataFrame(columns=['Stock', 'Stock Type'])
+    except: return pd.DataFrame(columns=['Stock', 'Stock Type'])
 
-def is_third_friday(date_str):
-    d = datetime.strptime(date_str, '%Y-%m-%d')
-    return d.weekday() == 4 and 15 <= d.day <= 21
+def get_third_fridays():
+    expiries = []
+    today = datetime.now()
+    for i in range(12):
+        target_month = (today.month + i - 1) % 12 + 1
+        target_year = today.year + (today.month + i - 1) // 12
+        first_day = datetime(target_year, target_month, 1)
+        w = first_day.weekday()
+        first_friday = first_day + timedelta(days=((4 - w) % 7))
+        third_friday = first_friday + timedelta(days=14)
+        if third_friday > today:
+            expiries.append(third_friday.strftime('%Y-%m-%d'))
+    return expiries
 
-@st.cache_data(ttl=3600)
-def get_comprehensive_metrics(symbol):
+def get_detailed_health_grid(symbol):
     try:
         tk = yf.Ticker(symbol)
-        expirations = tk.options
-        if not expirations: return []
-        
-        monthly_expiries = [e for e in expirations if is_third_friday(e)]
-        data_list = []
-        
-        for i, date_str in enumerate(monthly_expiries[:12]):
-            opt = tk.option_chain(date_str)
-            c_vol = opt.calls['volume'].sum()
-            p_vol = opt.puts['volume'].sum()
-            pcr = round(p_vol / c_vol if c_vol > 0 else 0, 2)
-            
-            # Risk Metrics for the closest monthly only
-            iv, skew = 0.0, 0.0
-            if i == 0:
-                iv = opt.calls['impliedVolatility'].mean() * 100
-                skew = (opt.puts['impliedVolatility'].mean() - opt.calls['impliedVolatility'].mean()) * 100
-
-            data_list.append({
-                "Stock": symbol,
-                "Expiration": date_str,
-                "PCR": pcr,
-                "IV": round(iv, 2),
-                "Skew": round(skew, 2)
+        inc, bal, cf = tk.quarterly_financials, tk.quarterly_balance_sheet, tk.quarterly_cashflow
+        health_data = []
+        cols = inc.columns[:8]
+        for i in range(len(cols)):
+            date = cols[i]
+            rev = inc.loc['Total Revenue', date] if 'Total Revenue' in inc.index else 0
+            rev_up = "✅"
+            if i < len(cols) - 1:
+                prev_rev = inc.loc['Total Revenue', cols[i+1]] if 'Total Revenue' in inc.index else 0
+                rev_up = "✅" if rev > prev_rev else "❌"
+            ni = inc.loc['Net Income', date] if 'Net Income' in inc.index else 0
+            fcf = cf.loc['Free Cash Flow', date] if 'Free Cash Flow' in cf.index else 0
+            asst = bal.loc['Total Assets', date] if 'Total Assets' in bal.index else 0
+            liab = bal.loc['Total Liabilities Net Minority Interest', date] if 'Total Liabilities Net Minority Interest' in bal.index else 1
+            health_data.append({
+                "QUARTER": date.strftime('%Y-%m'), "REVENUE UP": rev_up, "INCOME > 0": "✅" if ni > 0 else "❌",
+                "CASH FLOW > 0": "✅" if fcf > 0 else "❌", "ASSET > LIAB": "✅" if asst > liab else "❌",
+                "REVENUE": f"${rev/1e9:.2f}B", "NET INCOME": f"${ni/1e9:.2f}B"
             })
-        return data_list
-    except:
-        return []
+        return pd.DataFrame(health_data)
+    except: return None
+
+def analyze_stock_full(symbol, target_expiry):
+    try:
+        tk = yf.Ticker(symbol)
+        info = tk.info
+        hist_1y = tk.history(period="1y")
+        if hist_1y.empty or len(hist_1y) < 30: return None
+        
+        close = hist_1y['Close']
+        curr_p, prev_p = close.iloc[-1], close.iloc[-2]
+        
+        # --- 1. TECHNICAL INDICATORS (MACD & BB) ---
+        exp1 = close.ewm(span=12, adjust=False).mean()
+        exp2 = close.ewm(span=26, adjust=False).mean()
+        macd = exp1 - exp2
+        signal_line = macd.ewm(span=9, adjust=False).mean()
+        macd_status = "▲" if macd.iloc[-1] > signal_line.iloc[-1] else "▼"
+        
+        sma20 = close.rolling(window=20).mean()
+        std20 = close.rolling(window=20).std()
+        lower_bb = sma20 - (std20 * 2)
+        upper_bb = sma20 + (std20 * 2)
+        
+        bb_status = "MID"
+        if curr_p <= lower_bb.iloc[-1]: bb_status = "🟢LOW"
+        elif curr_p >= upper_bb.iloc[-1]: bb_status = "🔴UPR"
+        
+        tech_alert = f"{macd_status} | {bb_status}"
+
+        # --- 2. MOVING AVERAGES (50, 100, 200) ---
+        ma50 = close.rolling(50).mean().iloc[-1]
+        ma100 = close.rolling(100).mean().iloc[-1]
+        ma200 = close.rolling(200).mean().iloc[-1]
+        
+        def format_ma(p, ma, color):
+            if abs(p - ma) / ma <= 0.02: # Highlight if within 2%
+                return f"<span style='color:{color}; font-weight:bold; border-bottom:2px solid {color}'>${ma:.1f}</span>"
+            return f"${ma:.1f}"
+
+        ma_display = f"{format_ma(curr_p, ma50, '#3b82f6')} | {format_ma(curr_p, ma100, '#f59e0b')} | {format_ma(curr_p, ma200, '#10b981')}"
+
+        # --- 3. EARNINGS (Restored from your code) ---
+        earn_dates = tk.get_earnings_dates(limit=1)
+        earn_date_str, earn_alert = "N/A", "🟢" 
+        if earn_dates is not None and not earn_dates.empty:
+            dt = earn_dates.index[0].to_pydatetime().replace(tzinfo=None)
+            days_left = (dt - datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)).days
+            earn_date_str = dt.strftime('%m-%d')
+            earn_alert = f"🔴 ({days_left}d)" if days_left < 14 else f"🟢 ({days_left}d)"
+
+        # --- 4. RSI & HEALTH SCORE ---
+        rsi_series = calculate_rsi(close)
+        rsi_val = rsi_series.iloc[-1]
+        rsi_display = f"<span style='color:{('#ff3131' if rsi_val > 70 else '#00ff41' if rsi_val < 30 else '#ffffff')}; font-weight:bold;'>{rsi_val:.1f}</span>"
+
+        inc, cf = tk.quarterly_financials, tk.quarterly_cashflow
+        try: rev_v = "✅" if inc.loc['Total Revenue'].iloc[0] > inc.loc['Total Revenue'].iloc[4] else "❌"
+        except: rev_v = "🟡"
+        try: ni_v = "✅" if inc.loc['Net Income'].iloc[0] > 0 else "❌"
+        except: ni_v = "🟡"
+        try: fcf_v = "✅" if cf.loc['Free Cash Flow'].iloc[0] > 0 else "❌"
+        except: fcf_v = "🟡"
+        try: al_v = "✅" if info.get('currentRatio', 0) > 1.25 else "❌"
+        except: al_v = "🟡"
+
+        score = int(([rev_v, ni_v, fcf_v, al_v].count("✅") / 4) * 100)
+        s_clr = "#008f39" if score >= 75 else "#f97316" if score >= 50 else "#b22222"
+        score_html = f"<span class='h-score' style='background-color: {s_clr}'>{score}</span>"
+
+        # --- 5. SIGNAL & OPTIONS ---
+        roe = info.get('returnOnEquity', 0) * 100
+        eps = info.get('trailingEps', 0)
+        high_52 = close.max()
+        uw = ((curr_p - high_52) / high_52) * 100
+        chg_p = ((curr_p - prev_p) / prev_p) * 100
+        
+        opt = get_best_put_by_delta(tk, target_expiry, curr_p)
+        action = "<span class='csp-strong'>STRONG CSP</span>" if (uw < -15 and roe > 10 and fcf_v == "✅") else "NEUTRAL"
+        
+        c_class = 'pos' if (curr_p - prev_p) >= 0 else 'neg'
+        chg_display = f"<span class={c_class}>{(curr_p - prev_p):+.2f} ({chg_p:+.2f}%)</span>"
+
+        return {
+            "Ticker": f"<b>{symbol}</b>", 
+            "Price": f"<span class='price-font'>${curr_p:.2f}</span>",
+            "Change (%)": chg_display,
+            "Earn Date": earn_date_str,
+            "Earn Alert": earn_alert,
+            "Tech (MACD|BB)": tech_alert,
+            "Signal": action, 
+            "RSI": rsi_display,
+            "Score": score_html, 
+            "Rev": rev_v, "Inc": ni_v, "Cash": fcf_v, "Solv": al_v,
+            "Strike (.30Δ)": f"${opt['Strike']:.1f}" if opt else "N/A",
+            "Premium": opt['Premium'] if opt else "N/A", 
+            "ROI | AOR": f"<b>{opt['ROI']} | {opt['AOR']}</b>" if opt else "N/A",
+            "UW %": f"{uw:.1f}%",
+            "50|100|200 MA": ma_display,
+            "ROE": f"{roe:.1f}%",
+            "EPS": f"${eps:.2f}"
+        }
+    except: return None
 
 # ========================================================
-# 🚀 UI RENDER
+# 🎨 STYLE ENGINE: THEME INTEGRATION
 # ========================================================
-st.set_page_config(layout="wide", page_title="Momentum Tracker")
-st.title("🎯 Institutional Momentum & Risk Desk")
+st.markdown("""
+    <style>
+    /* Table Styling */
+    .table-container {
+        max-height: 600px; 
+        overflow: auto;
+        border: 1px solid #333;
+        border-radius: 8px;
+        background-color: #000000;
+    }
+    table { width: 100%; border-collapse: collapse; color: #ffffff; }
+    th { position: sticky; top: 0; background-color: #1e1e1e !important; color: #ffffff !important; padding: 12px; }
+    td { border: 1px solid #222 !important; padding: 10px; font-size: 14px; }
+    
+    /* Expander / Configuration Card Styling */
+    .streamlit-expanderHeader {
+        background-color: #1e1e1e !important;
+        border: 1px solid #333 !important;
+        color: #ffffff !important;
+        border-radius: 5px;
+    }
+    .streamlit-expanderContent {
+        background-color: #121212 !important;
+        border: 1px solid #333 !important;
+        color: #ffffff !important;
+    }
+    
+    /* Utility Classes */
+    .pos { color: #00ff41 !important; } 
+    .neg { color: #ff3131 !important; }
+    .h-score { font-weight: bold; padding: 4px 8px; border-radius: 4px; color: white; }
+    .csp-strong { background-color: #008f39; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
 
+def get_all_fridays():
+    fridays = []
+    # Start from today
+    current_date = datetime.now()
+    
+    # Loop for 365 days to find all Fridays
+    for _ in range(365):
+        if current_date.weekday() == 4:  # 4 is Friday
+            fridays.append(current_date.strftime('%Y-%m-%d'))
+        current_date += timedelta(days=1)
+        
+    return fridays
+
+# ========================================================
+# 🛠️ CONFIGURATION SECTION (Updated for All Fridays)
+# ========================================================
 df_wl = load_watchlist_data()
 
 if not df_wl.empty:
-    # --- FILTERS ---
-    col1, col2 = st.columns(2)
-    with col1:
-        u_types = sorted(df_wl['Stock Type'].unique().tolist())
-        sel_types = st.multiselect("1. Filter by Stock Type", options=u_types)
-    
-    avail_df = df_wl[df_wl['Stock Type'].isin(sel_types)] if sel_types else df_wl
-    with col2:
-        u_stocks = sorted(avail_df['Stock'].unique().tolist())
-        sel_stocks = st.multiselect("2. Select Specific Stocks", options=u_stocks)
+    with st.expander("🛠️ Analysis Configuration", expanded=True):
+        c1, c2, c3, c4 = st.columns([0.4, 1, 0.4, 0.4])
+        with c1: 
+            sel_types = st.multiselect("Filter Sector", sorted(df_wl['Stock Type'].unique()))
+        with c2:
+            all_ticks = df_wl[df_wl['Stock Type'].isin(sel_types)]['Stock'] if sel_types else df_wl['Stock']
+            sel_stocks = st.multiselect("Select Tickers", sorted(all_ticks.unique()))
+        with c3:
+            # UPDATED: Now calls get_all_fridays()
+            expiry_list = get_all_fridays()
+            selected_expiry = st.selectbox("Target Expiry", expiry_list)
+        with c4:
+            run_analysis = st.button("🚀 RUN ANALYSIS")
 
-    to_scan = sel_stocks if sel_stocks else avail_df['Stock'].tolist()
+    # Placeholders for dynamic updates
+    status_placeholder = st.empty()
+    progress_placeholder = st.empty()
+    table_placeholder = st.empty()
 
-    if st.button(f"📡 Run Advanced Scan ({len(to_scan)} Tickers)", use_container_width=True):
-        all_results = []
-        status = st.empty()
-        p_bar = st.progress(0)
+    if run_analysis:
+        st.session_state.last_results = [] 
+        p_bar = progress_placeholder.progress(0)
+        
+        # Filter logic to exclude 'CASH'
+        to_scan = sel_stocks if sel_stocks else all_ticks.tolist()
+        to_scan = [t for t in to_scan if t.upper() != "CASH"] 
         
         for i, t in enumerate(to_scan):
-            status.text(f"Analyzing {t}...")
+            status_placeholder.markdown(f"🔍 **Scanning:** `{t}` | {i+1}/{len(to_scan)}")
+            res = analyze_stock_full(t, selected_expiry)
+            if res:
+                st.session_state.last_results.append(res)
+                table_placeholder.markdown(styled_table(pd.DataFrame(st.session_state.last_results)), unsafe_allow_html=True)
             p_bar.progress((i + 1) / len(to_scan))
-            all_results.extend(get_comprehensive_metrics(t))
+        
+        status_placeholder.empty()
+        progress_placeholder.empty()
+
+    # ========================================================
+    # 🔍 RESULTS & DRILLDOWN SECTION
+    # ========================================================
+    if "last_results" in st.session_state and st.session_state.last_results:
+        table_placeholder.markdown(styled_table(pd.DataFrame(st.session_state.last_results)), unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Financial Health Drilldown - Closed by Default
+        with st.expander("🔍 Financial Health Drilldown", expanded=False):
+            st.write("Click a ticker to view the 8-Quarter breakdown.")
+            cols = st.columns(10)
+            for i, r in enumerate(st.session_state.last_results):
+                raw_t = r['Ticker'].replace("<b>", "").replace("</b>", "")
+                if cols[i % 10].button(f"📊 {raw_t}", key=f"btn_{raw_t}"):
+                    st.session_state.active_health = raw_t
             
-        status.empty()
-        p_bar.empty()
-
-        if all_results:
-            master_df = pd.DataFrame(all_results)
-            master_df['Exp_Date'] = pd.to_datetime(master_df['Expiration'])
-            
-            # --- TABLE 1: RISK & VELOCITY (CURRENT MONTH) ---
-            st.subheader("🛡️ Immediate Risk & Velocity (Next 30 Days)")
-            curr_expiry = master_df.sort_values('Exp_Date')['Expiration'].iloc[0]
-            risk_df = master_df[master_df['Expiration'] == curr_expiry].copy()
-            
-            # Calculate Delta (Current PCR vs Next Month PCR)
-            unique_exps = sorted(master_df['Expiration'].unique())
-            if len(unique_exps) > 1:
-                next_expiry = unique_exps[1]
-                next_vals = master_df[master_df['Expiration'] == next_expiry].set_index('Stock')['PCR']
-                risk_df['PCR Delta'] = risk_df.apply(lambda x: round(x['PCR'] - next_vals.get(x['Stock'], x['PCR']), 2), axis=1)
-            else:
-                risk_df['PCR Delta'] = 0.0
-
-            def style_risk(v, col):
-                if col == 'Skew' and v > 5: return 'background-color: #4c1d1d; color: white'
-                if col == 'PCR Delta' and v > 0: return 'color: #ef4444' # Trend getting more bearish
-                if col == 'PCR Delta' and v < 0: return 'color: #10b981' # Trend getting more bullish
-                return ''
-
-            st.dataframe(
-                risk_df[['Stock', 'PCR', 'PCR Delta', 'IV', 'Skew']].style.apply(
-                    lambda x: [style_risk(v, x.name) for v in x], axis=0
-                ).format(precision=2), 
-                use_container_width=True, hide_index=True
-            )
-
-            # --- TABLE 2: 1-YEAR MATRIX ---
-            st.write("---")
-            st.subheader("📅 1-Year Sentiment Lifecycle")
-            master_df['Exp_Label'] = master_df['Exp_Date'].dt.strftime('%m/%y')
-            matrix = master_df.pivot(index='Stock', columns='Exp_Label', values='PCR')
-            matrix['Avg PCR'] = matrix.mean(axis=1)
-            matrix = matrix.reset_index()
-
-            def style_matrix(v):
-                if pd.isna(v) or v == 0: return 'color: #727272'
-                if v > 1.2: return 'background-color: #7f1d1d; color: white; font-weight: bold'
-                if v < 0.6: return 'background-color: #064e3b; color: white; font-weight: bold'
-                return 'color: #9ca3af'
-
-            st.dataframe(
-                matrix.style.applymap(style_matrix, subset=matrix.columns[1:])
-                .format(precision=2), 
-                use_container_width=True, hide_index=True
-            )
-        else:
-            st.warning("No data found for selected tickers.")
-else:
-    st.error("Watchlist could not be loaded.")
+            if "active_health" in st.session_state:
+                target = st.session_state.active_health
+                detailed_df = get_detailed_health_grid(target)
+                if detailed_df is not None:
+                    st.markdown(f"### 🏢 {target} Quarterly Health Metrics")
+                    st.markdown(styled_table(detailed_df), unsafe_allow_html=True)

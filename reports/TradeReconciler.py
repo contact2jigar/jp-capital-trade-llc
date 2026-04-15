@@ -1,3 +1,5 @@
+#463-276-2996
+
 import io
 import pandas as pd
 import requests
@@ -81,7 +83,8 @@ def icon_title(icon, text):
     st.markdown(f'<h1 style="display:flex;align-items:center;gap:12px;font-size:42px;font-weight:700;margin-bottom:0.5rem;"><span class="material-symbols-outlined" style="font-size:42px;">{icon}</span>{text}</h1>', unsafe_allow_html=True)
 
 #icon_title("calculate", "Trade Reconciler")
-st.title("🧮 Trade Reconciler")
+
+
 
 try:
     sheet_data = load_sheet_data(SHEET_URL)
@@ -160,6 +163,7 @@ try:
         fid_df = apply_filters(
             parse_custom_fidelity(fidelity_file), is_fid=True
         )
+
 
     with btn_col:
         st.write("")
