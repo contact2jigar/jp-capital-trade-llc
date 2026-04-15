@@ -57,7 +57,6 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     # Dictionary of display names and their mapped Material Symbol names
-    # 🔥 ADDED: "Live Portfolio Desk" here
     pages = {
         "Premium Estimator": "trending_up",     
         "Watchlist": "star",                    
@@ -65,14 +64,14 @@ with st.sidebar:
         "Momentum Tracker": "speed",
         "Blue Chip Scanner": "diamond",          
         "Trade Reconciler": "calculate",         
-        "Stock Scanner": "monitoring"            
+        "Stock Scanner": "monitoring",
+        "Earnings Tool": "calendar_month"  # New Menu Item
     }
 
     # Render each link dynamically
     for page_name, icon_name in pages.items():
         is_active = "sidebar-nav-active" if st.session_state.active_menu == page_name else ""
         
-        # We inject the material-symbols HTML tag here instead of an emoji
         st.markdown(
             f'''
             <a href="?nav={page_name}" target="_self" class="sidebar-nav-item {is_active}">
@@ -84,7 +83,6 @@ with st.sidebar:
         )
 
 # 5. Dynamic Page Routing
-# 🔥 ADDED: "Live Portfolio Desk" route here
 ROUTES = {
     "Premium Estimator": "reports/PremiumEstimator.py",
     "Watchlist": "reports/WatchList.py",
@@ -92,7 +90,8 @@ ROUTES = {
     "Momentum Tracker": "reports/MomentumTracker.py",
     "Blue Chip Scanner": "reports/BlueChipScanner.py",
     "Trade Reconciler": "reports/TradeReconciler.py",
-    "Stock Scanner": "reports/stock_scanner.py"
+    "Stock Scanner": "reports/stock_scanner.py",
+    "Earnings Tool": "reports/EarningsTool.py"  # Path to the tool file
 }
 
 current_page = st.session_state.active_menu
@@ -102,6 +101,7 @@ try:
         file_path = ROUTES[current_page]
         
         with open(file_path, "r", encoding="utf-8") as f:
+            # Using exec to run the content of the selected file
             exec(f.read(), globals())
             
 except FileNotFoundError:
