@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import requests
 import io
+import time
+import random
 from scipy.stats import norm
 from datetime import datetime, timedelta
 
@@ -107,70 +109,21 @@ def get_best_put_by_delta(tk, target_expiry, current_price, target_delta=-0.30):
         return {"Strike": best_put['strike'], "Premium": f"${premium:.2f}", "ROI": f"{roi:.2f}%", "AOR": f"{aor:.1f}%"}
     except: return None
 
-WATCHLIST_URL = "https://docs.google.com/spreadsheets/d/1x61uDuDKopnn9-DSuX5E3mAiMWk7-g4bPqbVH3D-q7M/export?format=csv&gid=337359953"
-
-@st.cache_data(ttl=600)
-def load_watchlist_data():
-    try:
-        response = requests.get(WATCHLIST_URL, verify=False, timeout=10)
-        df = pd.read_csv(io.BytesIO(response.content))
-        df.columns = df.columns.str.strip()
-        df_clean = df.dropna(subset=[df.columns[0]]).copy()
-        df_clean = df_clean.rename(columns={df.columns[0]: 'Stock', df.columns[1]: 'Stock Type'})
-        df_clean['Stock'] = df_clean['Stock'].astype(str).str.strip().str.upper()
-        return df_clean[['Stock', 'Stock Type']]
-    except: return pd.DataFrame(columns=['Stock', 'Stock Type'])
-
-def get_third_fridays():
-    expiries = []
-    today = datetime.now()
-    for i in range(12):
-        target_month = (today.month + i - 1) % 12 + 1
-        target_year = today.year + (today.month + i - 1) // 12
-        first_day = datetime(target_year, target_month, 1)
-        w = first_day.weekday()
-        first_friday = first_day + timedelta(days=((4 - w) % 7))
-        third_friday = first_friday + timedelta(days=14)
-        if third_friday > today:
-            expiries.append(third_friday.strftime('%Y-%m-%d'))
-    return expiries
-
-def get_detailed_health_grid(symbol):
-    try:
-        tk = yf.Ticker(symbol)
-        inc, bal, cf = tk.quarterly_financials, tk.quarterly_balance_sheet, tk.quarterly_cashflow
-        health_data = []
-        cols = inc.columns[:8]
-        for i in range(len(cols)):
-            date = cols[i]
-            rev = inc.loc['Total Revenue', date] if 'Total Revenue' in inc.index else 0
-            rev_up = "✅"
-            if i < len(cols) - 1:
-                prev_rev = inc.loc['Total Revenue', cols[i+1]] if 'Total Revenue' in inc.index else 0
-                rev_up = "✅" if rev > prev_rev else "❌"
-            ni = inc.loc['Net Income', date] if 'Net Income' in inc.index else 0
-            fcf = cf.loc['Free Cash Flow', date] if 'Free Cash Flow' in cf.index else 0
-            asst = bal.loc['Total Assets', date] if 'Total Assets' in bal.index else 0
-            liab = bal.loc['Total Liabilities Net Minority Interest', date] if 'Total Liabilities Net Minority Interest' in bal.index else 1
-            health_data.append({
-                "QUARTER": date.strftime('%Y-%m'), "REVENUE UP": rev_up, "INCOME > 0": "✅" if ni > 0 else "❌",
-                "CASH FLOW > 0": "✅" if fcf > 0 else "❌", "ASSET > LIAB": "✅" if asst > liab else "❌",
-                "REVENUE": f"${rev/1e9:.2f}B", "NET INCOME": f"${ni/1e9:.2f}B"
-            })
-        return pd.DataFrame(health_data)
-    except: return None
-
+# ========================================================
+# ⚡ CACHED ANALYSIS ENGINE (Fixes Cloud Timeouts)
+# ========================================================
+@st.cache_data(ttl=3600, show_spinner=False)
 def analyze_stock_full(symbol, target_expiry):
     try:
         tk = yf.Ticker(symbol)
         info = tk.info
         hist_1y = tk.history(period="1y")
-        if hist_1y.empty or len(hist_1y) < 30: return None
+        if hist_1y.empty or len(hist_1y) < 200: return None
         
         close = hist_1y['Close']
         curr_p, prev_p = close.iloc[-1], close.iloc[-2]
         
-        # --- 1. TECHNICAL INDICATORS (MACD & BB) ---
+        # --- TECHNICALS (MACD/BB) ---
         exp1 = close.ewm(span=12, adjust=False).mean()
         exp2 = close.ewm(span=26, adjust=False).mean()
         macd = exp1 - exp2
@@ -181,26 +134,23 @@ def analyze_stock_full(symbol, target_expiry):
         std20 = close.rolling(window=20).std()
         lower_bb = sma20 - (std20 * 2)
         upper_bb = sma20 + (std20 * 2)
-        
         bb_status = "MID"
         if curr_p <= lower_bb.iloc[-1]: bb_status = "🟢LOW"
         elif curr_p >= upper_bb.iloc[-1]: bb_status = "🔴UPR"
-        
         tech_alert = f"{macd_status} | {bb_status}"
 
-        # --- 2. MOVING AVERAGES (50, 100, 200) ---
+        # --- MOVING AVERAGES ---
         ma50 = close.rolling(50).mean().iloc[-1]
         ma100 = close.rolling(100).mean().iloc[-1]
         ma200 = close.rolling(200).mean().iloc[-1]
         
         def format_ma(p, ma, color):
-            if abs(p - ma) / ma <= 0.02: # Highlight if within 2%
+            if abs(p - ma) / ma <= 0.015: 
                 return f"<span style='color:{color}; font-weight:bold; border-bottom:2px solid {color}'>${ma:.1f}</span>"
             return f"${ma:.1f}"
-
         ma_display = f"{format_ma(curr_p, ma50, '#3b82f6')} | {format_ma(curr_p, ma100, '#f59e0b')} | {format_ma(curr_p, ma200, '#10b981')}"
 
-        # --- 3. EARNINGS (Restored from your code) ---
+        # --- EARNINGS ---
         earn_dates = tk.get_earnings_dates(limit=1)
         earn_date_str, earn_alert = "N/A", "🟢" 
         if earn_dates is not None and not earn_dates.empty:
@@ -209,7 +159,7 @@ def analyze_stock_full(symbol, target_expiry):
             earn_date_str = dt.strftime('%m-%d')
             earn_alert = f"🔴 ({days_left}d)" if days_left < 14 else f"🟢 ({days_left}d)"
 
-        # --- 4. RSI & HEALTH SCORE ---
+        # --- RSI & HEALTH SCORE ---
         rsi_series = calculate_rsi(close)
         rsi_val = rsi_series.iloc[-1]
         rsi_display = f"<span style='color:{('#ff3131' if rsi_val > 70 else '#00ff41' if rsi_val < 30 else '#ffffff')}; font-weight:bold;'>{rsi_val:.1f}</span>"
@@ -228,7 +178,7 @@ def analyze_stock_full(symbol, target_expiry):
         s_clr = "#008f39" if score >= 75 else "#f97316" if score >= 50 else "#b22222"
         score_html = f"<span class='h-score' style='background-color: {s_clr}'>{score}</span>"
 
-        # --- 5. SIGNAL & OPTIONS ---
+        # --- SIGNAL & OPTIONS ---
         roe = info.get('returnOnEquity', 0) * 100
         eps = info.get('trailingEps', 0)
         high_52 = close.max()
@@ -260,61 +210,59 @@ def analyze_stock_full(symbol, target_expiry):
             "ROE": f"{roe:.1f}%",
             "EPS": f"${eps:.2f}"
         }
-    except: return None
+    except Exception as e:
+        return None
 
-# ========================================================
-# 🎨 STYLE ENGINE: THEME INTEGRATION
-# ========================================================
-st.markdown("""
-    <style>
-    /* Table Styling */
-    .table-container {
-        max-height: 600px; 
-        overflow: auto;
-        border: 1px solid #333;
-        border-radius: 8px;
-        background-color: #000000;
-    }
-    table { width: 100%; border-collapse: collapse; color: #ffffff; }
-    th { position: sticky; top: 0; background-color: #1e1e1e !important; color: #ffffff !important; padding: 12px; }
-    td { border: 1px solid #222 !important; padding: 10px; font-size: 14px; }
-    
-    /* Expander / Configuration Card Styling */
-    .streamlit-expanderHeader {
-        background-color: #1e1e1e !important;
-        border: 1px solid #333 !important;
-        color: #ffffff !important;
-        border-radius: 5px;
-    }
-    .streamlit-expanderContent {
-        background-color: #121212 !important;
-        border: 1px solid #333 !important;
-        color: #ffffff !important;
-    }
-    
-    /* Utility Classes */
-    .pos { color: #00ff41 !important; } 
-    .neg { color: #ff3131 !important; }
-    .h-score { font-weight: bold; padding: 4px 8px; border-radius: 4px; color: white; }
-    .csp-strong { background-color: #008f39; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
-    </style>
-    """, unsafe_allow_html=True)
+WATCHLIST_URL = "https://docs.google.com/spreadsheets/d/1x61uDuDKopnn9-DSuX5E3mAiMWk7-g4bPqbVH3D-q7M/export?format=csv&gid=337359953"
+
+@st.cache_data(ttl=600)
+def load_watchlist_data():
+    try:
+        response = requests.get(WATCHLIST_URL, verify=False, timeout=10)
+        df = pd.read_csv(io.BytesIO(response.content))
+        df.columns = df.columns.str.strip()
+        df_clean = df.dropna(subset=[df.columns[0]]).copy()
+        df_clean = df_clean.rename(columns={df.columns[0]: 'Stock', df.columns[1]: 'Stock Type'})
+        df_clean['Stock'] = df_clean['Stock'].astype(str).str.strip().str.upper()
+        return df_clean[['Stock', 'Stock Type']]
+    except: return pd.DataFrame(columns=['Stock', 'Stock Type'])
+
+def get_detailed_health_grid(symbol):
+    try:
+        tk = yf.Ticker(symbol)
+        inc, bal, cf = tk.quarterly_financials, tk.quarterly_balance_sheet, tk.quarterly_cashflow
+        health_data = []
+        cols = inc.columns[:8]
+        for i in range(len(cols)):
+            date = cols[i]
+            rev = inc.loc['Total Revenue', date] if 'Total Revenue' in inc.index else 0
+            rev_up = "✅"
+            if i < len(cols) - 1:
+                prev_rev = inc.loc['Total Revenue', cols[i+1]] if 'Total Revenue' in inc.index else 0
+                rev_up = "✅" if rev > prev_rev else "❌"
+            ni = inc.loc['Net Income', date] if 'Net Income' in inc.index else 0
+            fcf = cf.loc['Free Cash Flow', date] if 'Free Cash Flow' in cf.index else 0
+            asst = bal.loc['Total Assets', date] if 'Total Assets' in bal.index else 0
+            liab = bal.loc['Total Liabilities Net Minority Interest', date] if 'Total Liabilities Net Minority Interest' in bal.index else 1
+            health_data.append({
+                "QUARTER": date.strftime('%Y-%m'), "REVENUE UP": rev_up, "INCOME > 0": "✅" if ni > 0 else "❌",
+                "CASH FLOW > 0": "✅" if fcf > 0 else "❌", "ASSET > LIAB": "✅" if asst > liab else "❌",
+                "REVENUE": f"${rev/1e9:.2f}B", "NET INCOME": f"${ni/1e9:.2f}B"
+            })
+        return pd.DataFrame(health_data)
+    except: return None
 
 def get_all_fridays():
     fridays = []
-    # Start from today
     current_date = datetime.now()
-    
-    # Loop for 365 days to find all Fridays
     for _ in range(365):
-        if current_date.weekday() == 4:  # 4 is Friday
+        if current_date.weekday() == 4:
             fridays.append(current_date.strftime('%Y-%m-%d'))
         current_date += timedelta(days=1)
-        
     return fridays
 
 # ========================================================
-# 🛠️ CONFIGURATION SECTION (Updated for All Fridays)
+# 🚀 APP EXECUTION
 # ========================================================
 df_wl = load_watchlist_data()
 
@@ -327,13 +275,11 @@ if not df_wl.empty:
             all_ticks = df_wl[df_wl['Stock Type'].isin(sel_types)]['Stock'] if sel_types else df_wl['Stock']
             sel_stocks = st.multiselect("Select Tickers", sorted(all_ticks.unique()))
         with c3:
-            # UPDATED: Now calls get_all_fridays()
             expiry_list = get_all_fridays()
             selected_expiry = st.selectbox("Target Expiry", expiry_list)
         with c4:
             run_analysis = st.button("🚀 RUN ANALYSIS")
 
-    # Placeholders for dynamic updates
     status_placeholder = st.empty()
     progress_placeholder = st.empty()
     table_placeholder = st.empty()
@@ -341,8 +287,6 @@ if not df_wl.empty:
     if run_analysis:
         st.session_state.last_results = [] 
         p_bar = progress_placeholder.progress(0)
-        
-        # Filter logic to exclude 'CASH'
         to_scan = sel_stocks if sel_stocks else all_ticks.tolist()
         to_scan = [t for t in to_scan if t.upper() != "CASH"] 
         
@@ -352,20 +296,17 @@ if not df_wl.empty:
             if res:
                 st.session_state.last_results.append(res)
                 table_placeholder.markdown(styled_table(pd.DataFrame(st.session_state.last_results)), unsafe_allow_html=True)
+            
+            # Small jitter delay to look more human and avoid IP blocking on Cloud
+            time.sleep(random.uniform(0.3, 0.8))
             p_bar.progress((i + 1) / len(to_scan))
         
         status_placeholder.empty()
         progress_placeholder.empty()
 
-    # ========================================================
-    # 🔍 RESULTS & DRILLDOWN SECTION
-    # ========================================================
     if "last_results" in st.session_state and st.session_state.last_results:
         table_placeholder.markdown(styled_table(pd.DataFrame(st.session_state.last_results)), unsafe_allow_html=True)
-        
         st.divider()
-        
-        # Financial Health Drilldown - Closed by Default
         with st.expander("🔍 Financial Health Drilldown", expanded=False):
             st.write("Click a ticker to view the 8-Quarter breakdown.")
             cols = st.columns(10)
@@ -373,7 +314,6 @@ if not df_wl.empty:
                 raw_t = r['Ticker'].replace("<b>", "").replace("</b>", "")
                 if cols[i % 10].button(f"📊 {raw_t}", key=f"btn_{raw_t}"):
                     st.session_state.active_health = raw_t
-            
             if "active_health" in st.session_state:
                 target = st.session_state.active_health
                 detailed_df = get_detailed_health_grid(target)
