@@ -112,25 +112,26 @@ def get_best_put_by_delta(tk, target_expiry, current_price, target_delta=-0.30):
 # ========================================================
 # ⚡ CACHED ANALYSIS ENGINE (Fixes Cloud Timeouts)
 # ========================================================
-@st.cache_data(ttl=3600, show_spinner=False)
 def analyze_stock_full(symbol, target_expiry):
-    # This creates a real-time log in your sidebar
+    # This will now update in real-time in your sidebar
     status = st.sidebar.empty()
     
     try:
-        status.write(f"🔍 Fetching: {symbol}...")
+        status.write(f"⚙️ Debug: Starting {symbol}...")
         tk = yf.Ticker(symbol)
         
         # 1. Price History
+        status.write(f"⚙️ Debug: {symbol} - Fetching History...")
         hist = tk.history(period="2y") 
         if hist.empty or len(hist) < 10: 
-            status.write(f"❌ {symbol}: No history")
+            status.write(f"❌ {symbol}: No history found")
             return None
         
         close = hist['Close']
         curr_p, prev_p = close.iloc[-1], close.iloc[-2]
 
-        # 2. Info Block (Wrapped so it doesn't kill the script)
+        # 2. Info Block (Wrapped)
+        status.write(f"⚙️ Debug: {symbol} - Fetching Info...")
         try:
             info = tk.info
         except:
@@ -165,6 +166,7 @@ def analyze_stock_full(symbol, target_expiry):
         ma_display = f"{format_ma(curr_p, ma50, '#3b82f6')} | {format_ma(curr_p, ma100, '#f59e0b')} | {format_ma(curr_p, ma200, '#10b981')}"
 
         # 5. Earnings
+        status.write(f"⚙️ Debug: {symbol} - Fetching Earnings...")
         earn_date_str, earn_alert = "N/A", "🟢"
         try:
             earn_dates = tk.get_earnings_dates(limit=1)
@@ -179,6 +181,7 @@ def analyze_stock_full(symbol, target_expiry):
         rsi_val = calculate_rsi(close).iloc[-1]
         rsi_display = f"<span style='color:{('#ff3131' if rsi_val > 70 else '#00ff41' if rsi_val < 30 else '#ffffff')}; font-weight:bold;'>{rsi_val:.1f}</span>"
 
+        status.write(f"⚙️ Debug: {symbol} - Fetching Financials...")
         rev_v, ni_v, fcf_v, al_v = "🟡", "🟡", "🟡", "🟡"
         try:
             inc = tk.quarterly_financials
@@ -196,6 +199,7 @@ def analyze_stock_full(symbol, target_expiry):
         score_html = f"<span class='h-score' style='background-color: {s_clr}'>{score}</span>"
 
         # 7. Signal & Options
+        status.write(f"⚙️ Debug: {symbol} - Calculating Options...")
         roe = info.get('returnOnEquity', 0) * 100
         eps = info.get('trailingEps', 0)
         high_52 = close.max()
@@ -208,8 +212,8 @@ def analyze_stock_full(symbol, target_expiry):
         c_class = 'pos' if (curr_p - prev_p) >= 0 else 'neg'
         chg_display = f"<span class={c_class}>{(curr_p - prev_p):+.2f} ({chg_p:+.2f}%)</span>"
 
-        # Mark as successful
-        status.write(f"✅ {symbol} Done")
+        # Final Success Mark
+        status.write(f"✅ {symbol} Analysis Complete")
         
         return {
             "Ticker": f"<b>{symbol}</b>", 
@@ -231,8 +235,7 @@ def analyze_stock_full(symbol, target_expiry):
             "EPS": f"${eps:.2f}"
         }
     except Exception as e:
-        # If a stock completely fails, this error will stay in your sidebar
-        st.sidebar.error(f"Error {symbol}: {str(e)}")
+        st.sidebar.error(f"💥 Global Error {symbol}: {str(e)}")
         return None
 
 WATCHLIST_URL = "https://docs.google.com/spreadsheets/d/1x61uDuDKopnn9-DSuX5E3mAiMWk7-g4bPqbVH3D-q7M/export?format=csv&gid=337359953"
