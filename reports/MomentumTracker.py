@@ -118,7 +118,7 @@ def analyze_stock_full(symbol, target_expiry):
     try:
         tk = yf.Ticker(symbol)
         
-        # 1. History (Restored for Technicals)
+        # 1. History & Basic Price
         st.sidebar.info(f"Step 2: Fetching History for {symbol}")
         hist = tk.history(period="2y") 
         if hist.empty or len(hist) < 20: 
@@ -127,24 +127,25 @@ def analyze_stock_full(symbol, target_expiry):
         
         close = hist['Close']
         curr_p, prev_p = close.iloc[-1], close.iloc[-2]
+        high_52 = close.max()
+        uw = ((curr_p - high_52) / high_52) * 100
+        chg_p = ((curr_p - prev_p) / prev_p) * 100
 
-        # 2. Info Block (Restored for ROE/EPS)
+        # 2. Info Block
         st.sidebar.info(f"Step 3: Fetching Info for {symbol}")
         try:
             info = tk.info
         except:
             info = {}
 
-        # 3. Technical Indicators (Restored)
+        # 3. Technicals (MACD & BB)
         st.sidebar.info(f"Step 4: Calculating Technicals for {symbol}")
-        # MACD
         exp1 = close.ewm(span=12, adjust=False).mean()
         exp2 = close.ewm(span=26, adjust=False).mean()
         macd = exp1 - exp2
         signal_line = macd.ewm(span=9, adjust=False).mean()
         macd_status = "▲" if macd.iloc[-1] > signal_line.iloc[-1] else "▼"
         
-        # Bollinger Bands
         sma20 = close.rolling(window=20).mean()
         std20 = close.rolling(window=20).std()
         lower_bb = sma20 - (std20 * 2)
@@ -154,24 +155,38 @@ def analyze_stock_full(symbol, target_expiry):
         elif curr_p >= upper_bb.iloc[-1]: bb_status = "🔴UPR"
         tech_alert = f"{macd_status} | {bb_status}"
 
-        # 4. Earnings (Restored Date Logic)
+        # 4. Moving Averages (FIXED CALCULATION)
+        ma50 = close.rolling(50).mean().iloc[-1] if len(close) >= 50 else 0
+        ma100 = close.rolling(100).mean().iloc[-1] if len(close) >= 100 else 0
+        ma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else 0
+        
+        def f_ma(p, ma, c):
+            if ma == 0: return "N/A"
+            # Highlight if price is within 1.5% of the MA
+            is_near = abs(p - ma) / ma <= 0.015
+            style = f"color:{c}; font-weight:bold; border-bottom:2px solid {c}" if is_near else ""
+            return f"<span style='{style}'>${ma:.1f}</span>"
+            
+        ma_display = f"{f_ma(curr_p, ma50, '#3b82f6')} | {f_ma(curr_p, ma100, '#f59e0b')} | {f_ma(curr_p, ma200, '#10b981')}"
+
+        # 5. Earnings (RESTORED FALLBACK)
         st.sidebar.info(f"Step 5: Fetching Earnings for {symbol}")
         earn_date_str, earn_alert = "N/A", "🟢"
         try:
-            earn_dates = tk.get_earnings_dates(limit=1)
-            if earn_dates is not None and not earn_dates.empty:
-                dt = earn_dates.index[0].to_pydatetime().replace(tzinfo=None)
-                days_left = (dt - datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)).days
+            ed = tk.get_earnings_dates(limit=1)
+            if ed is not None and not ed.empty:
+                dt = ed.index[0].to_pydatetime().replace(tzinfo=None)
+                dl = (dt - datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)).days
                 earn_date_str = dt.strftime('%m-%d')
-                earn_alert = f"🔴 ({days_left}d)" if days_left < 14 else f"🟢 ({days_left}d)"
+                earn_alert = f"🔴 ({dl}d)" if dl < 14 else f"🟢 ({dl}d)"
         except: pass
 
-        # 5. Financial Health (Restored Score Logic)
+        # 6. Financial Health & RSI
         st.sidebar.info(f"Step 6: Fetching Financials for {symbol}")
+        rsi_val = calculate_rsi(close).iloc[-1]
         rev_v, ni_v, fcf_v, al_v = "🟡", "🟡", "🟡", "🟡"
         try:
-            inc = tk.quarterly_financials
-            cf = tk.quarterly_cashflow
+            inc, cf = tk.quarterly_financials, tk.quarterly_cashflow
             if not inc.empty:
                 rev_v = "✅" if inc.loc['Total Revenue'].iloc[0] > inc.loc['Total Revenue'].iloc[4] else "❌"
                 ni_v = "✅" if inc.loc['Net Income'].iloc[0] > 0 else "❌"
@@ -184,15 +199,9 @@ def analyze_stock_full(symbol, target_expiry):
         s_clr = "#008f39" if score >= 75 else "#f97316" if score >= 50 else "#b22222"
         score_html = f"<span class='h-score' style='background-color: {s_clr}'>{score}</span>"
 
-        # 6. Options & Signals (Restored)
+        # 7. Options
         st.sidebar.info(f"Step 7: Fetching Options for {symbol}")
-        rsi_val = calculate_rsi(close).iloc[-1]
-        high_52 = close.max()
-        uw = ((curr_p - high_52) / high_52) * 100
-        chg_p = ((curr_p - prev_p) / prev_p) * 100
-        
         opt = get_best_put_by_delta(tk, target_expiry, curr_p)
-        action = "<span class='csp-strong'>STRONG</span>" if (uw < -15 and info.get('returnOnEquity', 0) > 0.08) else "NEUTRAL"
         
         st.sidebar.success(f"✅ {symbol} Analysis Complete!")
         
@@ -203,14 +212,14 @@ def analyze_stock_full(symbol, target_expiry):
             "Earn Date": earn_date_str,
             "Earn Alert": earn_alert,
             "Tech (MACD|BB)": tech_alert,
-            "Signal": action, 
+            "Signal": "STRONG" if (uw < -15 and info.get('returnOnEquity', 0) > 0.08) else "NEUTRAL", 
             "RSI": f"<span style='color:{('#ff3131' if rsi_val > 70 else '#00ff41' if rsi_val < 30 else '#ffffff')}; font-weight:bold;'>{rsi_val:.1f}</span>",
             "Score": score_html, 
             "Rev": rev_v, "Inc": ni_v, "Cash": fcf_v, "Solv": al_v,
             "Strike (.30Δ)": f"${opt['Strike']:.1f}" if opt else "N/A",
             "Premium": opt['Premium'] if opt else "N/A", 
             "ROI | AOR": f"<b>{opt['ROI']} | {opt['AOR']}</b>" if opt else "N/A",
-            "50|100|200 MA": "RESTORED", # Standard MA logic from previous versions
+            "50|100|200 MA": ma_display,
             "UW %": f"{uw:.1f}%",
             "ROE": f"{info.get('returnOnEquity', 0)*100:.1f}%",
             "EPS": f"${info.get('trailingEps', 0):.2f}"
