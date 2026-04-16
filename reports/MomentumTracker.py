@@ -23,44 +23,64 @@ st.markdown("""
     html, body, [class*="css"] { font-size: 16px; }
     .reportview-container .main .block-container{ max-width: 98%; padding-top: 1rem; }
     
+    /* 🛠️ CARD THEME (Configuration & Filters) */
     .streamlit-expanderHeader {
-        background-color: #1e1e1e !important;
+        background-color: #2b2b2b !important;   /* Lighter Mid-Grey */
         color: #ffffff !important;
-        border-radius: 5px;
+        border: 1px solid #4a4a4a !important;
+        border-radius: 8px 8px 0px 0px !important;
     }
+
     .streamlit-expanderContent {
-        background-color: #121212 !important;
+        background-color: #222222 !important;   /* Consistent Grey */
         color: #ffffff !important;
-        border: 1px solid #333;
-    }          
+        border: 1px solid #4a4a4a !important;
+        border-top: none !important;
+        border-radius: 0px 0px 8px 8px !important;
+    }         
               
+    /* 📊 TABLE CONTAINER & LIGHTER GREY ROWS */
     .table-container {
         max-height: 600px; 
         overflow-y: auto;
         overflow-x: auto;
-        border: 1px solid #444;
+        border: 1px solid #4a4a4a;
         border-radius: 8px;
-        background-color: #000000;
+        background-color: #333333; /* Lighter background for the container */
     }
 
     table { width: 100%; border-collapse: collapse; min-width: 2200px; color: #ffffff; }
 
     th { 
         position: sticky; top: 0; z-index: 10;
-        text-align: left !important; background-color: #222222 !important; color: #ffffff !important; 
-        border: 1px solid #444; padding: 12px !important; font-size: 13px !important;
+        text-align: left !important; 
+        background-color: #1a1a1a !important; /* Deep Black/Grey Header for contrast */
+        color: #ffffff !important; 
+        border: 1px solid #4a4a4a; padding: 12px !important; font-size: 13px !important;
         text-transform: uppercase; letter-spacing: 1px;
     }
 
     td { 
         font-family: 'Roboto', sans-serif; 
-        border: 1px solid #333 !important; 
+        border: 1px solid #444 !important; 
         padding: 10px !important; font-size: 14px !important; font-weight: 500;
-        vertical-align: middle; white-space: nowrap; color: #ffffff !important;
+        vertical-align: middle; white-space: nowrap; 
+        color: #ffffff !important;
+        /* THE FIX: Base color for all rows is now a lighter grey */
+        background-color: #2d2d2d !important; 
     }
     
-    tr:hover td { background-color: #1a1a1a !important; }
+    /* Zebra Striping: Alternating with a slightly lighter grey */
+    tr:nth-child(even) td {
+        background-color: #353535 !important; 
+    }
+    
+    /* Hover state: Lighter highlight */
+    tr:hover td { 
+        background-color: #404040 !important; 
+    }
 
+    /* 🟢🔴 INDICATORS & FONTS */
     .price-font { font-family: 'Courier New', monospace; font-weight: bold; }
     .pos { color: #00ff41 !important; font-weight: bold; } 
     .neg { color: #ff3131 !important; font-weight: bold; }
@@ -69,7 +89,18 @@ st.markdown("""
     .csp-avoid { background-color: #b22222; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; }
     .h-score { font-weight: bold; padding: 4px 8px; border-radius: 4px; color: white; display: inline-block; min-width: 35px; text-align: center; }
 
-    div.stButton > button:first-child { margin-top: 28px; width: 100%; }
+    /* 🚀 BUTTON TWEAKS */
+    div.stButton > button:first-child { 
+        margin-top: 28px; width: 100%; 
+        background-color: #444; color: white; border: 1px solid #666;
+        border-radius: 6px;
+    }
+    div.stButton > button:hover {
+        border-color: #00ff41 !important; color: #00ff41 !important;
+    }
+            
+    label { font-weight: 700 !important; color: #ffffff !important; }
+    div[data-testid="stExpander"] summary { font-weight: 800 !important; font-size: 18px !important; }            
     </style>
     """, unsafe_allow_html=True)
 
@@ -273,8 +304,8 @@ def get_all_fridays():
 # ========================================================
 # 🚀 APP EXECUTION
 # ========================================================
+st.markdown("### 💰 Premium Selling Opportunities")
 df_wl = load_watchlist_data()
-
 if not df_wl.empty:
     with st.expander("🛠️ Analysis Configuration", expanded=True):
         c1, c2, c3, c4 = st.columns([0.4, 1, 0.4, 0.4])
@@ -325,8 +356,6 @@ if not df_wl.empty:
             return s.split('>')[1].split('<')[0] if '<' in str(s) else s
         def get_raw_bb(s): return s.split('|')[-1].strip()
 
-        filter_header_placeholder.markdown("### 📊 Portfolio Discovery")
-        
         with filter_controls_placeholder.expander("🎯 Filter & Sort Results", expanded=False):
             f1, f2, f3, f4 = st.columns([1, 1, 1, 1])
             with f1:
