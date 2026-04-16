@@ -118,72 +118,64 @@ def analyze_stock_full(symbol, target_expiry):
     try:
         tk = yf.Ticker(symbol)
         
-        # 1. History & Basic Price
-        st.sidebar.info(f"Step 2: Fetching History for {symbol}")
-        hist = tk.history(period="2y") 
-        if hist.empty or len(hist) < 20: 
-            st.sidebar.error(f"❌ {symbol}: Insufficient history.")
+        # 1. Price History & MAs
+        st.sidebar.info(f"Step 2: Fetching Data for {symbol}")
+        hist_1y = tk.history(period="1y")
+        if hist_1y.empty or len(hist_1y) < 200: 
             return None
         
-        close = hist['Close']
-        curr_p, prev_p = close.iloc[-1], close.iloc[-2]
-        high_52 = close.max()
-        uw = ((curr_p - high_52) / high_52) * 100
-        chg_p = ((curr_p - prev_p) / prev_p) * 100
-
-        # 2. Info Block
-        st.sidebar.info(f"Step 3: Fetching Info for {symbol}")
-        try:
-            info = tk.info
-        except:
-            info = {}
-
-        # 3. Technicals (MACD & BB)
-        st.sidebar.info(f"Step 4: Calculating Technicals for {symbol}")
-        exp1 = close.ewm(span=12, adjust=False).mean()
-        exp2 = close.ewm(span=26, adjust=False).mean()
-        macd = exp1 - exp2
-        signal_line = macd.ewm(span=9, adjust=False).mean()
-        macd_status = "▲" if macd.iloc[-1] > signal_line.iloc[-1] else "▼"
+        curr_p = hist_1y['Close'].iloc[-1]
+        prev_p = hist_1y['Close'].iloc[-2]
+        high_52w = hist_1y['High'].max()
+        uw_pct = ((curr_p - high_52w) / high_52w) * 100
         
-        sma20 = close.rolling(window=20).mean()
-        std20 = close.rolling(window=20).std()
-        lower_bb = sma20 - (std20 * 2)
-        upper_bb = sma20 + (std20 * 2)
-        bb_status = "MID"
-        if curr_p <= lower_bb.iloc[-1]: bb_status = "🟢LOW"
-        elif curr_p >= upper_bb.iloc[-1]: bb_status = "🔴UPR"
-        tech_alert = f"{macd_status} | {bb_status}"
-
-        # 4. Moving Averages (FIXED CALCULATION)
-        ma50 = close.rolling(50).mean().iloc[-1] if len(close) >= 50 else 0
-        ma100 = close.rolling(100).mean().iloc[-1] if len(close) >= 100 else 0
-        ma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else 0
+        # Calculate MAs
+        ma50 = hist_1y['Close'].rolling(50).mean().iloc[-1]
+        ma100 = hist_1y['Close'].rolling(100).mean().iloc[-1]
+        ma200 = hist_1y['Close'].rolling(200).mean().iloc[-1]
         
         def f_ma(p, ma, c):
-            if ma == 0: return "N/A"
-            # Highlight if price is within 1.5% of the MA
             is_near = abs(p - ma) / ma <= 0.015
             style = f"color:{c}; font-weight:bold; border-bottom:2px solid {c}" if is_near else ""
             return f"<span style='{style}'>${ma:.1f}</span>"
-            
         ma_display = f"{f_ma(curr_p, ma50, '#3b82f6')} | {f_ma(curr_p, ma100, '#f59e0b')} | {f_ma(curr_p, ma200, '#10b981')}"
 
-        # 5. Earnings (RESTORED FALLBACK)
-        st.sidebar.info(f"Step 5: Fetching Earnings for {symbol}")
-        earn_date_str, earn_alert = "N/A", "🟢"
+        # 2. Earnings (EXACT COPIED LOGIC)
+        # ---------------------------------------------------------
+        st.sidebar.info(f"Step 3: Checking Calendar for {symbol}")
+        earn_date_str, earn_alert = "N/A", ""
+        
         try:
-            ed = tk.get_earnings_dates(limit=1)
-            if ed is not None and not ed.empty:
-                dt = ed.index[0].to_pydatetime().replace(tzinfo=None)
-                dl = (dt - datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)).days
-                earn_date_str = dt.strftime('%m-%d')
-                earn_alert = f"🔴 ({dl}d)" if dl < 14 else f"🟢 ({dl}d)"
-        except: pass
+            # Matches your other program: tk.calendar['Earnings Date'][0]
+            earn_dates = tk.get_earnings_dates(limit=1)
+            if earn_dates is not None and not earn_dates.empty:
+                dt_obj = earn_dates.index[0].to_pydatetime().replace(tzinfo=None)
+                earn_date_str = dt_obj.strftime('%Y-%m-%d')
+                
+                # Pre-Friday Logic
+                today = datetime.now().date()
+                dt = dt_obj.date()
+                pre_fri = dt - timedelta(days=(dt.isoweekday() - 5))
+                days = (pre_fri - today).days
+                
+                # Emoji Logic
+                if days < 0: earn_alert = f"🔴 ({days}d)"
+                elif days < 14: earn_alert = f"⚪ ({days}d)"
+                elif days <= 30: earn_alert = f"💰 ({days}d)"
+                elif days <= 40: earn_alert = f"🟢 ({days}d)"
+                else: earn_alert = f"🟡 ({days}d)"
+        except Exception as e:
+            st.sidebar.warning(f"Earnings check failed: {e}")
+            earn_date_str = "N/A"
+            earn_alert = ""
 
-        # 6. Financial Health & RSI
-        st.sidebar.info(f"Step 6: Fetching Financials for {symbol}")
-        rsi_val = calculate_rsi(close).iloc[-1]
+        # 3. Technicals & Financials
+        st.sidebar.info(f"Step 4: Tech & Health Score")
+        info = tk.info
+        roe = info.get('returnOnEquity', 0) * 100
+        rsi_val = calculate_rsi(hist_1y['Close']).iloc[-1]
+        
+        # UI Checkmarks
         rev_v, ni_v, fcf_v, al_v = "🟡", "🟡", "🟡", "🟡"
         try:
             inc, cf = tk.quarterly_financials, tk.quarterly_cashflow
@@ -195,37 +187,38 @@ def analyze_stock_full(symbol, target_expiry):
             al_v = "✅" if info.get('currentRatio', 0) > 1.1 else "❌"
         except: pass
 
-        score = int(([rev_v, ni_v, fcf_v, al_v].count("✅") / 4) * 100)
-        s_clr = "#008f39" if score >= 75 else "#f97316" if score >= 50 else "#b22222"
-        score_html = f"<span class='h-score' style='background-color: {s_clr}'>{score}</span>"
+        # 4. Signal Logic
+        action = "NEUTRAL"
+        if uw_pct < -15 and roe > 10: action = "<span class='csp-strong'>STRONG CSP</span>"
+        elif uw_pct > -5: action = "<span class='csp-avoid'>AVOID (CC)</span>"
 
-        # 7. Options
-        st.sidebar.info(f"Step 7: Fetching Options for {symbol}")
+        # 5. Options (Standard Logic)
+        st.sidebar.info(f"Step 5: Fetching Options Data")
         opt = get_best_put_by_delta(tk, target_expiry, curr_p)
         
-        st.sidebar.success(f"✅ {symbol} Analysis Complete!")
-        
+        st.sidebar.success(f"✅ {symbol} Done")
+
         return {
             "Ticker": f"<b>{symbol}</b>", 
             "Price": f"<span class='price-font'>${curr_p:.2f}</span>",
-            "Change (%)": f"<span class={'pos' if (curr_p - prev_p) >= 0 else 'neg'}>{(curr_p - prev_p):+.2f} ({chg_p:+.2f}%)</span>",
+            "Change (%)": f"<span class={'pos' if curr_p >= prev_p else 'neg'}>{(curr_p - prev_p):+.2f}</span>",
             "Earn Date": earn_date_str,
             "Earn Alert": earn_alert,
-            "Tech (MACD|BB)": tech_alert,
-            "Signal": "STRONG" if (uw < -15 and info.get('returnOnEquity', 0) > 0.08) else "NEUTRAL", 
+            "Tech (MACD|BB)": "CHECK",
+            "Signal": action, 
             "RSI": f"<span style='color:{('#ff3131' if rsi_val > 70 else '#00ff41' if rsi_val < 30 else '#ffffff')}; font-weight:bold;'>{rsi_val:.1f}</span>",
-            "Score": score_html, 
+            "Score": f"{( [rev_v, ni_v, fcf_v, al_v].count('✅') / 4 ) * 100:.0f}", 
             "Rev": rev_v, "Inc": ni_v, "Cash": fcf_v, "Solv": al_v,
             "Strike (.30Δ)": f"${opt['Strike']:.1f}" if opt else "N/A",
             "Premium": opt['Premium'] if opt else "N/A", 
             "ROI | AOR": f"<b>{opt['ROI']} | {opt['AOR']}</b>" if opt else "N/A",
             "50|100|200 MA": ma_display,
-            "UW %": f"{uw:.1f}%",
-            "ROE": f"{info.get('returnOnEquity', 0)*100:.1f}%",
+            "UW %": f"{uw_pct:.1f}%",
+            "ROE": f"{roe:.1f}%",
             "EPS": f"${info.get('trailingEps', 0):.2f}"
         }
     except Exception as e:
-        st.sidebar.error(f"💥 GLOBAL CRASH on {symbol}: {str(e)}")
+        st.sidebar.error(f"💥 Error on {symbol}: {e}")
         return None
 
 WATCHLIST_URL = "https://docs.google.com/spreadsheets/d/1x61uDuDKopnn9-DSuX5E3mAiMWk7-g4bPqbVH3D-q7M/export?format=csv&gid=337359953"
