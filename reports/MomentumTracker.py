@@ -113,13 +113,10 @@ def get_best_put_by_delta(tk, target_expiry, current_price, target_delta=-0.30):
 # ⚡ CACHED ANALYSIS ENGINE
 # ========================================================
 def analyze_stock_full(symbol, target_expiry):
-    st.sidebar.header(f"🛠️ Debugging: {symbol}")
-    
     try:
         tk = yf.Ticker(symbol)
         
         # 1. Price History & MAs
-        st.sidebar.info(f"Step 2: Fetching Data for {symbol}")
         hist_1y = tk.history(period="1y")
         if hist_1y.empty or len(hist_1y) < 200: 
             return None
@@ -142,7 +139,6 @@ def analyze_stock_full(symbol, target_expiry):
         ma_display = f"{f_ma(curr_p, ma50, '#3b82f6')} | {f_ma(curr_p, ma100, '#f59e0b')} | {f_ma(curr_p, ma200, '#10b981')}"
 
         # 2. Tech (MACD & BB)
-        st.sidebar.info(f"Step 3: Calculating Technicals")
         exp1 = close.ewm(span=12, adjust=False).mean()
         exp2 = close.ewm(span=26, adjust=False).mean()
         macd = exp1 - exp2
@@ -158,26 +154,19 @@ def analyze_stock_full(symbol, target_expiry):
         elif curr_p >= upper_bb.iloc[-1]: bb_status = "🔴UPR"
         tech_display = f"{macd_status} | {bb_status}"
 
-        # 3. Earnings (RESTORED FROM YOUR WORKING TOOL)
-        # ---------------------------------------------------------
-        st.sidebar.info(f"Step 4: Fetching Earnings")
+        # 3. Earnings (Using the validated Batch Tool Logic)
         earn_date_str, earn_alert = "N/A", "🔴 N/A"
-        
         try:
             earn_dates = tk.get_earnings_dates(limit=1)
             if earn_dates is not None and not earn_dates.empty:
-                # Use the exact logic from your Batch Tool
                 dt = earn_dates.index[0].to_pydatetime().replace(tzinfo=None)
                 today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                
                 earn_date_str = dt.strftime('%Y-%m-%d')
                 
-                # Sheets-style weekday logic you provided
                 sheets_weekday = (dt.weekday() + 1) % 7 + 1
                 pre_friday = dt - timedelta(days=(sheets_weekday - 6))
                 days_left = (pre_friday - today).days
                 
-                # Status mapping from your Batch Tool
                 if pre_friday <= today: 
                     earn_alert = f"🔴 ({days_left}d)"
                 elif days_left < 14: 
@@ -188,11 +177,10 @@ def analyze_stock_full(symbol, target_expiry):
                     earn_alert = f"🟢 ({days_left}d)"
                 else: 
                     earn_alert = f"🟡 ({days_left}d)"
-        except Exception as e:
-            st.sidebar.warning(f"Earnings failed: {e}")
+        except:
+            pass
 
         # 4. Financial Health
-        st.sidebar.info(f"Step 5: Health Check")
         info = tk.info
         roe = info.get('returnOnEquity', 0) * 100
         rsi_val = calculate_rsi(close).iloc[-1]
@@ -218,10 +206,7 @@ def analyze_stock_full(symbol, target_expiry):
         elif uw_pct > -5: action = "<span class='csp-avoid'>AVOID (CC)</span>"
 
         # 6. Options Data
-        st.sidebar.info(f"Step 6: Options Data")
         opt = get_best_put_by_delta(tk, target_expiry, curr_p)
-        
-        st.sidebar.success(f"✅ {symbol} Done")
 
         return {
             "Ticker": f"<b>{symbol}</b>", 
@@ -242,8 +227,7 @@ def analyze_stock_full(symbol, target_expiry):
             "ROE": f"{roe:.1f}%",
             "EPS": f"${info.get('trailingEps', 0):.2f}"
         }
-    except Exception as e:
-        st.sidebar.error(f"💥 Error on {symbol}: {e}")
+    except:
         return None
 
 WATCHLIST_URL = "https://docs.google.com/spreadsheets/d/1x61uDuDKopnn9-DSuX5E3mAiMWk7-g4bPqbVH3D-q7M/export?format=csv&gid=337359953"
