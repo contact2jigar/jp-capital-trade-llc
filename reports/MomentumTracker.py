@@ -10,7 +10,7 @@ from scipy.stats import norm
 from datetime import datetime, timedelta
 
 # ========================================================
-# 🎨 STYLE ENGINE: DUAL-AXIS SCROLL & STICKY HEADERS
+# 🎨 STYLE ENGINE: INSTITUTIONAL UI & STICKY HEADERS
 # ========================================================
 st.set_page_config(layout="wide", page_title="Institutional CSP Engine")
 
@@ -43,7 +43,7 @@ st.markdown("""
         background-color: #000000;
     }
 
-    table { width: 100%; border-collapse: collapse; min-width: 2000px; color: #ffffff; }
+    table { width: 100%; border-collapse: collapse; min-width: 2200px; color: #ffffff; }
 
     th { 
         position: sticky; top: 0; z-index: 10;
@@ -74,7 +74,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ========================================================
-# 🛠️ GREEKS & INDICATORS
+# 🛠️ GREEKS & TECHNICAL INDICATORS
 # ========================================================
 def calculate_rsi(data, window=14):
     delta = data.diff()
@@ -110,7 +110,7 @@ def get_best_put_by_delta(tk, target_expiry, current_price, target_delta=-0.30):
     except: return None
 
 # ========================================================
-# ⚡ CACHED ANALYSIS ENGINE
+# ⚡ ANALYSIS ENGINE
 # ========================================================
 def analyze_stock_full(symbol, target_expiry):
     try:
@@ -118,8 +118,7 @@ def analyze_stock_full(symbol, target_expiry):
         
         # 1. Price History & MAs
         hist_1y = tk.history(period="1y")
-        if hist_1y.empty or len(hist_1y) < 200: 
-            return None
+        if hist_1y.empty or len(hist_1y) < 200: return None
         
         close = hist_1y['Close']
         curr_p = close.iloc[-1]
@@ -127,7 +126,7 @@ def analyze_stock_full(symbol, target_expiry):
         high_52w = close.max()
         uw_pct = ((curr_p - high_52w) / high_52w) * 100
         
-        # Calculate MAs
+        # MAs Calculation
         ma50 = close.rolling(50).mean().iloc[-1]
         ma100 = close.rolling(100).mean().iloc[-1]
         ma200 = close.rolling(200).mean().iloc[-1]
@@ -154,7 +153,7 @@ def analyze_stock_full(symbol, target_expiry):
         elif curr_p >= upper_bb.iloc[-1]: bb_status = "🔴UPR"
         tech_display = f"{macd_status} | {bb_status}"
 
-        # 3. Earnings (Using the validated Batch Tool Logic)
+        # 3. Earnings
         earn_date_str, earn_alert = "N/A", "🔴 N/A"
         try:
             earn_dates = tk.get_earnings_dates(limit=1)
@@ -162,25 +161,16 @@ def analyze_stock_full(symbol, target_expiry):
                 dt = earn_dates.index[0].to_pydatetime().replace(tzinfo=None)
                 today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
                 earn_date_str = dt.strftime('%Y-%m-%d')
-                
                 sheets_weekday = (dt.weekday() + 1) % 7 + 1
                 pre_friday = dt - timedelta(days=(sheets_weekday - 6))
                 days_left = (pre_friday - today).days
-                
-                if pre_friday <= today: 
-                    earn_alert = f"🔴 ({days_left}d)"
-                elif days_left < 14: 
-                    earn_alert = f"⚪ ({days_left}d)"
-                elif days_left <= 30: 
-                    earn_alert = f"💰 ({days_left}d)"
-                elif days_left <= 40: 
-                    earn_alert = f"🟢 ({days_left}d)"
-                else: 
-                    earn_alert = f"🟡 ({days_left}d)"
-        except:
-            pass
+                if pre_friday <= today: earn_alert = f"🔴 ({days_left}d)"
+                elif days_left < 16: earn_alert = f"🚫 ({days_left}d)"
+                elif days_left <= 30: earn_alert = f"💰 ({days_left}d)"
+                else: earn_alert = f"🟢 ({days_left}d)"
+        except: pass
 
-        # 4. Financial Health
+        # 4. Health
         info = tk.info
         roe = info.get('returnOnEquity', 0) * 100
         rsi_val = calculate_rsi(close).iloc[-1]
@@ -203,7 +193,7 @@ def analyze_stock_full(symbol, target_expiry):
         # 5. Signal Logic
         action = "NEUTRAL"
         if uw_pct < -15 and roe > 10: action = "<span class='csp-strong'>STRONG CSP</span>"
-        elif uw_pct > -5: action = "<span class='csp-avoid'>AVOID (CSP)</span>"
+        elif uw_pct > -5 or rsi_val > 70: action = "<span class='csp-avoid'>AVOID (CSP)</span>"
 
         # 6. Options Data
         opt = get_best_put_by_delta(tk, target_expiry, curr_p)
@@ -227,9 +217,11 @@ def analyze_stock_full(symbol, target_expiry):
             "ROE": f"{roe:.1f}%",
             "EPS": f"${info.get('trailingEps', 0):.2f}"
         }
-    except:
-        return None
+    except: return None
 
+# ========================================================
+# 📥 DATA LOADING
+# ========================================================
 WATCHLIST_URL = "https://docs.google.com/spreadsheets/d/1x61uDuDKopnn9-DSuX5E3mAiMWk7-g4bPqbVH3D-q7M/export?format=csv&gid=337359953"
 
 @st.cache_data(ttl=600)
@@ -297,10 +289,14 @@ if not df_wl.empty:
         with c4:
             run_analysis = st.button("🚀 RUN ANALYSIS")
 
+    # --- UI PLACEHOLDERS ---
     status_placeholder = st.empty()
     progress_placeholder = st.empty()
+    filter_header_placeholder = st.empty()
+    filter_controls_placeholder = st.empty()
     table_placeholder = st.empty()
 
+    # PHASE 1: LIVE SCANNING
     if run_analysis:
         st.session_state.last_results = [] 
         p_bar = progress_placeholder.progress(0)
@@ -314,23 +310,73 @@ if not df_wl.empty:
                 st.session_state.last_results.append(res)
                 table_placeholder.markdown(styled_table(pd.DataFrame(st.session_state.last_results)), unsafe_allow_html=True)
             
-            # Small jitter delay to look more human and avoid IP blocking on Cloud
-            time.sleep(random.uniform(0.3, 0.8))
+            time.sleep(random.uniform(0.1, 0.2))
             p_bar.progress((i + 1) / len(to_scan))
         
         status_placeholder.empty()
         progress_placeholder.empty()
 
+    # PHASE 2: FILTERS & DYNAMIC SORTING
     if "last_results" in st.session_state and st.session_state.last_results:
-        table_placeholder.markdown(styled_table(pd.DataFrame(st.session_state.last_results)), unsafe_allow_html=True)
+        res_df = pd.DataFrame(st.session_state.last_results)
+        
+        # Cleaners for logic
+        def get_raw_signal(s):
+            return s.split('>')[1].split('<')[0] if '<' in str(s) else s
+        def get_raw_bb(s): return s.split('|')[-1].strip()
+
+        filter_header_placeholder.markdown("### 📊 Portfolio Discovery")
+        
+        with filter_controls_placeholder.expander("🎯 Filter & Sort Results", expanded=False):
+            f1, f2, f3, f4 = st.columns([1, 1, 1, 1])
+            with f1:
+                res_df['clean_signal'] = res_df['Signal'].apply(get_raw_signal)
+                sel_sig = st.multiselect("Trade Signal", sorted(res_df['clean_signal'].unique()), default=res_df['clean_signal'].unique())
+            with f2:
+                res_df['raw_bb'] = res_df['Tech (MACD|BB)'].apply(get_raw_bb)
+                sel_bb = st.multiselect("BB Position", sorted(res_df['raw_bb'].unique()), default=res_df['raw_bb'].unique())
+            with f3:
+                res_df['raw_rsi'] = res_df['RSI'].str.extract('>([\d\.]+)<').astype(float)
+                rsi_range = st.slider("RSI Range", 0.0, 100.0, (0.0, 100.0))
+            with f4:
+                # NEW: Sort Order Selector
+                sort_col = st.selectbox("Sort By", ["Signal Priority", "ROI (High-Low)", "Health Score", "Ticker Name"])
+
+        # Apply Filters
+        mask = (res_df['clean_signal'].isin(sel_sig)) & (res_df['raw_bb'].isin(sel_bb)) & (res_df['raw_rsi'].between(rsi_range[0], rsi_range[1]))
+        filtered_df = res_df[mask].copy()
+
+        # APPLY SELECTED SORTING
+        filtered_df['raw_roi'] = filtered_df['ROI | AOR'].str.extract('([\d\.]+)%').astype(float)
+        filtered_df['raw_score'] = filtered_df['Score'].str.extract('(\d+)').astype(int)
+        
+        if sort_col == "Signal Priority":
+            filtered_df['sort_key'] = filtered_df['Signal'].apply(lambda x: 0 if 'strong' in str(x).lower() else 2 if 'avoid' in str(x).lower() else 1)
+            filtered_df = filtered_df.sort_values(by=['sort_key', 'raw_roi'], ascending=[True, False])
+        elif sort_col == "ROI (High-Low)":
+            filtered_df = filtered_df.sort_values(by='raw_roi', ascending=False)
+        elif sort_col == "Health Score":
+            filtered_df = filtered_df.sort_values(by='raw_score', ascending=False)
+        else:
+            filtered_df = filtered_df.sort_values(by='Ticker')
+
+        # Cleanup and Bold the ROI for display
+        filtered_df['ROI | AOR'] = filtered_df['ROI | AOR'].apply(lambda x: f"<b>{x}</b>")
+        display_df = filtered_df.drop(columns=['raw_bb', 'raw_rsi', 'clean_signal', 'raw_roi', 'raw_score'], errors='ignore')
+        if 'sort_key' in display_df.columns: display_df = display_df.drop(columns=['sort_key'])
+
+        table_placeholder.markdown(styled_table(display_df), unsafe_allow_html=True)
+        
+        # Financial Health Drilldown
         st.divider()
         with st.expander("🔍 Financial Health Drilldown", expanded=False):
             st.write("Click a ticker to view the 8-Quarter breakdown.")
-            cols = st.columns(10)
-            for i, r in enumerate(st.session_state.last_results):
+            drill_cols = st.columns(10)
+            for i, r in enumerate(filtered_df.to_dict('records')):
                 raw_t = r['Ticker'].replace("<b>", "").replace("</b>", "")
-                if cols[i % 10].button(f"📊 {raw_t}", key=f"btn_{raw_t}"):
+                if drill_cols[i % 10].button(f"📊 {raw_t}", key=f"btn_{raw_t}"):
                     st.session_state.active_health = raw_t
+            
             if "active_health" in st.session_state:
                 target = st.session_state.active_health
                 detailed_df = get_detailed_health_grid(target)
