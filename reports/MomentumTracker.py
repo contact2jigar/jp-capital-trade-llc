@@ -203,7 +203,7 @@ def analyze_stock_full(symbol, target_expiry):
         # 5. Signal Logic
         action = "NEUTRAL"
         if uw_pct < -15 and roe > 10: action = "<span class='csp-strong'>STRONG CSP</span>"
-        elif uw_pct > -5: action = "<span class='csp-avoid'>AVOID (CC)</span>"
+        elif uw_pct > -5: action = "<span class='csp-avoid'>AVOID (CSP)</span>"
 
         # 6. Options Data
         opt = get_best_put_by_delta(tk, target_expiry, curr_p)
