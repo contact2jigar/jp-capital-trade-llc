@@ -110,7 +110,7 @@ def get_best_put_by_delta(tk, target_expiry, current_price, target_delta=-0.30):
     except: return None
 
 # ========================================================
-# ⚡ CACHED ANALYSIS ENGINE (Fixes Cloud Timeouts)
+# ⚡ CACHED ANALYSIS ENGINE
 # ========================================================
 def analyze_stock_full(symbol, target_expiry):
     st.sidebar.header(f"🛠️ Debugging: {symbol}")
@@ -124,15 +124,16 @@ def analyze_stock_full(symbol, target_expiry):
         if hist_1y.empty or len(hist_1y) < 200: 
             return None
         
-        curr_p = hist_1y['Close'].iloc[-1]
-        prev_p = hist_1y['Close'].iloc[-2]
-        high_52w = hist_1y['High'].max()
+        close = hist_1y['Close']
+        curr_p = close.iloc[-1]
+        prev_p = close.iloc[-2]
+        high_52w = close.max()
         uw_pct = ((curr_p - high_52w) / high_52w) * 100
         
         # Calculate MAs
-        ma50 = hist_1y['Close'].rolling(50).mean().iloc[-1]
-        ma100 = hist_1y['Close'].rolling(100).mean().iloc[-1]
-        ma200 = hist_1y['Close'].rolling(200).mean().iloc[-1]
+        ma50 = close.rolling(50).mean().iloc[-1]
+        ma100 = close.rolling(100).mean().iloc[-1]
+        ma200 = close.rolling(200).mean().iloc[-1]
         
         def f_ma(p, ma, c):
             is_near = abs(p - ma) / ma <= 0.015
@@ -140,42 +141,62 @@ def analyze_stock_full(symbol, target_expiry):
             return f"<span style='{style}'>${ma:.1f}</span>"
         ma_display = f"{f_ma(curr_p, ma50, '#3b82f6')} | {f_ma(curr_p, ma100, '#f59e0b')} | {f_ma(curr_p, ma200, '#10b981')}"
 
-        # 2. Earnings (EXACT COPIED LOGIC)
+        # 2. Tech (MACD & BB)
+        st.sidebar.info(f"Step 3: Calculating Technicals")
+        exp1 = close.ewm(span=12, adjust=False).mean()
+        exp2 = close.ewm(span=26, adjust=False).mean()
+        macd = exp1 - exp2
+        signal_line = macd.ewm(span=9, adjust=False).mean()
+        macd_status = "▲" if macd.iloc[-1] > signal_line.iloc[-1] else "▼"
+        
+        sma20 = close.rolling(window=20).mean()
+        std20 = close.rolling(window=20).std()
+        upper_bb = sma20 + (std20 * 2)
+        lower_bb = sma20 - (std20 * 2)
+        bb_status = "MID"
+        if curr_p <= lower_bb.iloc[-1]: bb_status = "🟢LOW"
+        elif curr_p >= upper_bb.iloc[-1]: bb_status = "🔴UPR"
+        tech_display = f"{macd_status} | {bb_status}"
+
+        # 3. Earnings (RESTORED FROM YOUR WORKING TOOL)
         # ---------------------------------------------------------
-        st.sidebar.info(f"Step 3: Checking Calendar for {symbol}")
-        earn_date_str, earn_alert = "N/A", ""
+        st.sidebar.info(f"Step 4: Fetching Earnings")
+        earn_date_str, earn_alert = "N/A", "🔴 N/A"
         
         try:
-            # Matches your other program: tk.calendar['Earnings Date'][0]
             earn_dates = tk.get_earnings_dates(limit=1)
             if earn_dates is not None and not earn_dates.empty:
-                dt_obj = earn_dates.index[0].to_pydatetime().replace(tzinfo=None)
-                earn_date_str = dt_obj.strftime('%Y-%m-%d')
+                # Use the exact logic from your Batch Tool
+                dt = earn_dates.index[0].to_pydatetime().replace(tzinfo=None)
+                today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
                 
-                # Pre-Friday Logic
-                today = datetime.now().date()
-                dt = dt_obj.date()
-                pre_fri = dt - timedelta(days=(dt.isoweekday() - 5))
-                days = (pre_fri - today).days
+                earn_date_str = dt.strftime('%Y-%m-%d')
                 
-                # Emoji Logic
-                if days < 0: earn_alert = f"🔴 ({days}d)"
-                elif days < 14: earn_alert = f"⚪ ({days}d)"
-                elif days <= 30: earn_alert = f"💰 ({days}d)"
-                elif days <= 40: earn_alert = f"🟢 ({days}d)"
-                else: earn_alert = f"🟡 ({days}d)"
+                # Sheets-style weekday logic you provided
+                sheets_weekday = (dt.weekday() + 1) % 7 + 1
+                pre_friday = dt - timedelta(days=(sheets_weekday - 6))
+                days_left = (pre_friday - today).days
+                
+                # Status mapping from your Batch Tool
+                if pre_friday <= today: 
+                    earn_alert = f"🔴 ({days_left}d)"
+                elif days_left < 14: 
+                    earn_alert = f"⚪ ({days_left}d)"
+                elif days_left <= 30: 
+                    earn_alert = f"💰 ({days_left}d)"
+                elif days_left <= 40: 
+                    earn_alert = f"🟢 ({days_left}d)"
+                else: 
+                    earn_alert = f"🟡 ({days_left}d)"
         except Exception as e:
-            st.sidebar.warning(f"Earnings check failed: {e}")
-            earn_date_str = "N/A"
-            earn_alert = ""
+            st.sidebar.warning(f"Earnings failed: {e}")
 
-        # 3. Technicals & Financials
-        st.sidebar.info(f"Step 4: Tech & Health Score")
+        # 4. Financial Health
+        st.sidebar.info(f"Step 5: Health Check")
         info = tk.info
         roe = info.get('returnOnEquity', 0) * 100
-        rsi_val = calculate_rsi(hist_1y['Close']).iloc[-1]
+        rsi_val = calculate_rsi(close).iloc[-1]
         
-        # UI Checkmarks
         rev_v, ni_v, fcf_v, al_v = "🟡", "🟡", "🟡", "🟡"
         try:
             inc, cf = tk.quarterly_financials, tk.quarterly_cashflow
@@ -187,13 +208,17 @@ def analyze_stock_full(symbol, target_expiry):
             al_v = "✅" if info.get('currentRatio', 0) > 1.1 else "❌"
         except: pass
 
-        # 4. Signal Logic
+        score = int(([rev_v, ni_v, fcf_v, al_v].count("✅") / 4) * 100)
+        s_clr = "#008f39" if score >= 75 else "#f97316" if score >= 50 else "#b22222"
+        score_html = f"<span class='h-score' style='background-color: {s_clr}'>{score}</span>"
+
+        # 5. Signal Logic
         action = "NEUTRAL"
         if uw_pct < -15 and roe > 10: action = "<span class='csp-strong'>STRONG CSP</span>"
         elif uw_pct > -5: action = "<span class='csp-avoid'>AVOID (CC)</span>"
 
-        # 5. Options (Standard Logic)
-        st.sidebar.info(f"Step 5: Fetching Options Data")
+        # 6. Options Data
+        st.sidebar.info(f"Step 6: Options Data")
         opt = get_best_put_by_delta(tk, target_expiry, curr_p)
         
         st.sidebar.success(f"✅ {symbol} Done")
@@ -204,10 +229,10 @@ def analyze_stock_full(symbol, target_expiry):
             "Change (%)": f"<span class={'pos' if curr_p >= prev_p else 'neg'}>{(curr_p - prev_p):+.2f}</span>",
             "Earn Date": earn_date_str,
             "Earn Alert": earn_alert,
-            "Tech (MACD|BB)": "CHECK",
+            "Tech (MACD|BB)": tech_display,
             "Signal": action, 
             "RSI": f"<span style='color:{('#ff3131' if rsi_val > 70 else '#00ff41' if rsi_val < 30 else '#ffffff')}; font-weight:bold;'>{rsi_val:.1f}</span>",
-            "Score": f"{( [rev_v, ni_v, fcf_v, al_v].count('✅') / 4 ) * 100:.0f}", 
+            "Score": score_html, 
             "Rev": rev_v, "Inc": ni_v, "Cash": fcf_v, "Solv": al_v,
             "Strike (.30Δ)": f"${opt['Strike']:.1f}" if opt else "N/A",
             "Premium": opt['Premium'] if opt else "N/A", 
