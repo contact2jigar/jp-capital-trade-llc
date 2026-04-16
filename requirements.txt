@@ -1,6 +1,8 @@
 streamlit
 pandas
+numpy
 requests
 yfinance
 scipy
 streamlit-option-menu
+lxml
