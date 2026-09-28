@@ -16,12 +16,25 @@ The app reads the sheet through the public CSV-export URL, so the workbook must 
 shared **"Anyone with the link → Viewer"** (Share → General access). A fresh copy
 starts private; if reads fail with an HTML sign-in page instead of data, re-check
 this setting.
+
+WHERE THE ID LIVES (kept out of the public repo)
+------------------------------------------------
+The workbook ID is the pointer to your trade data, so it is NOT hard-coded here.
+It is read from Streamlit Secrets (or a ``GSHEET_WORKBOOK_ID`` env var):
+
+    # .streamlit/secrets.toml  (gitignored locally · pasted into the Cloud UI)
+    [gsheet]
+    workbook_id = "your-sheet-file-id"
+
+The tab gids below are harmless without the workbook ID, so they stay in code.
 """
 
 from __future__ import annotations
 
-# The workbook (file) ID — the ONLY thing that changes on a fresh copy.
-WORKBOOK_ID = "1--5d-n6PbCs9wFigk_LRwJ7aEfGKr5mB2zGGGIuiL0E"
+from config import settings
+
+# The workbook (file) ID — read from Secrets so it never sits in the public repo.
+WORKBOOK_ID = str(settings.get_secret("gsheet.workbook_id", "")).strip()
 
 # Logical tab name → gid. Stable across copies; edit only if a tab is recreated.
 TABS: dict[str, str] = {
