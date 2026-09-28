@@ -1,0 +1,13 @@
+# WheelEngine — Streamlit config (theme + server)
+[theme]
+base = "dark"
+primaryColor = "#347fd1"   # blue — selected chips, primary buttons, sliders
+backgroundColor = "#0a0e13"
+secondaryBackgroundColor = "#141b24"
+textColor = "#e8eef4"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

@@ -1,0 +1,44 @@
+"""WheelEngine navigation — grouped sections (sidebar order) + routing."""
+
+from __future__ import annotations
+
+# TOP tabs — the WheelEngine daily flow.
+TOP: list[tuple[str, str]] = [
+    ("Portfolio Center", "⚡"),
+    ("Trade Position", "📒"),
+    ("Decision Desk", "✅"),
+    ("Candidate Scanner", "🎯"),
+]
+
+# LEFT sidebar groups → [(label, icon, target_page)]. "Command Center" points back to
+# the WheelEngine home so we don't need a Back button on every page.
+SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
+    "WHEEL STRATEGY": [
+        ("Command Center", "🎛️", "Portfolio Center"),
+        ("P/L", "📊", "P/L"),
+        ("Performance", "📈", "Performance"),
+        ("Allocation", "🧮", "Allocation"),
+    ],
+    "TOOLS": [
+        ("Reconcile", "🔄", "Reconcile"),
+    ],
+    "REFERENCE": [
+        ("Entry Setup", "📊", "Entry Setup"),
+        ("Risk Gates", "🛡️", "Risk Gates"),
+    ],
+}
+
+ROUTES: dict[str, str] = {
+    "Portfolio Center":  "ui.pages.command_center",
+    "Trade Position":    "ui.pages.trade_position",
+    "Candidate Scanner": "ui.pages.csp_scanner",
+    "Decision Desk":     "ui.pages.candidate_hunt",
+    "P/L":               "ui.pages.pl",
+    "Performance":       "ui.pages.performance",
+    "Allocation":        "ui.pages.allocation",
+    "Reconcile":         "ui.pages.reconcile",
+    "Entry Setup":       "ui.pages.entry_setup",
+    "Risk Gates":        "ui.pages.risk_gates",
+}
+
+DEFAULT = "Portfolio Center"
