@@ -17,11 +17,18 @@ def _href(page: str, theme: str) -> str:
 
 def render_sidebar(c: dict, active: str, theme: str) -> None:
     with st.sidebar:
-        html = (
+        st.markdown(
             f'<div class="sb-logo"><div class="sb-logo-icon">{brand.gearframe(26)}</div>'
             '<div><div class="sb-logo-title">Wheel<span class="eng">Engine</span></div>'
-            '<div class="sb-logo-sub">by JP Capital &amp; Trade</div></div></div>'
-        )
+            '<div class="sb-logo-sub">by JP Capital &amp; Trade</div></div></div>',
+            unsafe_allow_html=True)
+        # Force-reload cached sheet/market data (keeps uploads — those live in
+        # cache_resource, which we deliberately don't clear).
+        if st.button("🔄 Refresh data", use_container_width=True, key="sb_refresh"):
+            st.cache_data.clear()
+            st.rerun()
+
+        html = ""
         for section, items in nav.SIDE_GROUPS.items():
             html += f'<span class="sb-section">{section}</span>'
             for label, icon, target in items:
