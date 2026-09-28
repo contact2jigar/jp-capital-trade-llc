@@ -11,6 +11,7 @@ import streamlit as st
 
 from logic import action_queue as aq
 from logic import candidate_hunt as hunt
+from logic import gtc_orders as gtco
 from logic import monitor as mb
 from services import gsheet, yahoo
 from ui import state
@@ -123,12 +124,16 @@ def _answer_cards(c, board, aqres, best, has_fid):
     else:
         c3 = _answer(c, "3 · Candidate, account and size?", "Best Available Trade",
                      "Run a hunt", c["muted"], "Set inputs on Candidate Scanner → Run Candidate Hunt", "primary")
-    # 4 · Missing GTCs
-    c4 = _answer(c, "4 · Which GTCs are missing?", "GTC Coverage",
-                 f"{gtc['missing']} missing" if gtc["missing"] else "All covered",
-                 c["neg"] if gtc["missing"] else c["pos"],
-                 "Closing orders require attention" if gtc["missing"] else "Every open put has its GTC",
-                 "action" if gtc["missing"] else "plain")
+    # 4 · Missing GTCs — needs GTC data (uploaded CSV) to know what's placed at broker
+    if not gtc.get("has_data"):
+        c4 = _answer(c, "4 · Which GTCs are missing?", "GTC Coverage", "Upload GTC CSV", c["muted"],
+                     "Fill the GTC template to check broker coverage", "plain")
+    else:
+        c4 = _answer(c, "4 · Which GTCs are missing?", "GTC Coverage",
+                     f"{gtc['missing']} missing" if gtc["missing"] else "All covered",
+                     c["neg"] if gtc["missing"] else c["pos"],
+                     "Not placed at the broker" if gtc["missing"] else "Every open put has its GTC",
+                     "action" if gtc["missing"] else "plain")
     # 5 · Shares needing a call
     if not has_fid:
         c5 = _answer(c, "5 · Which shares need a call?", "CC to Write", "Upload Fidelity", c["muted"],
@@ -258,7 +263,8 @@ def render(c: dict) -> None:
 
     board = mb.monitor_board(df, ath_ira, ath_llc, vix, vix_chg, trend)
     fid, fid_meta = state.load_fidelity()
-    aqres = aq.build(df, fid)
+    gtc_saved = state.load_gtc_placed()
+    aqres = aq.build(df, fid, gtc_placed=(set(gtc_saved) if gtc_saved is not None else None))
 
     # The hunt (Q3 + Part 3) is optional — the rest of the desk works without it.
     cands, meta = state.load_hunt()
@@ -277,8 +283,44 @@ def render(c: dict) -> None:
            else "TradeLog only — upload a Fidelity CSV on Reconcile for stuck & CC flags")
     st.markdown(f"#### 🧾 Portfolio Action Queue  <span style='font-size:11px;color:{c['muted']};'>"
                 f"{src}</span>", unsafe_allow_html=True)
+
+    # ── GTC coverage (Fidelity can't export open orders — maintain a small CSV) ──
+    put_rows = [x for x in aqres["rows"] if x["type"] == "PUT"]
+    with st.expander("🎯 GTC coverage — which puts have a live order at the broker", expanded=False):
+        st.caption("Fidelity can't export open orders. Download the template, fill a **GTC Price** "
+                   "for each put you've actually placed (from Fidelity → Activity & Orders → Pending), "
+                   "and re-upload. Blank = **MISSING**.")
+        dl, up = st.columns([1, 2])
+        with dl:
+            st.download_button("⬇︎ Template", data=gtco.template_csv(put_rows),
+                               file_name="gtc_orders.csv", mime="text/csv",
+                               disabled=not put_rows, use_container_width=True)
+        with up:
+            f = st.file_uploader("Upload filled GTC CSV", type=["csv"], key="gtc_csv",
+                                 label_visibility="collapsed")
+        if f is not None:
+            try:
+                keys = gtco.parse_gtc_csv(f)
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Couldn't read that CSV: {e}")
+                keys = None
+            if keys is not None and not keys:
+                st.warning("No GTC prices found in that file. This uploader needs the **filled "
+                           "template** — not a Fidelity export. Click **⬇︎ Template** above, type a "
+                           "GTC Price next to each put you've placed, save, and upload that file.")
+            elif keys:
+                if set(gtc_saved or []) != keys:
+                    state.save_gtc_placed(list(keys))
+                    st.success(f"Loaded {len(keys)} placed GTC(s).")
+                    st.rerun()
+                st.caption(f"✓ {len(keys)} GTC(s) marked as placed.")
+        if gtc_saved is not None:
+            if st.button("Clear GTC data", key="gtc_clear"):
+                state.hunt_store().pop("gtc_placed", None)
+                st.rerun()
+
     exps = sorted({x["expiry"] for x in aqres["rows"] if x["expiry"]})
-    fa, ft, fe, faction = st.columns([1, 1, 1.2, 2.4])
+    fa, ft, fe, faction = st.columns([1, 1, 1.2, 1.4])
     with fa:
         acct_f = st.selectbox("Account", ["All", "IRA", "LLC"], key="aq_acct")
     with ft:
@@ -286,8 +328,8 @@ def render(c: dict) -> None:
     with fe:
         exp_f = st.selectbox("Expiry", ["All"] + exps, key="aq_exp")
     with faction:
-        aqf = st.radio("Action", ["All", "Stuck", "Missing GTC", "Calls to Write"],
-                       horizontal=True, key="aq_filter")
+        aqf = st.selectbox("Action", ["All", "Stuck", "Missing GTC", "Calls to Write"],
+                           key="aq_filter")
     arows = aqres["rows"]
     fmap = {"Stuck": "stuck", "Missing GTC": "gtc", "Calls to Write": "cc"}
     if acct_f != "All":

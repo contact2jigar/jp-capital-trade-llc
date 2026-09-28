@@ -50,3 +50,14 @@ def save_hunt_inputs(inp: dict) -> None:
 
 def load_hunt_inputs():
     return hunt_store().get("inputs")
+
+
+def save_gtc_placed(keys: list) -> None:
+    """Which open puts the user has confirmed have a live GTC order at the broker.
+    Fidelity can't export open orders, so this is a manual weekly tick that persists."""
+    hunt_store()["gtc_placed"] = list(keys)
+
+
+def load_gtc_placed():
+    """List of placed-GTC keys, or None if the user has never set it."""
+    return hunt_store().get("gtc_placed")

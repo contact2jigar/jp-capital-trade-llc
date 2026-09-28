@@ -137,14 +137,14 @@ def apply_theme(name: str) -> dict:
       /* ── TOP NAV (horizontal tabs, main workflow sections) ── */
       .tn-wrap {{ display:flex; align-items:center; flex-wrap:wrap; gap:8px;
                   padding:0 0 12px; margin-bottom:16px; border-bottom:1px solid {c['border_soft']}; }}
-      .tn-tabs {{ display:flex; gap:8px; flex-wrap:wrap; }}
-      .tn-tab {{ display:inline-flex; align-items:center; gap:5px; padding:9px 18px;
-                 border-radius:11px; font-size:15px; font-weight:600; color:{c['mid']} !important;
-                 text-decoration:none !important; border:1px solid transparent; white-space:nowrap;
-                 transition:background .1s, border-color .1s, color .1s; }}
-      .tn-tab:hover {{ background:{c['nav_hover']}; color:{c['text']} !important; }}
-      .tn-tab.active {{ color:{c['nav_active_fg']} !important; border-color:{c['accent']};
-                        background:{c['nav_active_bg']}; font-weight:800; }}
+      .tn-tabs {{ display:flex; gap:22px; flex-wrap:wrap; }}
+      .tn-tab {{ display:inline-flex; align-items:center; gap:6px; padding:6px 2px 10px;
+                 font-size:15px; font-weight:600; color:{c['mid']} !important;
+                 text-decoration:none !important; border-bottom:3px solid transparent; white-space:nowrap;
+                 transition:color .1s, border-color .1s; }}
+      .tn-tab:hover {{ color:{c['text']} !important; border-bottom-color:{c['border']}; }}
+      .tn-tab.active {{ color:{c['nav_active_fg']} !important;
+                        border-bottom-color:{c['accent']}; font-weight:800; }}
       .tn-title {{ font-size:18px; font-weight:800; color:{c['text']}; padding:4px 0;
                    display:flex; align-items:baseline; flex-wrap:wrap; }}
       .tn-title .eng {{ color:{c['gold']}; }}

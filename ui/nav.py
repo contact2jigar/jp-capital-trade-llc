@@ -4,10 +4,10 @@ from __future__ import annotations
 
 # TOP tabs — the WheelEngine daily flow.
 TOP: list[tuple[str, str]] = [
-    ("Portfolio Center", "⚡"),
-    ("Trade Position", "📒"),
-    ("Decision Desk", "✅"),
-    ("Candidate Scanner", "🎯"),
+    ("Portfolio Center", "🏦"),
+    ("Trade Positions", "📒"),
+    ("Decision Desk", "⚖️"),
+    ("Candidate Scanner", "🔎"),
 ]
 
 # LEFT sidebar groups → [(label, icon, target_page)]. "Command Center" points back to
@@ -21,6 +21,7 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
     ],
     "TOOLS": [
         ("Reconcile", "🔄", "Reconcile"),
+        ("Report", "📄", "Report"),
     ],
     "REFERENCE": [
         ("Entry Setup", "📊", "Entry Setup"),
@@ -30,13 +31,14 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
 
 ROUTES: dict[str, str] = {
     "Portfolio Center":  "ui.pages.command_center",
-    "Trade Position":    "ui.pages.trade_position",
+    "Trade Positions":   "ui.pages.trade_position",
     "Candidate Scanner": "ui.pages.csp_scanner",
     "Decision Desk":     "ui.pages.candidate_hunt",
     "P/L":               "ui.pages.pl",
     "Performance":       "ui.pages.performance",
     "Allocation":        "ui.pages.allocation",
     "Reconcile":         "ui.pages.reconcile",
+    "Report":            "ui.pages.report",
     "Entry Setup":       "ui.pages.entry_setup",
     "Risk Gates":        "ui.pages.risk_gates",
 }

@@ -18,32 +18,45 @@ def _num(v):
     return rec._num(v)
 
 
-def _gtc_status(opt_typ: str, init_prem, dte, set_gtc):
+def gtc_key(acct, ticker, strike, expiry) -> str:
+    """Stable identity for a short put across the app (rows ↔ uploaded GTC CSV)."""
+    try:
+        s = f"{float(strike):g}"
+    except (TypeError, ValueError):
+        s = "?"
+    return f"{str(acct).strip().upper()}|{str(ticker).strip().upper()}|{s}|{str(expiry).strip()}"
+
+
+def _gtc_status(opt_typ: str, init_prem, dte, is_placed):
     """(label, state) for the GTC column. state ∈ good/bad/na.
-    Only short PUTs carry a CSP GTC ladder; others show '—'."""
+
+    GTC coverage means an order is actually placed at the broker — Fidelity can't
+    export open orders, so ``is_placed`` comes from the uploaded GTC CSV / ticks:
+      True  → placed (green, shows the ladder target for reference)
+      False → not placed (red MISSING)
+      None  → no GTC data provided yet (neutral, shows the target, no flag)."""
     if opt_typ != "PUT":
         return "—", "na"
     target = gtc_refresh.gtc_target(init_prem, gtc_refresh._num(dte))
-    s = str(set_gtc or "").replace("$", "").replace(",", "").strip()
-    setv = None
-    try:
-        setv = float(s) if s not in ("", "—", "None", "nan") else None
-    except ValueError:
-        setv = None
-    if setv is None:
-        return "MISSING", "bad"
-    if target is None:
-        return f"${setv:.2f}", "good"
-    if abs(setv - target) <= 0.02:
-        return f"${setv:.2f}", "good"
-    return f"${setv:.2f} ≠ ${target:.2f}", "bad"
+    tstr = f"${target:.2f}" if target else "—"
+    if is_placed is None:
+        return tstr, "na"
+    if is_placed:
+        return (f"✓ {tstr}" if target else "✓ placed"), "good"
+    return "MISSING", "bad"
 
 
-def build(tradelog_df: pd.DataFrame, fidelity: list | None) -> dict:
+def build(tradelog_df: pd.DataFrame, fidelity: list | None,
+          gtc_placed: set | list | None = None) -> dict:
     """Returns {rows, cards, has_fidelity}. rows drive the Action Queue table;
-    cards drive answers 2/4/5."""
+    cards drive answers 2/4/5.
+
+    gtc_placed: the set of gtc_key()s the user has confirmed have a live GTC order
+    at the broker (from the uploaded GTC CSV / ticks). None = no GTC data yet, so
+    coverage is shown neutral rather than falsely 'all covered' or all-missing."""
     fidelity = fidelity or []
     has_fid = bool(fidelity)
+    placed = set(gtc_placed) if gtc_placed is not None else None
 
     # Fidelity indices: options by reconcile key; shares by (acct,ticker); SHORT calls
     # (the ones that actually cover shares — a long LEAP does not) by (acct,ticker).
@@ -83,14 +96,17 @@ def build(tradelog_df: pd.DataFrame, fidelity: list | None) -> dict:
         set_gtc = r.get("GTC") if r is not None else None
         cur = _num(r.get("Current Price")) if r is not None else None
         matched = rec._key(p) in fid_opt
+        key = gtc_key(p["acct"], p["underlying"], p["strike"], p["expiry"])
 
-        gtc_label, gtc_state = _gtc_status(typ, init_prem, dte, set_gtc)
+        is_placed = None if placed is None else (key in placed)
+        gtc_label, gtc_state = _gtc_status(typ, init_prem, dte, is_placed)
         flags, action, act_state = [], "CLEAR", "good"
 
         if typ == "PUT":
             if gtc_state == "bad":
                 gtc_missing += 1
                 flags.append("gtc")
+                action, act_state = "PLACE GTC", "bad"
             if has_fid and not matched:
                 action, act_state = "NOT IN FIDELITY", "bad"
         else:   # CALL / LEAP — both flags come from the TradeLog CALL vs Fidelity.
@@ -117,11 +133,12 @@ def build(tradelog_df: pd.DataFrame, fidelity: list | None) -> dict:
         rows.append({"ticker": p["underlying"], "acct": p["acct"], "type": typ,
                      "cur": cur, "strike": p["strike"], "qty": p["qty"],
                      "expiry": p["expiry"], "gtc": gtc_label, "gtc_state": gtc_state,
-                     "action": action, "action_state": act_state, "flags": flags})
+                     "action": action, "action_state": act_state, "flags": flags,
+                     "key": key})
 
     cards = {
         "stuck": {"value": stuck_value, "count": stuck_count},
-        "gtc": {"missing": gtc_missing},
+        "gtc": {"missing": gtc_missing, "has_data": placed is not None},
         "cc": {"shares": cc_shares, "max": cc_contracts},
     }
     return {"rows": rows, "cards": cards, "has_fidelity": has_fid}
