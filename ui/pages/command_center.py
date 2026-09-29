@@ -662,12 +662,13 @@ def _pl_yoy(c: dict, df: pd.DataFrame) -> None:
     agg["Year"] = agg["Year"].astype(int).astype(str)
     fld = {"Profit / Loss": "pl", "Cash Reserve": "cash", "# Trades": "n"}[metric]
     yfmt = "d" if metric == "# Trades" else "$,.0f"
+    years = sorted(agg["Year"].unique(), reverse=True)[:2]             # current + previous only
+    agg = agg[agg["Year"].isin(years)]                                 # drop older years (fits 1 page)
     order = [m for m in _MONTHS_ORDER if m in set(agg["Month"])]
-    years = sorted(agg["Year"].unique(), reverse=True)                 # current year first
-    # Current year pops in blue (gold is reserved for the brand); prior years recede to
-    # grey shades (theme-aware — light greys on dark, dark greys on the grey theme).
+    # Current year pops in blue (gold is reserved for the brand); the prior year recedes to
+    # grey (theme-aware — light grey on dark, dark grey on the grey theme).
     cur_col = "#3b82f6"
-    palette = [cur_col, c["mid"], c["muted"], c["border"]]
+    palette = [cur_col, c["mid"]]
     ax = dict(labelColor=c["mid"], titleColor=c["muted"], gridColor=c["border_soft"],
               domainColor=c["border"], tickColor=c["border"], labelFontSize=13, titleFontSize=12)
     cscale = alt.Scale(domain=years, range=palette[:len(years)])
