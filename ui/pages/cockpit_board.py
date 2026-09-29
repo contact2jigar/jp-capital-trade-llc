@@ -193,7 +193,13 @@ def _money_card(r: dict, P: dict) -> str:
              + "".join(f"<div class='ck-mh'>{n}</div>" for n, _ in accts))
     for lbl, key in rows_def:
         cells += f"<div class='ck-ml'>{lbl}</div>"
-        cells += "".join(f"<div class='ck-mv'>{_m(a.get(key) or 0)}</div>" for _, a in accts)
+        for _, a in accts:
+            val = _m(a.get(key) or 0)
+            # At a new all-time high when the account value has caught up to the ATH ratchet.
+            if key == "ath" and abs((a.get("cap") or 0) - (a.get("ath") or 0)) < 1:
+                cells += f"<div class='ck-mv ck-athflash'>🏆 {val}</div>"
+            else:
+                cells += f"<div class='ck-mv'>{val}</div>"
     return (f"<div class='ck-card ck-bcard'>{_btag('💰 MONEY', 'Capital · ATH · Vault', P)}"
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
@@ -486,6 +492,10 @@ def _extra_css(P: dict) -> str:
 .ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;font-weight:500;line-height:1.1;
   color:{P['ink']};text-align:right;padding:2.5px 0;border-bottom:1px solid {P['lsoft']}}}
 .ck-mgrid > :nth-last-child(-n+3){{border-bottom:none}}
+.ck-athflash{{color:#37b24d!important;font-weight:700!important;animation:ck-athpulse 1.3s ease-in-out infinite}}
+@keyframes ck-athpulse{{0%,100%{{opacity:1;text-shadow:0 0 0 transparent}}
+  50%{{opacity:.6;text-shadow:0 0 9px rgba(67,196,99,.75)}}}}
+@media (prefers-reduced-motion:reduce){{.ck-athflash{{animation:none}}}}
 .ck-btbl{{width:100%;border-collapse:collapse;margin-top:5px}}
 .ck-btbl th{{font-size:9px!important;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};
   line-height:1.2!important;font-weight:700;text-align:right;padding:2px 10px 3px!important;
