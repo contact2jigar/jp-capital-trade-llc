@@ -181,7 +181,7 @@ def _breaker_card(r: dict, P: dict) -> str:
                 f"<div class='ck-gv'>{brk:.1f}%</div>"
                 f"<div class='ck-gz' style='color:{zc}'>{_m(gap)} <span>gap</span></div></div>")
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
-    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CC BREAKER', 'cap 45% · safe &lt; 30%', P)}"
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CC BREAKER', 'Cap 45% · Safe &lt; 30%', P)}"
             f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div></div>")
 
 
@@ -248,7 +248,7 @@ def _summary_grid(r: dict, P: dict) -> str:
             cls = "ck-wc ck-kcell" if isk else "ck-wc"
             cells += (f"<div class='{cls}'><span class='ck-wca'>{_m(amt)}</span>"
                       f"<span class='ck-wcp'>{pct:.1f}%</span></div>")
-    return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', 'capital · deploy · ready · cash · csp itm · positions', P)}"
+    return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', 'Capital · Deploy · Ready · Cash · CSP ITM · Positions', P)}"
             f"<div class='ck-sgrid'>{cells}</div></div>")
 
 
@@ -280,7 +280,7 @@ _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
 def _perf_grid(mdf, P: dict, year: int) -> str:
     """Performance for one year — IRA/LLC/SPY/QQQ rows, a FIXED Jan…Dec column set so both
     year cards align for easy comparison (months with no data show —)."""
-    tag = _btag(f"📈 PERFORMANCE {year}", "monthly return · vs indexes", P)
+    tag = _btag(f"📈 PERFORMANCE {year}", "Monthly Return · vs Indexes", P)
     if mdf is None or getattr(mdf, "empty", True):
         return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub'>No performance data.</div></div>"
     recs = {rr["date"].month: rr for rr in mdf.to_dict("records") if rr["date"].year == year}
