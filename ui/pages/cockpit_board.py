@@ -221,13 +221,13 @@ def _summary_grid(r: dict, P: dict) -> str:
     """One consolidated table — IRA/LLC/Total rows; the 3 decision metrics (Ready · %CSP ITM ·
     CC Breaker) sit in the centre, capital/deploy on the left, positions on the right."""
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", _total_acct(r["ira"], r["llc"]))]
-    # (label, kind, key, base, is_key)  kind: dollar | ready (green $) | itm (%)
+    # (label, kind, key, base, is_key)  kind: dollar | ready (green $). All show $ + %.
     cols = [("Capital", "dollar", "wcap", "cap", False),
             ("VIX Target", "dollar", "vtgt", "wcap", False),
             ("Deployed", "dollar", "dep", "wcap", False),
             ("Ready to Deploy", "ready", "rtd", "wcap", True),
-            ("%CSP ITM", "itm", "cspitm", None, True),
-            ("CC OTM", "dollar", "ccotm", "wcap", True),
+            ("Cash in Hand", "dollar", "cih", "wcap", True),
+            ("CSP ITM", "dollar", "itm", "wcap", True),
             ("CSP", "dollar", "csp", "wcap", False),
             ("CC", "dollar", "cc", "wcap", False),
             ("LEAP", "dollar", "leap", "wcap", False)]
@@ -238,17 +238,13 @@ def _summary_grid(r: dict, P: dict) -> str:
     for name, a in accts:
         cells += f"<div class='ck-fa'>{name}</div>"
         for lbl, k, key, base, isk in cols:
-            if k == "itm":
-                cells += (f"<div class='ck-wc ck-kcell'>"
-                          f"<span class='ck-wca'>{(a.get('cspitm') or 0) * 100:.1f}%</span></div>")
-                continue
             amt = a.get(key) or 0
             b = a.get(base) or 0
             pct = (amt / b * 100) if b else 0
             cls = "ck-wc-hi" if k == "ready" else ("ck-wc ck-kcell" if isk else "ck-wc")
             cells += (f"<div class='{cls}'><span class='ck-wca'>{_m(amt)}</span>"
                       f"<span class='ck-wcp'>{pct:.1f}%</span></div>")
-    return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', 'capital · deploy · ready · %csp itm · cc otm · positions', P)}"
+    return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', 'capital · deploy · ready · cash · csp itm · positions', P)}"
             f"<div class='ck-sgrid'>{cells}</div></div>")
 
 
@@ -457,9 +453,6 @@ def render(c: dict) -> None:
     except Exception:
         mdf = None
     _pd = _prem_dict(r.get("premium", []), ck._month_earned())
-    cco = _ccotm(cc._tradelog_full())                  # covered calls out of the money, per account
-    r["ira"]["ccotm"] = cco.get("IRA", 0)
-    r["llc"]["ccotm"] = cco.get("LLC", 0)
 
     band = r.get("band", 2)
     bdef = engine.BANDS[band] if 0 <= band < len(engine.BANDS) else engine.BANDS[2]
