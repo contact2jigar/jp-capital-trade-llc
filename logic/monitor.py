@@ -48,10 +48,12 @@ def pl_rollup(df: pd.DataFrame, date_col: str,
         "Year": d["_dt"].dt.year,
         "Month": d["_dt"].dt.strftime("%b"),
         "_m": d["_dt"].dt.month,
+        "Week": "W" + (((d["_dt"].dt.day - 1) // 7 + 1).astype(int).astype(str)),
         "Account": d.get("Account", "").astype(str).str.strip(),
         "Stock": d.get("Stock", "").astype(str).str.strip().str.upper(),
         "P/L": d.get(pl_col, 0).map(_money),
         "Cash Release": d.get(cash_col, 0).map(_money),
+        "Cash Reserve": d.get("Cash Reserve", 0).map(_money),
     })
     return out
 

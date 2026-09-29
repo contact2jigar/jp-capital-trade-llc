@@ -12,6 +12,7 @@ import math
 import streamlit as st
 
 from logic import monitor as engine
+from services import yahoo
 from ui.pages import command_center as cc
 
 # VIX bands: label + segment color (bright in either theme, so dark text on them).
@@ -48,6 +49,17 @@ def _m(v) -> str:
     return ("−$" + f"{-v:,.0f}") if v < 0 else ("$" + f"{v:,.0f}")
 
 
+def _mk(v) -> str:
+    """Compact dollars for tight one-line rows: 253137 → $253K, 4960 → $5K, 1.6e6 → $1.60M."""
+    v = float(v or 0)
+    a, s = abs(v), ("−" if v < 0 else "")
+    if a >= 1e6:
+        return f"{s}${a / 1e6:.2f}M"
+    if a >= 1e3:
+        return f"{s}${a / 1e3:.0f}K"
+    return f"{s}${a:.0f}"
+
+
 def _pct(part, whole) -> float:
     return (float(part) / float(whole) * 100.0) if whole else 0.0
 
@@ -56,7 +68,7 @@ def _pct(part, whole) -> float:
 
 
 # ── semicircle CC-breaker gauge: 45% cap = full deflection (the freeze redline) ─
-def _gauge(v: float, P: dict) -> str:
+def _gauge(v: float, P: dict, uid: str = "") -> str:
     cx, cy, r, S = 90, 86, 70, 45.0     # full arc = the 45% breaker cap
 
     def pol(deg):
@@ -71,13 +83,47 @@ def _gauge(v: float, P: dict) -> str:
 
     # Zones against the real cap: green < 30, amber 30–43, red 43–45 (the redline).
     gz, ay, rz = "#43c463", "#e6b93e", "#f2555a"
-    nx, ny = pol(180 - min(v, S) / S * 180)
+    ang = math.radians(180 - min(v, S) / S * 180)   # needle stops short; arrowhead reaches the band
+    nx, ny = cx + 56 * math.cos(ang), cy - 56 * math.sin(ang)
+    mid = f"ccbrktip{uid}"
     return f"""<svg viewBox="0 0 180 92" width="100%" style="max-width:172px" aria-label="CC breaker {v:.1f}% of 45% cap">
+      <defs><marker id="{mid}" markerUnits="userSpaceOnUse" markerWidth="16" markerHeight="16" refX="3" refY="8" orient="auto"><path d="M0,0 L16,8 L0,16 Z" fill="{P['ink']}"/></marker></defs>
       {arc(0, 29, gz)}{arc(30, 42, ay)}{arc(43, 45, rz)}
-      <line x1="{cx}" y1="{cy}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{P['ink']}" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="{cx}" y1="{cy}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{P['ink']}" stroke-width="2.5" stroke-linecap="round" marker-end="url(#{mid})"/>
       <circle cx="{cx}" cy="{cy}" r="5" fill="{P['ink']}"/>
       <circle cx="{cx}" cy="{cy}" r="10" fill="none" stroke="{P['line']}" stroke-width="1.5"/>
     </svg>"""
+
+
+def _fg_gauge(v: float, rating: str, col: str, P: dict) -> str:
+    """Compact 0–100 Fear & Greed dial: red → green band with a needle at the score.
+    The colored arc is what reads at a glance even at this size; score/label sit below."""
+    cx, cy, r, S = 60, 56, 46, 100.0
+
+    def pol(deg):
+        a = math.radians(deg)
+        return cx + r * math.cos(a), cy - r * math.sin(a)
+
+    def arc(v1, v2, c):
+        x1, y1 = pol(180 - v1 / S * 180)
+        x2, y2 = pol(180 - v2 / S * 180)
+        return (f'<path d="M{x1:.1f} {y1:.1f} A{r} {r} 0 0 1 {x2:.1f} {y2:.1f}" '
+                f'fill="none" stroke="{c}" stroke-width="11" stroke-linecap="round"/>')
+
+    # Extreme Fear · Fear · Neutral · Greed · Extreme Greed
+    ef, fe, ne, gr, eg = "#f2555a", "#e8893a", "#e6b93e", "#7cc47d", "#43c463"
+    ang = math.radians(180 - min(max(v, 0), S) / S * 180)   # needle stops short; arrowhead reaches the band
+    nx, ny = cx + 34 * math.cos(ang), cy - 34 * math.sin(ang)
+    svg = (f'<svg viewBox="0 0 120 64" width="100%" style="max-width:112px" '
+           f'aria-label="Fear and Greed {v:.0f} of 100">'
+           f'<defs><marker id="fgtip" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" '
+           f'refX="2.5" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 Z" fill="{P["ink"]}"/></marker></defs>'
+           f'{arc(0, 22, ef)}{arc(25, 44, fe)}{arc(46, 54, ne)}{arc(56, 74, gr)}{arc(76, 100, eg)}'
+           f'<line x1="{cx}" y1="{cy}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{P["ink"]}" '
+           f'stroke-width="2.5" stroke-linecap="round" marker-end="url(#fgtip)"/>'
+           f'<circle cx="{cx}" cy="{cy}" r="4.5" fill="{P["ink"]}"/></svg>')
+    return (f'<div class="ck-fgm">{svg}'
+            f'<div class="ck-fgl" style="color:{col}">F&amp;G <b>{v:.0f}</b> · {rating}</div></div>')
 
 
 def _card(name: str, cls_col: str, d: dict, P: dict) -> str:
@@ -114,11 +160,11 @@ def _card(name: str, cls_col: str, d: dict, P: dict) -> str:
           <div class="ck-ring" style="background:{ring}">
             <div class="ck-rmid"><b>{itm:.1f}%</b><span>CSP ITM</span></div></div>
           <div class="ck-legend">
-            {li(P['blue'], 'CSP', csp, d.get('csp'))}{li(P['gold'], 'CC', ccp, d.get('cc'))}
-            {li(P['purple'], 'LEAP', leap, d.get('leap'))}{li(P['steel'], 'Cash', cash, d.get('cih'))}
+            {li(P['steel'], 'Cash', cash, d.get('cih'))}{li(P['blue'], 'CSP', csp, d.get('csp'))}
+            {li(P['gold'], 'CC', ccp, d.get('cc'))}{li(P['purple'], 'LEAP', leap, d.get('leap'))}
           </div>
         </div>
-        <div class="ck-gauge">{_gauge(brk, P)}
+        <div class="ck-gauge">{_gauge(brk, P, name)}
           <div class="ck-gv">{brk:.1f}%</div>
           <div class="ck-gl">CC Breaker · cap 45%</div>
           <div class="ck-gz" style="color:{zc}">{ztx}</div>
@@ -183,18 +229,22 @@ def _premium(prem: list, P: dict, mo_earned: float | None = None) -> str:
         rate = earned / goal * 100                          # true run rate (can exceed 100)
         w = max(0.0, min(100.0, rate))                       # bar width, capped
         gap = goal - earned
-        rcol = P["green"] if rate >= 100 else P["gold"]
+        # Horizontal meter zones: blue while ramping (0–50) → yellow on track (50–90) → green
+        # near/at goal (90–100). The % text takes the zone color the pointer sits in.
+        pc = P["green"] if rate >= 90 else "#facc15" if rate >= 50 else "#3b82f6"
+        rcol = pc
         gaptxt = (f"Beat goal by · {_m(-gap)}" if gap < 0 else f"Gap to goal · {_m(gap)}")
         gcol = P["green"] if gap < 0 else P["amber"]
         return (f"<div class='ck-pcard'>"
                 f"<div class='ck-phead'><div>"
                 f"<div class='ck-plabel'>{title} earned premium</div>"
-                f"<div class='ck-pval'><b>{_m(earned)}</b> <span>/ {_m(goal)}</span></div>"
+                f"<div class='ck-pval'><b style='color:{pc}'>{_m(earned)}</b> "
+                f"<span>/ {_m(goal)}</span></div>"
                 f"</div><div class='ck-picon'>💰</div></div>"
-                f"<div class='ck-prate'><span>{title} run rate</span>"
-                f"<span class='ck-prpct' style='color:{rcol}'>{rate:.0f}%</span></div>"
-                f"<div class='ck-ptrack'><div class='ck-pfill' style='width:{w:.1f}%'></div></div>"
-                f"<div class='ck-pgap' style='color:{gcol}'>{gaptxt}</div></div>")
+                f"<div class='ck-pbot'><span class='ck-pgaptxt' style='color:{gcol}'>{gaptxt}</span>"
+                f"<div class='ck-pbar'><div class='ck-pband'></div>"
+                f"<div class='ck-pneedle' style='left:{w:.1f}%'></div></div>"
+                f"<span class='ck-prpct' style='color:{rcol}'>{rate:.0f}%</span></div></div>")
 
     return f"<div class='ck-prow'>{card('wk', 'Weekly')}{card('mo', 'Monthly')}</div>"
 
@@ -202,8 +252,8 @@ def _premium(prem: list, P: dict, mo_earned: float | None = None) -> str:
 def _css(P: dict) -> str:
     return f"""<style>
 .ck-wrap{{font-family:'IBM Plex Sans',system-ui,sans-serif;color:{P['ink']};
-  background:radial-gradient(1000px 420px at 72% -12%,{P['glow']} 0%,transparent 60%),{P['bg']};
-  border:1px solid {P['line']};border-radius:18px;padding:22px 22px 26px;margin-top:4px}}
+  background:radial-gradient(1000px 420px at 72% -12%,{P['glow']} 0%,transparent 60%),transparent;
+  padding:4px 0 8px;margin-top:2px}}
 .ck-cap,.ck-vv,.ck-ath,.ck-rv,.ck-gv,.ck-v,.ck-rp,.ck-seg,.ck-tag,.ck-target,.ck-lv b,.ck-lv em,.ck-gap,.ck-rmid b{{
   font-family:'IBM Plex Mono',ui-monospace,monospace}}
 .ck-top{{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:18px}}
@@ -216,13 +266,16 @@ def _css(P: dict) -> str:
 .ck-panel,.ck-card,.ck-pcard{{border:1px solid {P['line']};border-radius:16px;
   background:linear-gradient(155deg,{P['phi']},{P['plo']});
   box-shadow:inset 0 1px 0 {P['hi']},{P['shadow']}}}
-.ck-vix{{padding:16px 20px;margin-bottom:16px;display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center}}
+.ck-vix{{padding:9px 20px;margin-bottom:11px;display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:center}}
 .ck-vixnow{{display:flex;align-items:baseline;gap:9px}}
 .ck-vixnow .l{{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:{P['mut']}}}
-.ck-vixnow .vv{{font-size:31px;font-weight:600;letter-spacing:-.02em}}
+.ck-vixnow .vv{{font-size:26px;font-weight:600;letter-spacing:-.02em}}
 .ck-chg{{font-size:13px;font-weight:600;padding:3px 9px;border-radius:6px}}
+.ck-fgm{{display:flex;flex-direction:column;align-items:center;justify-self:center}}
+.ck-fgl{{font-size:10.5px;font-weight:600;letter-spacing:.02em;white-space:nowrap;margin-top:-5px}}
+.ck-fgl b{{font-family:'IBM Plex Mono',monospace;font-weight:700}}
 .ck-meter{{position:relative}}
-.ck-segs{{display:flex;height:46px;border-radius:9px;overflow:hidden;border:1px solid {P['line']}}}
+.ck-segs{{display:flex;height:38px;border-radius:9px;overflow:hidden;border:1px solid {P['line']}}}
 .ck-seg{{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
   color:#12181f;line-height:1.1}}
 .ck-seg.ck-dim{{opacity:.74}}
@@ -234,8 +287,11 @@ def _css(P: dict) -> str:
 .ck-needle::before{{content:"";position:absolute;top:-5px;left:50%;transform:translateX(-50%);
   border:5px solid transparent;border-top-color:{P['ink']}}}
 .ck-regime{{text-align:right;white-space:nowrap}}
+.ck-tl-row{{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:1px}}
+.ck-trend{{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  padding:3px 9px;border-radius:999px;white-space:nowrap}}
 .ck-tl{{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:{P['mut']}}}
-.ck-target{{font-size:27px;font-weight:600;color:{P['gold']};line-height:1.05;margin:3px 0}}
+.ck-target{{font-size:22px;font-weight:600;color:{P['gold']};line-height:1.05;margin:1px 0}}
 .ck-regime .s{{font-size:12.5px;color:{P['mut']};margin-top:2px}}
 .ck-cards{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}}
 .ck-card{{padding:20px}}
@@ -245,7 +301,7 @@ def _css(P: dict) -> str:
 .ck-sub{{font-size:13px;color:{P['mut']}}}
 .ck-ath{{font-size:13.5px;color:{P['mid']};margin-top:3px}}
 .ck-cap{{font-size:29px;font-weight:600;letter-spacing:-.02em}}
-.ck-inst{{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:center;margin:10px 0 16px}}
+.ck-inst{{display:grid;grid-template-columns:1.18fr 0.82fr;gap:14px;align-items:center;margin:10px 0 16px}}
 .ck-ringwrap{{display:flex;align-items:center;gap:14px}}
 .ck-ring{{width:120px;height:120px;border-radius:50%;flex:none;position:relative;
   box-shadow:0 10px 26px -14px rgba(0,0,0,.5),inset 0 0 0 1px {P['hi']}}}
@@ -258,12 +314,12 @@ def _css(P: dict) -> str:
 .ck-li{{display:flex;align-items:center;gap:8px;color:{P['mid']}}}
 .ck-dot{{width:11px;height:11px;border-radius:3px;flex:none}}
 .ck-ll{{font-size:13.5px;font-weight:600;min-width:38px}}
-.ck-lv{{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;line-height:1.2}}
-.ck-lv b{{color:{P['ink']};font-weight:700;font-size:15.5px}}
-.ck-lv em{{font-style:normal;color:{P['subv']};font-size:12.5px}}
-.ck-gauge{{display:flex;flex-direction:column;align-items:center;gap:2px}}
+.ck-lv{{margin-left:auto;display:flex;align-items:baseline;gap:8px}}
+.ck-lv b{{color:{P['ink']};font-weight:700;font-size:15px}}
+.ck-lv em{{font-style:normal;color:{P['subv']};font-size:12.5px;min-width:66px;text-align:right}}
+.ck-gauge{{display:flex;flex-direction:column;align-items:center;gap:2px;padding-left:22px}}
 .ck-gv{{font-size:23px;font-weight:600;margin-top:-28px}}
-.ck-gl{{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:{P['mut']};margin-top:5px}}
+.ck-gl{{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:{P['mut']};margin-top:5px;white-space:nowrap}}
 .ck-gz{{font-size:12.5px;font-weight:600;margin-top:3px}}
 .ck-ready{{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-radius:11px;
   background:{P['green']}1e;border:1px solid {P['green']}55}}
@@ -271,21 +327,26 @@ def _css(P: dict) -> str:
 .ck-rv{{font-size:21px;font-weight:700;color:{P['green']}}}
 .ck-rp{{font-size:13.5px;color:{P['green']};margin-left:8px}}
 .ck-prow{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
-.ck-pcard{{padding:18px 20px}}
-.ck-phead{{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}}
+.ck-pcard{{padding:11px 20px 13px}}
+.ck-phead{{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}}
 .ck-plabel{{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:{P['mut']}}}
-.ck-pval{{margin-top:6px;font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:700;color:{P['gold']}}}
-.ck-pval span{{color:{P['subv']};font-size:16px;font-weight:600}}
-.ck-picon{{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
-  font-size:20px;background:{P['gold']}1e;border:1px solid {P['gold']}44}}
-.ck-prate{{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}}
-.ck-prate span:first-child{{font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:{P['mut']}}}
-.ck-prpct{{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700}}
-.ck-ptrack{{height:12px;border-radius:7px;background:{P['track']};border:1px solid {P['lsoft']};overflow:hidden}}
-.ck-pfill{{height:100%;border-radius:7px;background:linear-gradient(90deg,#e8893a,{P['amber']},{P['green']});
-  box-shadow:0 0 14px -2px {P['green']}66}}
-.ck-pgap{{font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:9px}}
-@media (max-width:820px){{.ck-vix,.ck-cards,.ck-prow,.ck-inst{{grid-template-columns:1fr}}.ck-regime{{text-align:left}}}}
+.ck-pval{{margin-top:3px;font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;color:{P['gold']}}}
+.ck-pval span{{color:{P['subv']};font-size:15px;font-weight:600}}
+.ck-picon{{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  font-size:17px;background:{P['gold']}1e;border:1px solid {P['gold']}44}}
+.ck-prpct{{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700;white-space:nowrap}}
+.ck-pbot{{display:flex;align-items:center;gap:12px;margin-top:11px}}
+.ck-pgaptxt{{font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:nowrap}}
+.ck-pbar{{flex:1;position:relative;height:18px;display:flex;align-items:center}}
+.ck-pband{{width:100%;height:15px;border-radius:999px;border:1px solid {P['lsoft']};
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.28),inset 0 -1px 0 rgba(255,255,255,.2);
+  background:linear-gradient(90deg,#3b82f6 0 50%,#facc15 50% 90%,{P['green']} 90% 100%)}}
+.ck-pneedle{{position:absolute;top:-3px;bottom:-3px;width:3px;border-radius:3px;background:{P['ink']};
+  transform:translateX(-50%);box-shadow:0 0 0 2px {P['bg']},0 1px 4px rgba(0,0,0,.45)}}
+.ck-pneedle::before{{content:"";position:absolute;top:-7px;left:50%;transform:translateX(-50%);
+  border:5px solid transparent;border-top-color:{P['ink']}}}
+@media (max-width:820px){{.ck-vix,.ck-cards,.ck-prow,.ck-inst{{grid-template-columns:1fr!important}}
+  .ck-regime{{text-align:left}}.ck-tl-row{{justify-content:flex-start}}.ck-fgm{{align-items:flex-start}}}}
 @media (max-width:520px){{.ck-segs{{height:50px}}.ck-sr{{font-size:11px}}.ck-sd{{font-size:9px}}
   .ck-cap{{font-size:26px}}.ck-target{{font-size:24px}}}}
 </style>"""
@@ -304,18 +365,31 @@ def render(c: dict) -> None:
     dmin, dmax = (bdef[1] if up else bdef[3]) * 100, (bdef[2] if up else bdef[4]) * 100
     band_lbl = bdef[0]
     chg_col = P["red"] if vix_chg > 0 else P["green"]
+    fg = yahoo.fear_greed()                                # CNN Fear & Greed (None if unavailable)
+    fg_block, vcols = "", "auto 1fr auto"
+    if fg:
+        s = fg["score"]
+        fgc = (P["red"] if s < 25 else P["amber"] if s < 45 else P["gold"] if s < 55
+               else "#7cc47d" if s < 75 else P["green"])
+        fg_block = _fg_gauge(s, fg["rating"], fgc, P)
+        vcols = "auto auto 1fr auto"                        # add a column for the F&G dial
+
+    tc = P["green"] if up else P["red"]                    # trend badge — green up / red down
+    trend_badge = (f"<span class='ck-trend' style='color:{tc};background:{tc}22;border:1px solid {tc}55'>"
+                   f"{'↑' if up else '↓'} {trend}</span>")
 
     html = f"""{_css(P)}
     <div class="ck-wrap">
-      <div class="ck-panel ck-vix">
+      <div class="ck-panel ck-vix" style="grid-template-columns:{vcols}">
         <div class="ck-vixnow"><span class="l">VIX</span><span class="vv">{vix:.2f}</span>
           <span class="ck-chg" style="color:{chg_col};background:{chg_col}22;border:1px solid {chg_col}55">
           {vix_chg * 100:+.1f}%</span></div>
+        {fg_block}
         <div class="ck-meter">{_vix_meter(vix, band, up)}</div>
         <div class="ck-regime">
-          <div class="ck-tl">Deploy target · {trend}</div>
+          <div class="ck-tl-row"><span class="ck-tl">Target</span>{trend_badge}</div>
           <div class="ck-target">{dmin:.0f}–{dmax:.0f}%</div>
-          <div class="s">of wheel · band {band_lbl} · now {r.get('alloc', 0) * 100:.0f}%</div>
+          <div class="s">band {band_lbl} · now {r.get('alloc', 0) * 100:.0f}%</div>
         </div>
       </div>
       <div class="ck-cards">{_card('IRA', P['blue'], r['ira'], P)}{_card('LLC', P['purple'], r['llc'], P)}</div>
@@ -323,6 +397,3 @@ def render(c: dict) -> None:
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
-    src = "live Yahoo" if data["live"] else "sheet"
-    st.caption(f"Concept · all figures live from the TradeLog · VIX/trend from {src}. "
-               f"Same numbers as the Command Center, different instrument.")

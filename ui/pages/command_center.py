@@ -7,6 +7,7 @@ sheet's MonitorBoard tab — wiring next (its numbers have commas that split in 
 
 from __future__ import annotations
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -290,49 +291,79 @@ def _pl_stats(c: dict, yt: pd.DataFrame) -> str:
             f"{tile('Trades', f'{tr:,}', c['blue'])}</div>")
 
 
-def _pl_bars(c: dict, yt: pd.DataFrame) -> str:
-    if yt.empty:
-        return ""
-    recs = list(reversed(yt.to_dict("records")))            # chronological, Jan→latest
-    mx = max((abs(float(r["P/L"])) for r in recs), default=1) or 1
-    rows = ""
-    for r in recs:
-        pl = float(r["P/L"])
-        w = abs(pl) / mx * 100
-        col = c["pos"] if pl >= 0 else c["neg"]
-        rows += (f"<div style='display:flex;align-items:center;gap:10px;margin:6px 0;'>"
-                 f"<span style='width:34px;font-size:12.5px;color:{c['mid']};font-weight:700;'>{r['Month']}</span>"
-                 f"<div style='flex:1;height:15px;background:{c['raised']};border-radius:5px;overflow:hidden;'>"
-                 f"<div style='width:{w:.1f}%;height:100%;background:{col};border-radius:5px;'></div></div>"
-                 f"<span style='width:88px;text-align:right;font-size:13px;font-weight:800;color:{col};"
-                 f"font-variant-numeric:tabular-nums;'>${pl:,.0f}</span></div>")
-    return (f"<div style='background:{c['panel']};border:1px solid {c['border']};border-radius:12px;"
-            f"padding:13px 15px;margin-bottom:13px;'>"
-            f"<div style='font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;"
-            f"color:{c['muted']};margin-bottom:6px;'>Monthly P/L</div>{rows}</div>")
+def _pl_tree(c: dict, df: pd.DataFrame, levels: list, open_keys: set, depth: int) -> str:
+    """Recursive collapsible pivot: one <details> per group at each level, with the
+    level's subtotal (P/L + Cash Reserve) on the summary row. Leaf level = stock rows."""
+    key = levels[0]
+    leaf = len(levels) == 1
+    if key == "Year":
+        order = sorted(df["Year"].unique(), reverse=True)
+    elif key == "Month":
+        order = df.drop_duplicates("Month").sort_values("_m", ascending=False)["Month"].tolist()
+    elif key == "Week":
+        order = sorted(df["Week"].unique())
+    elif key == "Stock":
+        order = df.groupby("Stock")["P/L"].sum().sort_values(ascending=False).index.tolist()
+    else:
+        order = sorted(df[key].unique())
+
+    out = ""
+    for val in order:
+        g = df[df[key] == val]
+        pl, cash = g["P/L"].sum(), g["Cash Reserve"].sum()
+        plc = c["pos"] if pl >= 0 else c["neg"]
+        lbl = (f"<span class='pltr-lbl' style='padding-left:{depth * 20}px'>"
+               f"<span class='pltr-chev'>{'' if leaf else '▸'}</span>{val}</span>")
+        vals = (f"<span class='pltr-pl' style='color:{plc}'>{_m0(pl)}</span>"
+                f"<span class='pltr-cash'>{_m0(cash)}</span>")
+        if leaf:
+            out += f"<div class='pltr-row pltr-leaf'>{lbl}{vals}</div>"
+        else:
+            op = "open" if val in open_keys else ""
+            out += (f"<details {op}><summary class='pltr-row'>{lbl}{vals}</summary>"
+                    f"{_pl_tree(c, g, levels[1:], open_keys, depth + 1)}</details>")
+    return out
+
+
+def _pl_tree_html(c: dict, df: pd.DataFrame, levels: list, open_keys: set) -> str:
+    css = f"""<style>
+.pltr{{border:1px solid {c['border']};border-radius:10px;overflow:hidden;font-variant-numeric:tabular-nums}}
+.pltr summary{{list-style:none;outline:none}}
+.pltr summary::-webkit-details-marker{{display:none}}
+.pltr-row{{display:flex;align-items:center;padding:8px 14px;border-top:1px solid {c['border_soft']};font-size:13.5px}}
+.pltr summary.pltr-row{{cursor:pointer}}
+.pltr summary.pltr-row:hover{{background:{c['nav_hover']}}}
+.pltr-lbl{{flex:1;white-space:nowrap;font-weight:700;color:{c['text']}}}
+.pltr-leaf .pltr-lbl{{font-weight:500;color:{c['mid']}}}
+.pltr-pl{{width:120px;text-align:right;font-weight:800}}
+.pltr-cash{{width:150px;text-align:right;color:{c['muted']};font-weight:600}}
+.pltr-chev{{display:inline-block;width:15px;color:{c['muted']};font-size:10px;transition:transform .15s}}
+.pltr details[open]>summary .pltr-chev{{transform:rotate(90deg)}}
+.pltr-hdr,.pltr-tot{{background:{c['raised']}}}
+.pltr-hdr{{font-size:11px;letter-spacing:.05em;text-transform:uppercase}}
+.pltr-hdr .pltr-lbl,.pltr-hdr .pltr-pl,.pltr-hdr .pltr-cash{{color:{c['muted']};font-weight:800}}
+.pltr-tot{{border-top:2px solid {c['border']};font-weight:800;font-size:14px}}
+</style>"""
+    hdr = (f"<div class='pltr-row pltr-hdr'><span class='pltr-lbl'>Year → Month → Week → Acct → Stock</span>"
+           f"<span class='pltr-pl'>Profit / Loss</span><span class='pltr-cash'>Cash Reserve</span></div>")
+    tpl, tcash = df["P/L"].sum(), df["Cash Reserve"].sum()
+    tot = (f"<div class='pltr-row pltr-tot'><span class='pltr-lbl'>Grand Total</span>"
+           f"<span class='pltr-pl' style='color:{c['pos'] if tpl >= 0 else c['neg']}'>{_m0(tpl)}</span>"
+           f"<span class='pltr-cash'>{_m0(tcash)}</span></div>")
+    body = _pl_tree(c, df, levels, open_keys, 0)
+    return f"{css}<div class='pltr'>{hdr}{body}{tot}</div>"
 
 
 def _pl_section(c: dict, icon: str, title: str, sub: str, rollup: pd.DataFrame, key: str) -> None:
     st.markdown(f"##### {icon} {title}")
-    st.caption(sub)
     if rollup.empty:
         st.info("No dated rows found.")
         return
 
-    totals = engine.monthly_totals(rollup)
-    years = sorted(rollup["Year"].unique(), reverse=True)
-    yr = st.selectbox("Year", years, key=f"{key}_yr")
-    yt = totals[totals["Year"] == yr].drop(columns="Year").reset_index(drop=True)
-
-    st.markdown(_pl_stats(c, yt) + _pl_bars(c, yt), unsafe_allow_html=True)
-    st.markdown(_pl_html(c, yt), unsafe_allow_html=True)
-
-    with st.expander("Drill into a month (account → stock)"):
-        months = yt["Month"].tolist()
-        if months:
-            m = st.selectbox("Month", months, key=f"{key}_mo")
-            det = engine.detail_for(rollup, yr, m)
-            st.markdown(_pl_html(c, det), unsafe_allow_html=True)
+    yr = int(rollup["Year"].max())
+    mo = rollup[rollup["Year"] == yr].sort_values("_m").iloc[-1]["Month"]   # newest month
+    levels = ["Year", "Month", "Week", "Account", "Stock"]
+    st.markdown(_pl_tree_html(c, rollup, levels, {yr, mo}), unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -610,16 +641,90 @@ def render_trade_log(c: dict) -> None:
     _trade_log(c)
 
 
+_MONTHS_ORDER = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _pl_yoy(c: dict, df: pd.DataFrame) -> None:
+    """Year-over-year monthly comparison — grouped bars, one bar per year per month,
+    so 2025 vs 2026 (vs 2024) sit side by side and the seasonal pattern reads at a glance."""
+    a, b = st.columns([1, 1.2])
+    with a:
+        basis = st.radio("Basis", ["Open Date", "Close Date"], horizontal=True, key="pl_yoy_basis")
+    with b:
+        metric = st.radio("Metric", ["Profit / Loss", "Cash Reserve", "# Trades"],
+                          horizontal=True, key="pl_yoy_metric")
+    roll = engine.pl_rollup(df, basis)
+    if roll.empty:
+        return
+    agg = roll.groupby(["Year", "_m", "Month"], as_index=False).agg(
+        pl=("P/L", "sum"), cash=("Cash Reserve", "sum"), n=("Stock", "size"))
+    agg["Year"] = agg["Year"].astype(int).astype(str)
+    fld = {"Profit / Loss": "pl", "Cash Reserve": "cash", "# Trades": "n"}[metric]
+    yfmt = "d" if metric == "# Trades" else "$,.0f"
+    order = [m for m in _MONTHS_ORDER if m in set(agg["Month"])]
+    years = sorted(agg["Year"].unique(), reverse=True)                 # current year first
+    # Current year pops in blue (gold is reserved for the brand); prior years recede to
+    # grey shades (theme-aware — light greys on dark, dark greys on the grey theme).
+    cur_col = "#3b82f6"
+    palette = [cur_col, c["mid"], c["muted"], c["border"]]
+    ax = dict(labelColor=c["mid"], titleColor=c["muted"], gridColor=c["border_soft"],
+              domainColor=c["border"], tickColor=c["border"], labelFontSize=13, titleFontSize=12)
+    cscale = alt.Scale(domain=years, range=palette[:len(years)])
+
+    cur = agg[agg["Year"] == years[0]]                        # current year rows only
+
+    def panel(field, title, height, show_x, legend):
+        fmt = "d" if field == "n" else "$,.0f"
+        lbl = "d" if field == "n" else "$.2s"                 # compact label (e.g. $56k)
+        x = alt.X("Month:N", sort=order, title=None,
+                  axis=(alt.Axis(labelAngle=0, **ax) if show_x else None))
+        xo = alt.XOffset("Year:N", sort=years)
+        bars = alt.Chart(agg).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+            x=x, xOffset=xo,
+            y=alt.Y(f"{field}:Q", title=title, axis=alt.Axis(format=fmt, **ax)),
+            color=alt.Color("Year:N", scale=cscale, legend=None),
+            tooltip=[alt.Tooltip("Year:N"), alt.Tooltip("Month:N"),
+                     alt.Tooltip("pl:Q", title="Profit / Loss", format="$,.0f"),
+                     alt.Tooltip("cash:Q", title="Cash Reserve", format="$,.0f"),
+                     alt.Tooltip("n:Q", title="# Trades", format="d")])
+        # Value labels on the current-year (gold) bars only — keeps it uncluttered.
+        labels = alt.Chart(cur).mark_text(dy=-5, fontSize=10.5, fontWeight="bold",
+                                          color=cur_col).encode(
+            x=x, xOffset=xo, y=alt.Y(f"{field}:Q"),
+            text=alt.Text(f"{field}:Q", format=lbl))
+        return (bars + labels).properties(height=height)
+
+    sw = "".join(
+        f"<span style='display:inline-block;width:11px;height:11px;border-radius:3px;"
+        f"background:{palette[i]};vertical-align:middle;margin:0 4px 0 12px;'></span>"
+        f"<span style='font-size:13px;color:{c['text']};font-weight:600;'>{yr}</span>"
+        for i, yr in enumerate(years))
+    st.markdown(f"##### 📊 {metric} by month — year over year &nbsp;{sw}"
+                f"&nbsp; <span style='font-size:12px;color:{c['muted']};font-weight:400'>· # Trades below</span>",
+                unsafe_allow_html=True)
+    if metric == "# Trades":                                  # already the # Trades chart
+        chart = panel("n", metric, 300, True, True)
+    else:                                                     # metric on top, # Trades "volume" strip below
+        main = panel(fld, metric, 240, False, True)
+        vol = panel("n", "# Trades", 90, True, False)
+        chart = alt.vconcat(main, vol, spacing=6).resolve_scale(x="shared")
+    chart = chart.configure_view(strokeWidth=0, fill=None).configure(background="transparent")
+    st.altair_chart(chart, use_container_width=True)
+
+
 def render_pl(c: dict) -> None:
-    """P/L page — Close Date vs Open Date drill-downs."""
+    """P/L page — a year-over-year monthly comparison, then Open/Close drill-downs."""
     df = _tradelog()
     if df.empty:
         st.warning("Couldn't load the TradeLog tab.")
         return
+    _pl_yoy(c, df)
+    st.write("")
     col1, col2 = st.columns(2)
     with col1:
-        _pl_section(c, "✅", "P/L by Close Date", "Year → Month → Account → Stock (realized).",
-                    engine.pl_rollup(df, "Close Date"), "cc_close")
-    with col2:
-        _pl_section(c, "📆", "P/L by Open Date", "Year → Month → Account → Stock (by entry).",
+        _pl_section(c, "📆", "P/L by Open Date", "Year → Month → Week → Account → Stock (by entry).",
                     engine.pl_rollup(df, "Open Date"), "cc_open")
+    with col2:
+        _pl_section(c, "✅", "P/L by Close Date", "Year → Month → Week → Account → Stock (realized).",
+                    engine.pl_rollup(df, "Close Date"), "cc_close")

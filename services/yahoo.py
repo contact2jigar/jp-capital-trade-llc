@@ -141,3 +141,19 @@ def get_earnings_date(ticker: str) -> dt.date | None:
     except Exception:
         return None
     return None
+
+
+@cached(TTL["fundamentals"])
+def fear_greed() -> dict | None:
+    """CNN Fear & Greed Index — current score (0-100) + rating. Unofficial CNN JSON
+    endpoint (needs a browser UA); returns None on any failure so callers can hide it."""
+    try:
+        import requests
+        h = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+        r = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
+                         headers=h, timeout=6)
+        d = r.json()["fear_and_greed"]
+        return {"score": round(float(d["score"])), "rating": str(d.get("rating", "")).title()}
+    except Exception:
+        return None
