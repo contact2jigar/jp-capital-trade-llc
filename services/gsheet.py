@@ -94,6 +94,12 @@ def performance() -> pd.DataFrame:
     return read_grid(_sheet.gid("performance"))
 
 
+def scoreboard() -> pd.DataFrame:
+    """The Scoreboard tab — DAILY rows (oldest first). row0 = headers, then
+    Date · J(portfolio) · R(Rayan) · SPY (Start/End/Chg/%) · VIX."""
+    return read_grid(_sheet.gid("scoreboard"))
+
+
 @cached(TTL["gsheet"])
 def read_grid_by_name(sheet_name: str) -> pd.DataFrame:
     """Read a tab as a raw ragged grid BY NAME (gviz) — no gid needed. Used for the

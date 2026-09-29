@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import re
 
+import pandas as pd
 import streamlit as st
 
 from services import gsheet
+from ui import benchmark
 
 # Column groups in the Performance grid (0-indexed): the %-change column of each.
 _PCT_COLS = {4, 8, 12, 16, 19}          # IRA/LLC/SPY/QQQ %Chg + Total % Return
@@ -67,13 +69,95 @@ def _table(c, header, rows):
 
 
 def render(c: dict) -> None:
-    st.caption("Monthly IRA · LLC vs SPY · QQQ — mirrored live from the sheet's Performance tab.")
-    grid = _grid()
-    if grid.empty or len(grid) < 3:
-        st.warning("Couldn't load the Performance tab.")
-        return
-    rows = grid.values.tolist()
-    st.markdown(_summary_cards(c, rows[0]), unsafe_allow_html=True)
-    header = [str(x).strip() for x in rows[1]]
-    data = [r for r in rows[2:] if str(r[0]).strip()]
-    st.markdown(_table(c, header, data), unsafe_allow_html=True)
+    st.caption("Monthly → my accounts in actual \\$ (IRA · LLC · Total). "
+               "Weekly & Daily → Mine vs Rayan vs SPY, growth of \\$100 (Scoreboard tab).")
+    gran = st.radio("Granularity", ["Monthly", "Weekly", "Daily"], horizontal=True,
+                    label_visibility="collapsed", key="perf_gran")
+
+    if gran == "Monthly":
+        df, series = benchmark.monthly_df()
+        if not df.empty:
+            st.markdown(benchmark.header_dollar(c, df, series, "monthly"), unsafe_allow_html=True)
+            st.caption("Each year **starts at 0%** (January opening) and the labeled dot is **where you are now** — "
+                       "% up / down straight from the sheet's Start→End. IRA (gold) · LLC (green) vs "
+                       "SPY (blue) · QQQ (gray); hover any point for the actual Fidelity \\$. Newest year on the left.")
+            order = ["IRA", "LLC", "SPY", "QQQ"]
+            colmap = {"IRA": c["gold"], "LLC": c["pos"], "SPY": c["blue"], "QQQ": c["muted"]}
+            actcol = {"IRA": "ira_usd", "LLC": "llc_usd", "SPY": "s_lvl", "QQQ": "q_lvl"}
+            dollar_keys = {"IRA", "LLC"}
+            years = sorted(df["date"].dt.year.unique(), reverse=True)
+            cols = st.columns(len(years)) if len(years) > 1 else [st]
+            for col, y in zip(cols, years):
+                ydf = df[df["date"].dt.year == y].sort_values("date").copy()
+                ydf["mon"] = ydf["date"].dt.strftime("%b")
+                b_i, b_l = ydf["ira_start"].iloc[0], ydf["llc_start"].iloc[0]
+                b_s, b_q = ydf["spy_start"].iloc[0], ydf["qqq_start"].iloc[0]
+                ydf["ira_usd"], ydf["llc_usd"] = ydf["IRA"], ydf["LLC"]     # month-end $ (tooltip)
+                ydf["s_lvl"], ydf["q_lvl"] = ydf["SPY"], ydf["QQQ"]         # index points (tooltip)
+                ydf["IRA"] = ydf["ira_usd"] / b_i * 100 if b_i else 100     # 100-index at Jan opening
+                ydf["LLC"] = ydf["llc_usd"] / b_l * 100 if b_l else 100
+                ydf["SPY"] = ydf["s_lvl"] / b_s * 100 if b_s else 100
+                ydf["QQQ"] = ydf["q_lvl"] / b_q * 100 if b_q else 100
+                col.markdown(benchmark.year_edge(c, ydf, y, order), unsafe_allow_html=True)
+                anchor = pd.DataFrame([{"mon": "Start", "IRA": 100, "LLC": 100, "SPY": 100, "QQQ": 100,
+                                        "ira_usd": b_i, "llc_usd": b_l, "s_lvl": b_s, "q_lvl": b_q}])
+                keep = ["mon", "IRA", "LLC", "SPY", "QQQ", "ira_usd", "llc_usd", "s_lvl", "q_lvl"]
+                aydf = pd.concat([anchor, ydf[keep]], ignore_index=True)
+                col.altair_chart(benchmark.growth_chart(c, aydf, order, colmap, actcol, dollar_keys),
+                                 use_container_width=True)
+
+    elif gran == "Weekly":
+        dwk, series = benchmark.scoreboard_df("W")    # Mine/Rayan/SPY growth-of-$100, weekly
+        dday, _ = benchmark.scoreboard_df("D")         # daily — for each month's true opening
+        if not dwk.empty:
+            dwk["month"] = dwk["date"].dt.to_period("M")
+            mlabels = {p.strftime("%B %Y"): p for p in sorted(dwk["month"].unique(), reverse=True)}
+            pick = st.selectbox("Month", list(mlabels) + ["All weeks"], key="perf_wk_month")
+            keep = ["wk"] + series
+            if pick == "All weeks":
+                wdf, lbl = benchmark.rebase(dwk, series)[keep].copy(), "all weeks"
+            else:
+                p = mlabels[pick]
+                wdf, lbl = dwk[dwk["month"] == p].copy(), pick
+                prior = dday[dday["date"] < p.start_time]      # last close before the month
+                if not prior.empty:
+                    base = prior.iloc[-1]                       # month opening = 0% anchor
+                    for k in series:
+                        wdf[k] = wdf[k] / base[k] * 100 if base[k] else 100
+                    anchor = pd.DataFrame([{"wk": "Start", **{k: 100.0 for k in series}}])
+                    wdf = pd.concat([anchor, wdf[keep]], ignore_index=True)
+                else:
+                    wdf = benchmark.rebase(wdf, series)[keep].copy()
+            colmap = {"Mine": c["gold"], "Rayan": c["accent"], "SPY": c["blue"]}
+            actcol = {k: k for k in series}
+            st.markdown(benchmark.header_index(c, wdf, series, lbl), unsafe_allow_html=True)
+            st.caption("**% up / down** by week, from the month's opening (0%) — Mine (gold) vs "
+                       "Rayan (teal) vs SPY (blue). Labeled dot = where each stands now; hover for growth of \\$100.")
+            st.altair_chart(benchmark.growth_chart(c, wdf, series, colmap, actcol,
+                            dollar_keys=set(series), x_field="wk", x_title="Week",
+                            y_title="Up / down since the month's start (0%)",
+                            actual_title="Value per $100 start"), use_container_width=True)
+
+    else:  # Daily — pick a month
+        df, series = benchmark.scoreboard_df("D")
+        if not df.empty:
+            months = sorted(df["date"].dt.to_period("M").unique(), reverse=True)
+            labels = {p.strftime("%B %Y"): p for p in months}
+            pick = st.selectbox("Month", list(labels), key="perf_day_month")
+            mdf = df[df["date"].dt.to_period("M") == labels[pick]]
+            mdf = benchmark.rebase(mdf, series)
+            st.markdown(benchmark.header_index(c, mdf, series, pick), unsafe_allow_html=True)
+            st.altair_chart(benchmark.chart(c, mdf, series, mode="index", x_fmt="%b %d",
+                                            tip_fmt="%b %d, %Y"), use_container_width=True)
+            st.caption("Daily growth of \\$100 for the selected month — Mine (gold) vs Rayan vs SPY.")
+
+    # The full monthly IRA·LLC·SPY·QQQ table lives under the Monthly view.
+    if gran == "Monthly":
+        grid = _grid()
+        if not grid.empty and len(grid) >= 3:
+            rows = grid.values.tolist()
+            st.write("")
+            st.markdown(_summary_cards(c, rows[0]), unsafe_allow_html=True)
+            hdr = [str(x).strip() for x in rows[1]]
+            data = [r for r in rows[2:] if str(r[0]).strip()]
+            st.markdown(_table(c, hdr, data), unsafe_allow_html=True)

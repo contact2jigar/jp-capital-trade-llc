@@ -206,44 +206,72 @@ def _cap_cell(c, acct_res):
 
 
 def _decisions_table(c, rows):
-    cols = ["Ticker", "Setup", "Current", "Strike", "Disc %", "3mo ↓", "Δ", "Premium",
-            "AOR", "GTC Close", "Cash Req", "IRA", "LLC", "Decision", "Why / Binding Gate"]
-    aligns = {"Current": "right", "Strike": "right", "Disc %": "center", "3mo ↓": "center",
-              "Δ": "center", "Premium": "right", "AOR": "center", "GTC Close": "right",
-              "Cash Req": "right", "IRA": "center", "LLC": "center", "Decision": "center"}
+    cols = ["Ticker", "Setup", "Current", "Strike", "Expiry", "Δ", "Prem", "AOR",
+            "RSI", "BB", "Earnings", "GTC", "IRA", "LLC", "Decision", "Why"]
+    aligns = {"Current": "right", "Strike": "right", "Δ": "center", "Prem": "right",
+              "AOR": "center", "RSI": "center", "GTC": "right", "IRA": "center",
+              "LLC": "center", "Decision": "center"}
     head = "".join(
         f"<th style='position:sticky;top:0;background:{c['raised']};color:{c['text']};"
         f"border:1px solid {c['border']};padding:7px 9px;text-align:{aligns.get(h, 'left')};"
         f"font-weight:700;font-size:11px;white-space:nowrap;'>{h}</th>" for h in cols)
+
+    def rg(ok):                                   # red / green text per gate
+        return c["pos"] if ok else c["neg"]
+
     body = ""
     for r in rows:
         base = f"border:1px solid {c['border']};padding:6px 9px;color:{c['text']};white-space:nowrap;"
         icon = _SETUP_ICON.get(r["setup"], "")
-        trade = r["tradable"]
-        dchip = (f"<span style='background:rgba(67,196,99,.16);color:{c['pos']};font-weight:800;"
-                 f"padding:3px 8px;border-radius:6px;font-size:11px;'>{r['decision']}</span>" if trade
-                 else f"<span style='background:rgba(242,85,90,.14);color:{c['neg']};font-weight:800;"
-                 f"padding:3px 8px;border-radius:6px;font-size:11px;'>BLOCKED</span>")
-        cur = f"${r['cur']:.2f}" if r.get('cur') else "—"
-        disc = f"{r['disc']:.1f}%" if r.get('disc') is not None else "—"
-        disc3 = f"{r['disc3']:.1f}%" if r.get('disc3') is not None else "—"
+        go = r["go"]
+        dchip = (f"<span style='background:rgba(67,196,99,.18);color:{c['pos']};font-weight:900;"
+                 f"padding:3px 11px;border-radius:6px;font-size:11px;letter-spacing:.03em;'>GO</span>" if go
+                 else f"<span style='background:rgba(242,85,90,.16);color:{c['neg']};font-weight:900;"
+                 f"padding:3px 11px;border-radius:6px;font-size:11px;letter-spacing:.03em;'>NO</span>")
+        cur = f"${r['cur']:.2f}" if r.get("cur") else "—"
+        dlt = f"{r['delta']:.2f}" if r.get("delta") is not None else "—"
+        prem = f"${r['prem']:.2f}" if r.get("prem") is not None else "—"
+        aor = f"{r['aor']:.0f}%" if r.get("aor") is not None else "—"
+        # AOR: ≥50 green · ≥45 gold · else regular
+        aorv = r.get("aor") or 0
+        aor_col = c["pos"] if aorv >= 50 else (c["amber"] if aorv >= 45 else c["text"])
+        aor_w = "800" if aor_col != c["text"] else "600"
+        # RSI: <45 green · >64 red · else regular
+        try:
+            rsiv = float(r["rsi"])
+        except (TypeError, ValueError):
+            rsiv = None
+        rsi_col = (c["pos"] if (rsiv is not None and rsiv < 45)
+                   else c["neg"] if (rsiv is not None and rsiv > 64) else c["text"])
+        rsi_w = "700" if rsi_col != c["text"] else "400"
+        # Earnings: red only if it lands ON/BEFORE expiry (a real veto), else regular
+        earn_raw = str(r.get("earn", "")).replace("⛔", "").strip()
+        earn_disp = "Clear" if (not earn_raw or earn_raw == "—") else earn_raw
+        earn_col = c["neg"] if not r["earn_ok"] else c["text"]
+        earn_w = "700" if not r["earn_ok"] else "400"
+
+        def cap(a):
+            return (_cap_cell(c, a) if a else
+                    f"<td style='{base}text-align:center;color:{c['muted']};'>—</td>")
+
         tds = (
             f"<td style='{base}font-weight:800;'>{r['ticker']}</td>"
             f"<td style='{base}'>{icon} {r['setup']}</td>"
             f"<td style='{base}text-align:right;'>{cur}</td>"
             f"<td style='{base}text-align:right;'>${r['strike']:.0f}</td>"
-            f"<td style='{base}text-align:center;color:{c['pos']};'>{disc}</td>"
-            f"<td style='{base}text-align:center;color:{c['pos']};'>{disc3}</td>"
-            f"<td style='{base}text-align:center;'>{r['delta']:.2f}</td>"
-            f"<td style='{base}text-align:right;'>${r['prem']:.2f}</td>"
-            f"<td style='{base}text-align:center;{('color:' + c['pos'] + ';font-weight:800;') if (r['aor'] or 0) >= 50 else ''}'>{r['aor']:.0f}%</td>"
+            f"<td style='{base}'>{r.get('expiry') or '—'}</td>"
+            f"<td style='{base}text-align:center;'>{dlt}</td>"
+            f"<td style='{base}text-align:right;'>{prem}</td>"
+            f"<td style='{base}text-align:center;font-weight:{aor_w};color:{aor_col};'>{aor}</td>"
+            f"<td style='{base}text-align:center;font-weight:{rsi_w};color:{rsi_col};'>{r['rsi']}</td>"
+            f"<td style='{base}font-weight:700;color:{rg(r['bb_ok'])};'>{r['bb']}</td>"
+            f"<td style='{base}font-weight:{earn_w};color:{earn_col};'>{earn_disp}</td>"
             f"<td style='{base}text-align:right;'>{('$%.2f' % r['gtc']) if r['gtc'] is not None else '—'}</td>"
-            f"<td style='{base}text-align:right;'>{_m0(r['cash_pc'])}</td>"
-            f"{_cap_cell(c, r['ira'])}{_cap_cell(c, r['llc'])}"
+            f"{cap(r['ira'])}{cap(r['llc'])}"
             f"<td style='{base}text-align:center;'>{dchip}</td>"
             f"<td style='{base}color:{c['muted']};font-size:11.5px;'>{r['why']}</td>")
         body += f"<tr>{tds}</tr>"
-    return (f"<div style='overflow:auto;max-height:620px;border:1px solid {c['border']};border-radius:10px;'>"
+    return (f"<div style='overflow:auto;max-height:1160px;border:1px solid {c['border']};border-radius:10px;'>"
             f"<table style='border-collapse:collapse;font-size:12.5px;width:100%;'>"
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>")
 
@@ -272,7 +300,8 @@ def render(c: dict) -> None:
     if cands is not None and meta is not None:
         min_aor = float(meta[1]) if len(meta) > 1 else 40.0
         dte = int(meta[4]) if len(meta) > 4 else 28
-        r = hunt.size(cands, df, ath_ira, ath_llc, vix, vix_chg, trend, dte, min_aor)
+        expiry = str(meta[3]) if len(meta) > 3 and meta[3] else ""
+        r = hunt.size(cands, df, ath_ira, ath_llc, vix, vix_chg, trend, dte, min_aor, expiry)
 
     # ── Part 1 — the five answers ──
     st.markdown(_answer_cards(c, board, aqres, (r["best"] if r else None), aqres["has_fidelity"]),
@@ -356,7 +385,7 @@ def render(c: dict) -> None:
             st.markdown("#### 🎯 Ranked New CSP Decisions")
         else:
             st.markdown(f"#### 🎯 Ranked New CSP Decisions  <span style='font-size:12px;color:{c['muted']};'>"
-                        f"Sorted by AOR · {r['n_tradable']} tradable · {r['n_blocked']} blocked</span>",
+                        f"Sorted by AOR · {r['n_tradable']} GO · {r['n_blocked']} NO</span>",
                         unsafe_allow_html=True)
     with runcol:
         if st.button("🎯 Run Hunt", type="primary", use_container_width=True,
@@ -372,20 +401,20 @@ def render(c: dict) -> None:
         return
     _, right = st.columns([2.2, 1.6])
     with right:
-        flt = st.radio("Filter", ["All", "Tradable", "IRA", "LLC", "Blocked"],
+        flt = st.radio("Filter", ["All", "GO", "NO", "IRA", "LLC"],
                        horizontal=True, label_visibility="collapsed", key="dd_filter")
     if not r["rows"]:
-        st.info(f"The last hunt found no setup-fired names clearing the {min_aor:.0f}% AOR floor.")
+        st.info("The last hunt found no setup-fired names.")
         return
     rows = r["rows"]
-    if flt == "Tradable":
-        rows = [x for x in rows if x["tradable"]]
-    elif flt == "Blocked":
-        rows = [x for x in rows if not x["tradable"]]
+    if flt == "GO":
+        rows = [x for x in rows if x["go"]]
+    elif flt == "NO":
+        rows = [x for x in rows if not x["go"]]
     elif flt == "IRA":
-        rows = [x for x in rows if x["ira"]["n"] > 0]
+        rows = [x for x in rows if x["ira"] and x["ira"]["n"] > 0]
     elif flt == "LLC":
-        rows = [x for x in rows if x["llc"]["n"] > 0]
+        rows = [x for x in rows if x["llc"] and x["llc"]["n"] > 0]
     st.markdown(_decisions_table(c, rows), unsafe_allow_html=True)
     st.caption(f"Hunt priced at **{meta[0]}** (Δ ≤ {meta[2]:.2f}, ≥{min_aor:.0f}% AOR) · sized against "
                f"5% name cap · Layer 2.5% · CSP room · CC Breaker. **Never places an order.**")

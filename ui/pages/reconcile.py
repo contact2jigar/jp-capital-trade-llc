@@ -36,8 +36,10 @@ def _chip(c, label, n, active, key):
 
 
 def _table(c, rows):
-    cols = ["Ticker", "State", "Acct", "Type", "Expiry", "Strike", "Tracked", "Fidelity", "Δ Qty"]
-    aligns = {"Strike": "right", "Tracked": "center", "Fidelity": "center", "Δ Qty": "center"}
+    cols = ["Ticker", "State", "Acct", "Type", "Expiry", "Strike", "Tracked Qty",
+            "Fidelity Qty", "Δ Qty", "Tracked $", "Fidelity $", "Δ $"]
+    aligns = {"Strike": "right", "Tracked Qty": "center", "Fidelity Qty": "center",
+              "Δ Qty": "center", "Tracked $": "right", "Fidelity $": "right", "Δ $": "right"}
     head = "".join(
         f"<th style='position:sticky;top:0;background:{c['raised']};color:{c['text']};"
         f"border:1px solid {c['border']};padding:7px 9px;text-align:{aligns.get(h, 'left')};"
@@ -66,6 +68,13 @@ def _table(c, rows):
             dq = f"−{r['qty_gs']}"
         dq_col = c["pos"] if dq in ("0", "") else c["neg"]
         strike = f"${r['strike']:.2f}" if r.get("strike") else "—"
+        tv, fv = r.get("tracked_val"), r.get("fid_val")
+        tv_s = f"${tv:,.0f}" if tv is not None else "—"
+        fv_s = f"${fv:,.0f}" if fv is not None else "—"
+        dv = (fv or 0) - (tv or 0)
+        # Δ$ only means something for a discrepancy — a clean match has none.
+        dv_s = "—" if (r["state"] == "MATCHED" or (tv is None and fv is None)) else f"${dv:+,.0f}"
+        dv_col = c["amber"] if (dv_s != "—") else c["muted"]
         tds = (
             f"<td style='{base}font-weight:800;'>{r['ticker']}</td>"
             f"<td style='{base}'>{badge}</td>"
@@ -75,7 +84,10 @@ def _table(c, rows):
             f"<td style='{base}text-align:right;'>{strike}</td>"
             f"<td style='{base}text-align:center;'>{qg}</td>"
             f"<td style='{base}text-align:center;'>{qf}</td>"
-            f"<td style='{base}text-align:center;color:{dq_col};font-weight:700;'>{dq}</td>")
+            f"<td style='{base}text-align:center;color:{dq_col};font-weight:700;'>{dq}</td>"
+            f"<td style='{base}text-align:right;'>{tv_s}</td>"
+            f"<td style='{base}text-align:right;'>{fv_s}</td>"
+            f"<td style='{base}text-align:right;color:{dv_col};font-weight:700;'>{dv_s}</td>")
         body += f"<tr style='background:{c['panel']};'>{tds}</tr>"
     return (f"<div style='overflow:auto;max-height:560px;border:1px solid {c['border']};border-radius:8px;'>"
             f"<table style='border-collapse:collapse;font-size:12.5px;width:100%;'>"
@@ -133,7 +145,9 @@ def render(c: dict) -> None:
                 cur = key
 
     rows = r["rows"]
-    if cur != "All":
+    if cur == "MISMATCH":                      # umbrella — every non-clean row
+        rows = [x for x in rows if x["state"] != "MATCHED"]
+    elif cur != "All":
         rows = [x for x in rows if x["state"] == cur]
     # Mismatched-looking first, then by ticker.
     order = {"MISMATCH": 0, "FID_ONLY": 1, "TRACKED_ONLY": 2, "MATCHED": 3}
@@ -143,5 +157,7 @@ def render(c: dict) -> None:
         st.success("Nothing to show for this filter — the book is clean here. ✅")
         return
     st.markdown(_table(c, rows), unsafe_allow_html=True)
-    st.caption("Matched by account · ticker · type · expiry · strike (LEAP counts as CALL, "
+    st.caption("Matched by account · ticker · type · expiry · strike. Mismatched = every non-clean "
+               "row (qty off · Fidelity only · tracked only). Tracked $ = collateral (strike×100×qty), "
+               "Fidelity $ = current option value. (LEAP counts as CALL, "
                "as Fidelity reports it). Δ Qty = Fidelity − Tracked. **Never places an order.**")

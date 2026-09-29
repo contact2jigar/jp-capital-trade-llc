@@ -15,6 +15,7 @@ Contracts = floor(min(room) / (strike × 100)). The binding gate is the tightest
 from __future__ import annotations
 
 import math
+import re
 
 import pandas as pd
 
@@ -143,26 +144,91 @@ def _clean_setup(s) -> str:
     return s.split("·")[0].strip() if s and s != "—" else "—"
 
 
+def _earn_days(earn: str) -> str:
+    m = re.search(r"\((\d+)d\)", str(earn))
+    return f"{m.group(1)}d" if m else ""
+
+
+def _blank_row(cand: dict, dte: int) -> dict:
+    """Display fields for a name we don't size (vetoed / below AOR) — no room calc."""
+    strike, prem, aor = _num(cand.get("Strike")), _num(cand.get("Prem")), _num(cand.get("AOR"))
+    gtc = gtc_refresh.gtc_target(prem, dte) if prem is not None else None
+    return dict(ticker=str(cand["Ticker"]).upper(), setup=_clean_setup(cand.get("Setup")),
+                strike=strike, delta=_num(cand.get("Δ")), prem=prem, aor=aor, cash_pc=None,
+                gtc=gtc, dte=dte, cur=_num(cand.get("Price")), disc=_num(cand.get("Cushion")),
+                disc3=_num(cand.get("3mo ↓")), ira=None, llc=None, best=None, tradable=False)
+
+
 def size(candidates: pd.DataFrame, tl_df: pd.DataFrame, ath_ira: float, ath_llc: float,
-         vix: float, vix_chg: float, trend: str, dte: int, min_aor: float) -> dict:
-    """Full Decision-Desk payload: board capacity + ranked, sized candidate rows."""
+         vix: float, vix_chg: float, trend: str, dte: int, min_aor: float,
+         expiry: str = "") -> dict:
+    """Full Decision-Desk payload: board capacity + ranked candidate rows.
+
+    Every setup-fired name meeting the AOR floor is shown. A name that fails the
+    quality/earnings veto is marked VETO (with the reason) and NOT sized — so it
+    can never get a TRADE/BLOCKED decision for the wrong reason (fixes AMD RSI 73).
+    Names passing the veto are sized against the per-account gates."""
     board = mb.monitor_board(tl_df, ath_ira, ath_llc, vix, vix_chg, trend)
     od = mb._openrows(tl_df)
     accts = {"IRA": board["ira"], "LLC": board["llc"]}
 
-    # Keep only names with a setup fired AND AOR ≥ the hunt's floor.
     rows = []
     for _, cand in candidates.iterrows():
-        setup = str(cand.get("Setup", ""))
-        aor = _num(cand.get("AOR"))
-        if not setup.startswith("✓") or aor is None or aor < min_aor:
+        d = cand.to_dict()
+        setup = str(d.get("Setup", ""))
+        strike = _num(d.get("Strike"))
+        if not setup.startswith("✓") or strike in (None, 0):
             continue
-        if _num(cand.get("Strike")) in (None, 0):
-            continue
-        rows.append(_size_one(cand.to_dict(), accts, od, dte))
 
-    rows.sort(key=lambda r: (r["aor"] or 0), reverse=True)
-    tradable = [r for r in rows if r["tradable"]]
-    return dict(board=board, rows=rows, tradable=tradable,
-                n_tradable=len(tradable), n_blocked=len(rows) - len(tradable),
-                best=(tradable[0] if tradable else None))
+        aor, rsi = _num(d.get("AOR")), _num(d.get("RSI"))
+        delta = _num(d.get("Δ"))
+        bb = str(d.get("BB", "")).lower()
+        earn = str(d.get("Earnings", "")).strip()
+
+        # Per-factor gates (each a red/green column).
+        em = re.search(r"\((\d+)d\)", earn)
+        edays = int(em.group(1)) if em else None
+        aor_ok = aor is not None and aor >= min_aor
+        rsi_ok = rsi is None or rsi < 64
+        bb_ok = not ("upper" in bb or "above" in bb)
+        earn_ok = edays is None or edays > dte            # veto only if ON/BEFORE expiry
+        delta_ok = delta is None or delta <= 0.30
+        veto_ok = rsi_ok and bb_ok and earn_ok            # framework hard vetoes
+
+        # Only size the name if it clears the vetoes — otherwise no room calc.
+        if veto_ok:
+            row = _size_one(d, accts, od, dte)
+            room_ok = bool(row["tradable"])
+        else:
+            row = _blank_row(d, dte)
+            room_ok = False
+
+        go = veto_ok and aor_ok and delta_ok and room_ok
+        # The single reason we're not a GO (first failing gate, in precedence).
+        if not earn_ok:
+            why = f"Earnings in {edays}d (≤ {dte}d exp)"
+        elif not rsi_ok:
+            why = f"RSI {rsi:.0f} ≥ 64"
+        elif not bb_ok:
+            why = "Near high BB"
+        elif not delta_ok:
+            why = f"Δ {delta:.2f} > 0.30"
+        elif not aor_ok:
+            why = f"AOR {aor:.0f}% < {min_aor:.0f}%" if aor is not None else "No AOR"
+        elif not room_ok:
+            why = row.get("why") or "No room"
+        else:
+            why = row.get("why") or "Clear"
+
+        row.update(expiry=expiry, rsi=(f"{rsi:.0f}" if rsi is not None else "—"),
+                   bb=(d.get("BB") or "—"), earn=(earn or "—"),
+                   aor_ok=aor_ok, rsi_ok=rsi_ok, bb_ok=bb_ok, earn_ok=earn_ok,
+                   delta_ok=delta_ok, room_ok=room_ok, veto_ok=veto_ok,
+                   go=go, decision=("GO" if go else "NO"), why=why)
+        rows.append(row)
+
+    # GO first, then the rest — each by AOR descending.
+    rows.sort(key=lambda r: (0 if r["go"] else 1, -(r["aor"] or 0)))
+    go_rows = [r for r in rows if r["go"]]
+    return dict(board=board, rows=rows, tradable=go_rows, n_tradable=len(go_rows),
+                n_blocked=len(rows) - len(go_rows), best=(go_rows[0] if go_rows else None))

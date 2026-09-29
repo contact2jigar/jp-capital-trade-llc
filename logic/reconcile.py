@@ -134,32 +134,50 @@ def _key(p) -> tuple:
             round(float(p.get("strike") or 0), 2))
 
 
+def _row(t, f, state) -> dict:
+    """One reconcile row from a tracked position t and/or a Fidelity position f.
+    Tracked $ = collateral (strike×100×qty); Fidelity $ = current option value."""
+    base = t or f
+    tracked_val = (abs(t["strike"]) * 100 * t["qty"]) if (t and t.get("strike")) else None
+    fid_val = abs(f["cur_val"]) if (f and f.get("cur_val") is not None) else None
+    return {"acct": base["acct"], "ticker": base["underlying"], "type": base["pos_type"],
+            "strike": (t.get("strike") if t else f.get("strike")),
+            "expiry": base.get("expiry"),
+            "qty_gs": (t["qty"] if t else None),
+            "qty_fid": (f["qty"] if f else None),
+            "tracked_val": tracked_val, "fid_val": fid_val,
+            "matched": bool(t and f),
+            "qty_ok": bool(t and f and t["qty"] == f["qty"]),
+            "state": state}
+
+
 def reconcile(tracked: list, fidelity: list) -> dict:
-    """Compare tracked vs Fidelity options. Returns rows + summary counts + cash."""
+    """Compare tracked vs Fidelity options. Returns rows + summary counts + cash.
+
+    Matched on account · ticker · type · expiry · strike. Anything that doesn't
+    line up — qty off, in Fidelity only, or tracked only — is a discrepancy, and
+    the 'Mismatched' count is the umbrella of all three (matches the legacy view)."""
     fid_opts = [p for p in fidelity if p["pos_type"] in ("PUT", "CALL")]
     fid_idx = {_key(fp): fp for fp in fid_opts}
     tr_keys = {_key(p) for p in tracked}
+
     rows = []
     for p in tracked:
         fp = fid_idx.get(_key(p))
         matched = fp is not None
-        qty_fid = fp["qty"] if fp else None
-        rows.append({"acct": p["acct"], "ticker": p["underlying"], "type": p["pos_type"],
-                     "strike": p.get("strike"), "expiry": p.get("expiry"),
-                     "qty_gs": p["qty"], "qty_fid": qty_fid, "matched": matched,
-                     "qty_ok": bool(matched and qty_fid == p["qty"]),
-                     "state": ("MATCHED" if (matched and qty_fid == p["qty"]) else
-                               "MISMATCH" if matched else "TRACKED_ONLY")})
+        state = ("MATCHED" if (matched and fp["qty"] == p["qty"]) else
+                 "MISMATCH" if matched else "TRACKED_ONLY")
+        rows.append(_row(p, fp, state))
     for fp in fid_opts:
         if _key(fp) not in tr_keys:
-            rows.append({"acct": fp["acct"], "ticker": fp["underlying"], "type": fp["pos_type"],
-                         "strike": fp.get("strike"), "expiry": fp.get("expiry"),
-                         "qty_gs": None, "qty_fid": fp["qty"], "matched": False,
-                         "qty_ok": False, "state": "FID_ONLY"})
+            rows.append(_row(None, fp, "FID_ONLY"))
 
     def count(s):
         return sum(1 for r in rows if r["state"] == s)
-    summary = {"total": len(rows), "matched": count("MATCHED"), "mismatch": count("MISMATCH"),
+    matched = count("MATCHED")
+    summary = {"total": len(rows), "matched": matched,
+               "mismatch": len(rows) - matched,           # umbrella: every non-clean row
+               "qty_diff": count("MISMATCH"),
                "fid_only": count("FID_ONLY"), "tracked_only": count("TRACKED_ONLY"),
                "fid_positions": len(fidelity)}
     # Cash by account: Fidelity SPAXX vs nothing-to-compare (tracked cash lives in the sheet).

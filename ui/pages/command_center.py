@@ -202,10 +202,11 @@ def _monitor_board(c: dict) -> None:
         f"<div style='display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;'>"
         f"<div style='flex:1;min-width:330px;'>{_money_matrix(r, pal)}</div>"
         f"<div style='flex:1.35;min-width:420px;'>{hdr}"
+        f"<div style='margin-bottom:10px;'>{_gaps_table(r, pal)}</div>"
         f"<div style='display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;'>"
         f"<div style='flex:1.4;min-width:250px;'>{_vix_table(r, pal)}</div>"
         f"<div style='flex:1;min-width:170px;'>{_premium_table(r, pal)}</div></div>"
-        f"{_gaps_table(r, pal)}</div></div>")
+        f"</div></div>")
     st.markdown(board, unsafe_allow_html=True)
 
     src = "live Yahoo" if mkt.get("vix") else "sheet"

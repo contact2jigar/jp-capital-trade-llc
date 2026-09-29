@@ -19,6 +19,10 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("Performance", "📈", "Performance"),
         ("Allocation", "🧮", "Allocation"),
     ],
+    "ANALYSIS": [
+        ("Price Wall Map", "🧱", "Price Wall Map"),
+        ("Seasonality", "📅", "Seasonality"),
+    ],
     "TOOLS": [
         ("Reconcile", "🔄", "Reconcile"),
         ("Report", "📄", "Report"),
@@ -37,6 +41,8 @@ ROUTES: dict[str, str] = {
     "P/L":               "ui.pages.pl",
     "Performance":       "ui.pages.performance",
     "Allocation":        "ui.pages.allocation",
+    "Price Wall Map":    "ui.pages.price_wall_map",
+    "Seasonality":       "ui.pages.seasonality",
     "Reconcile":         "ui.pages.reconcile",
     "Report":            "ui.pages.report",
     "Entry Setup":       "ui.pages.entry_setup",

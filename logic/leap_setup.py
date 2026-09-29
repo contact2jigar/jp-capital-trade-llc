@@ -54,10 +54,10 @@ def _bb_position(c, hi, lo, lb, mb, ub) -> str:
         return "—"
     if p >= 1.0:
         return "Above Upper"
-    if p >= 0.55:
-        return "Upper Half"
+    if p >= 0.75:
+        return "Upper Half"          # top quarter of the band — the Gate 3 veto zone
     if p >= 0.45:
-        return "Mid Band"
+        return "Mid Band"            # above mid but not near the top — actionable
     return "Lower Half"
 
 

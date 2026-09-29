@@ -42,6 +42,7 @@ TABS: dict[str, str] = {
     "tradelog": "1662549766",
     "monitorboard": "700303030",
     "performance": "1485071492",
+    "scoreboard": "1784110097",     # daily J vs Rayan vs SPY
 }
 
 
