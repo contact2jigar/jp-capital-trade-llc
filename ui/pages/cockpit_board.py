@@ -292,20 +292,32 @@ def _perf_grid(mdf, P: dict, year: int) -> str:
 
     series = [("IRA", P["blue"], "IRA", "ira_start"), ("LLC", P["purple"], "LLC", "llc_start"),
               ("SPY", P["mid"], "SPY", "spy_start"), ("QQQ", P["mid"], "QQQ", "qqq_start")]
-    cells = "<div class='ck-fh ck-fhl'>Series</div>" + "".join(f"<div class='ck-fh'>{m}</div>" for m in _MONTHS)
+    cells = ("<div class='ck-fh ck-fhl'>Series</div>"
+             + "".join(f"<div class='ck-fh'>{m}</div>" for m in reversed(_MONTHS))
+             + "<div class='ck-fh ck-khf'>Total</div>")
     for name, col, endk, startk in series:
         cells += f"<div class='ck-fa' style='color:{col}'>{name}</div>"
-        for mi in range(1, 13):
+        prod, seen = 1.0, False
+        for mi in range(12, 0, -1):
             rr = recs.get(mi)
             v = pc(rr.get(endk), rr.get(startk)) if rr else None
             if v is None:
                 cells += f"<div class='ck-pcell' style='color:{P['mut']}'>—</div>"
             else:
+                prod *= (1 + v / 100)
+                seen = True
                 cc = P["green"] if v >= 0 else P["red"]
                 cells += f"<div class='ck-pcell' style='color:{cc}'>{v:+.1f}%</div>"
+        if seen:
+            tv = (prod - 1) * 100
+            tc = P["green"] if tv >= 0 else P["red"]
+            cells += f"<div class='ck-pcell ck-ptot' style='color:{tc}'>{tv:+.1f}%</div>"
+        else:
+            cells += f"<div class='ck-pcell ck-ptot' style='color:{P['mut']}'>—</div>"
     return (f"<div class='ck-card ck-fcard'>{tag}"
             f"<div class='ck-pgw'><div class='ck-pgrid' "
-            f"style='grid-template-columns:auto repeat(12,minmax(52px,1fr))'>{cells}</div></div></div>")
+            f"style='grid-template-columns:auto repeat(12,minmax(50px,1fr)) minmax(66px,1.1fr)'>"
+            f"{cells}</div></div></div>")
 
 
 def _total_acct(I: dict, L: dict) -> dict:
@@ -409,6 +421,7 @@ def _extra_css(P: dict) -> str:
   border-radius:8px;overflow:hidden;min-width:100%}}
 .ck-pcell{{text-align:center;padding:5px 6px;font-family:'IBM Plex Mono',ui-monospace,monospace;
   font-weight:600;font-size:11px;background:{P['phi']};line-height:1.1;white-space:nowrap}}
+.ck-ptot{{background:{P['glow']}!important;font-weight:800!important;font-size:11.5px}}
 .ck-khf{{color:{P['ink']}!important;font-weight:800!important;background:{P['glow']}!important}}
 .ck-kcell{{background:{P['glow']}!important}}
 .ck-rbadge{{display:inline-flex;flex-direction:column;align-items:center;padding:3px 12px;border-radius:7px;
