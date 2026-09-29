@@ -274,36 +274,38 @@ def _matrix_grid(r: dict, P: dict) -> str:
             f"<div class='ck-fgrid'>{cells}</div></div>")
 
 
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
 def _perf_grid(mdf, P: dict, year: int) -> str:
-    """Performance for one year — IRA/LLC/SPY/QQQ rows, months as columns (% return, green/red)."""
+    """Performance for one year — IRA/LLC/SPY/QQQ rows, a FIXED Jan…Dec column set so both
+    year cards align for easy comparison (months with no data show —)."""
     tag = _btag(f"📈 PERFORMANCE {year}", "monthly return · vs indexes", P)
     if mdf is None or getattr(mdf, "empty", True):
         return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub'>No performance data.</div></div>"
-    recs = [rr for rr in mdf.sort_values("date", ascending=False).to_dict("records")
-            if rr["date"].year == year]
+    recs = {rr["date"].month: rr for rr in mdf.to_dict("records") if rr["date"].year == year}
     if not recs:
         return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub'>No {year} data.</div></div>"
-    mlabels = [rr["date"].strftime("%b") for rr in recs]
 
     def pc(end, start):
         return (float(end) / float(start) - 1) * 100 if (start and end) else None
 
     series = [("IRA", P["blue"], "IRA", "ira_start"), ("LLC", P["purple"], "LLC", "llc_start"),
               ("SPY", P["mid"], "SPY", "spy_start"), ("QQQ", P["mid"], "QQQ", "qqq_start")]
-    cells = "<div class='ck-fh ck-fhl'>Series</div>" + "".join(f"<div class='ck-fh'>{m}</div>" for m in mlabels)
+    cells = "<div class='ck-fh ck-fhl'>Series</div>" + "".join(f"<div class='ck-fh'>{m}</div>" for m in _MONTHS)
     for name, col, endk, startk in series:
         cells += f"<div class='ck-fa' style='color:{col}'>{name}</div>"
-        for rr in recs:
-            v = pc(rr.get(endk), rr.get(startk))
+        for mi in range(1, 13):
+            rr = recs.get(mi)
+            v = pc(rr.get(endk), rr.get(startk)) if rr else None
             if v is None:
                 cells += f"<div class='ck-pcell' style='color:{P['mut']}'>—</div>"
             else:
                 cc = P["green"] if v >= 0 else P["red"]
                 cells += f"<div class='ck-pcell' style='color:{cc}'>{v:+.1f}%</div>"
-    n = len(mlabels)
     return (f"<div class='ck-card ck-fcard'>{tag}"
             f"<div class='ck-pgw'><div class='ck-pgrid' "
-            f"style='grid-template-columns:auto repeat({n},minmax(52px,1fr))'>{cells}</div></div></div>")
+            f"style='grid-template-columns:auto repeat(12,minmax(52px,1fr))'>{cells}</div></div></div>")
 
 
 def _total_acct(I: dict, L: dict) -> dict:
