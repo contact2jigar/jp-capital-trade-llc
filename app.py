@@ -37,6 +37,13 @@ theme = st.query_params.get("theme", "Dark")
 if theme not in PALETTES:
     theme = "Dark"
 
+# ── Refresh (the 🔄 in the banner links here with &refresh=1) ─────────────────
+# Clear cached sheet/market data, drop the flag so it doesn't loop, then rerun fresh.
+if "refresh" in st.query_params:
+    st.cache_data.clear()
+    del st.query_params["refresh"]
+    st.rerun()
+
 # ── Chrome ────────────────────────────────────────────────────────────────────
 c = apply_theme(theme)            # inject CSS, return palette
 render_sidebar(c, page, theme)

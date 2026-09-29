@@ -7,6 +7,8 @@ sidebar stays (brand · theme · future tools). Every link carries
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import streamlit as st
 
 from ui import brand, nav
@@ -15,9 +17,10 @@ def _href(page: str, theme: str) -> str:
     return f"?nav={page.replace(' ', '%20')}&theme={theme}"
 
 
-def _banner(active: str) -> None:
+def _banner(active: str, theme: str) -> None:
     """Full-width brand header (Banner A) — a dark command strip with a gold hairline,
-    shown identically on every page; the current page name sits on the right."""
+    shown identically on every page; the current page name + a 🔄 refresh sit on the right."""
+    refresh = f"?nav={quote(active, safe='')}&theme={quote(theme, safe='')}&refresh=1"
     st.markdown(
         '<div style="display:flex;align-items:center;gap:15px;padding:12px 20px;margin-bottom:12px;'
         'border-radius:12px;background:linear-gradient(90deg,#161f2b,#0e151d);'
@@ -29,11 +32,15 @@ def _banner(active: str) -> None:
         '<span style="font-size:13px;color:#8aa0b8;">by JP Capital &amp; Trade</span>'
         f'<span style="margin-left:auto;font-size:16px;font-weight:700;color:#cfd8e0;'
         f'letter-spacing:.01em;">{active}</span>'
+        f'<a href="{refresh}" target="_self" title="Refresh data — reload live sheet &amp; market" '
+        'style="margin-left:14px;text-decoration:none;font-size:16px;line-height:1;'
+        'padding:7px 10px;border-radius:9px;background:#1c2734;border:1px solid #2c3a48;'
+        'color:#e9eff5;">🔄</a>'
         '</div>', unsafe_allow_html=True)
 
 
 def render_topnav(active: str, theme: str) -> None:
-    _banner(active)                                       # persistent brand strip, every page
+    _banner(active, theme)                                # persistent brand strip, every page
     top_names = {name for name, _ in nav.TOP}
     if active not in top_names:
         return                                            # banner already names the page
