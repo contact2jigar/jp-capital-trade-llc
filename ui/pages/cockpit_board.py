@@ -297,23 +297,24 @@ def _perf_grid(mdf, P: dict, year: int) -> str:
              + "<div class='ck-fh ck-khf'>Total</div>")
     for name, col, endk, startk in series:
         cells += f"<div class='ck-fa' style='color:{col}'>{name}</div>"
-        prod, seen = 1.0, False
         for mi in range(12, 0, -1):
             rr = recs.get(mi)
             v = pc(rr.get(endk), rr.get(startk)) if rr else None
             if v is None:
                 cells += f"<div class='ck-pcell' style='color:{P['mut']}'>—</div>"
             else:
-                prod *= (1 + v / 100)
-                seen = True
                 cc = P["green"] if v >= 0 else P["red"]
                 cells += f"<div class='ck-pcell' style='color:{cc}'>{v:+.1f}%</div>"
-        if seen:
-            tv = (prod - 1) * 100
+        # Year total = point-to-point (Jan start → latest month end), matching the sheet header.
+        base = recs[1].get(startk) if 1 in recs else None
+        lm = max(recs) if recs else None
+        cur = recs[lm].get(endk) if lm else None
+        tv = (float(cur) / float(base) - 1) * 100 if (base and cur) else None
+        if tv is None:
+            cells += f"<div class='ck-pcell ck-ptot' style='color:{P['mut']}'>—</div>"
+        else:
             tc = P["green"] if tv >= 0 else P["red"]
             cells += f"<div class='ck-pcell ck-ptot' style='color:{tc}'>{tv:+.1f}%</div>"
-        else:
-            cells += f"<div class='ck-pcell ck-ptot' style='color:{P['mut']}'>—</div>"
     return (f"<div class='ck-card ck-fcard'>{tag}"
             f"<div class='ck-pgw'><div class='ck-pgrid' "
             f"style='grid-template-columns:auto repeat(12,minmax(50px,1fr)) minmax(66px,1.1fr)'>"
