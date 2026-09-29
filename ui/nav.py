@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # TOP tabs — the WheelEngine daily flow.
 TOP: list[tuple[str, str]] = [
+    ("Board", "📊"),
     ("Cockpit", "🛰️"),
     ("Trade Positions", "📒"),
     ("Decision Desk", "⚖️"),
@@ -37,6 +38,7 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
 
 ROUTES: dict[str, str] = {
     "Portfolio Center":  "ui.pages.command_center",
+    "Board":             "ui.pages.cockpit_board",
     "Cockpit":           "ui.pages.cockpit",
     "Trade Positions":   "ui.pages.trade_position",
     "Candidate Scanner": "ui.pages.csp_scanner",
