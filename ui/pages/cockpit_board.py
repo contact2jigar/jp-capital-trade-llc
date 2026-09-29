@@ -200,8 +200,70 @@ def _money_card(r: dict, P: dict) -> str:
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
 
+def _total_acct(I: dict, L: dict) -> dict:
+    ks = ["cap", "wcap", "vtgt", "cih", "dep", "csp", "cc", "leap", "rtd", "brkgap", "leapgap", "itm"]
+    T = {k: (I.get(k) or 0) + (L.get(k) or 0) for k in ks}
+    w = T["wcap"] or 0
+    T["ccbrk"] = ((T["cc"] + T["itm"]) / w) if w else 0.0
+    T["cspitm"] = (T["itm"] / w) if w else 0.0
+    return T
+
+
+def _acct_card(name: str, a: dict, accent: str, P: dict) -> str:
+    """One account column: the Wheel-capital breakdown + the Focus-matrix gates, $ + %."""
+    wcap = a.get("wcap") or 1
+    cap = a.get("cap") or wcap
+    ink, mut, g = P["ink"], P["mut"], P["green"]
+
+    def pc(v):
+        return f"{(v or 0) / wcap * 100:.1f}%" if wcap else "—"
+
+    ccb = (a.get("ccbrk") or 0) * 100
+    bc = g if ccb < 30 else P["amber"] if ccb < 45 else P["red"]
+    lg = a.get("leapgap", 0)
+    rows = [
+        ("Capital", _m(a.get("wcap")), ink, f"{wcap / cap * 100:.1f}%", mut),
+        ("VIX Target", _m(a.get("vtgt")), ink, pc(a.get("vtgt")), mut),
+        ("Cash in Hand", _m(a.get("cih")), ink, pc(a.get("cih")), mut),
+        ("Deployed", _m(a.get("dep")), ink, pc(a.get("dep")), mut),
+        ("CSP", _m(a.get("csp")), ink, pc(a.get("csp")), mut),
+        ("CC", _m(a.get("cc")), ink, pc(a.get("cc")), mut),
+        ("LEAP", _m(a.get("leap")), ink, pc(a.get("leap")), mut),
+        ("SEP", None, None, None, None),
+        ("Ready / CSP Gap", _m(a.get("rtd")), g, pc(a.get("rtd")), g),
+        ("CC Breaker", f"{ccb:.1f}%", bc, "", mut),
+        ("Breaker Gap", _m(a.get("brkgap")), g, "", mut),
+        ("%CSP ITM", f"{(a.get('cspitm') or 0) * 100:.1f}%", ink, "", mut),
+        ("LEAP Gap", _m(lg), g if lg >= 0 else P["red"], "", mut),
+    ]
+    cells = ""
+    for lbl, val, vc, pct, pcc in rows:
+        if val is None:
+            cells += "<div class='ck-asep'></div>"
+            continue
+        cells += (f"<div class='ck-al'>{lbl}</div>"
+                  f"<div class='ck-av' style='color:{vc}'>{val}</div>"
+                  f"<div class='ck-ap' style='color:{pcc}'>{pct}</div>")
+    badge = (f"<span class='ck-tag' style='color:{accent};background:{accent}22;"
+             f"border:1px solid {accent}66'>{name}</span>")
+    return (f"<div class='ck-card ck-acard'>"
+            f"<div class='ck-chead'><div class='ck-acct'>{badge}"
+            f"<span class='ck-sub'>capital · gates</span></div></div>"
+            f"<div class='ck-agrid'>{cells}</div></div>")
+
+
 def _extra_css(P: dict) -> str:
     return f"""<style>
+.ck-arow{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;margin-bottom:14px;align-items:start}}
+.ck-acard{{padding:10px 15px 11px}}
+.ck-agrid{{display:grid;grid-template-columns:1fr auto auto;column-gap:14px;margin-top:6px}}
+.ck-al{{font-size:11.5px;font-weight:600;color:{P['ink']};line-height:1.1;padding:2.5px 0}}
+.ck-av{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:700;
+  text-align:right;line-height:1.1;padding:2.5px 0}}
+.ck-ap{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;font-weight:600;
+  text-align:right;line-height:1.1;padding:2.5px 0;min-width:44px}}
+.ck-asep{{grid-column:1/-1;height:1px;background:{P['line']};margin:4px 0}}
+@media (max-width:820px){{.ck-arow{{grid-template-columns:1fr}}}}
 .ck-brow2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;align-items:start}}
 .ck-mpct{{color:{P['mut']}!important;font-weight:600!important}}
 .ck-bcard .ck-chead,.ck-brkcard .ck-chead{{margin-bottom:2px}}
@@ -309,6 +371,11 @@ def render(c: dict) -> None:
         {_period_card('Weekly', _pd.get('wk_earned', 0), _pd.get('wk_goal', 0), P)}
         {_breaker_card(r, P)}
         {_money_card(r, P)}
+      </div>
+      <div class="ck-arow">
+        {_acct_card('IRA', r['ira'], P['blue'], P)}
+        {_acct_card('LLC', r['llc'], P['purple'], P)}
+        {_acct_card('Total', _total_acct(r['ira'], r['llc']), P['steel'], P)}
       </div>
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
