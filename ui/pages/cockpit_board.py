@@ -108,8 +108,46 @@ def _matrix_table(r: dict, P: dict) -> str:
             f"<table class='ck-btbl'><thead>{head}</thead><tbody>{body}</tbody></table></div>")
 
 
+def _goal_card(prem: list, P: dict, mo_earned: float | None = None) -> str:
+    """Premium goals merged into ONE compact card — Weekly + Monthly rows, each with the
+    earned/goal, gap text, and the blue→yellow→green progress meter."""
+    d = {}
+    for lbl, val in prem or []:
+        s = str(lbl).lower()
+        per = "wk" if ("wk" in s or "week" in s) else "mo"
+        kind = "goal" if "goal" in s else "earned" if "earn" in s else "gap" if "gap" in s else None
+        if kind:
+            d[f"{per}_{kind}"] = float(val or 0)
+    if mo_earned is not None:
+        d["mo_earned"] = mo_earned
+
+    def row(per, title):
+        goal = d.get(f"{per}_goal", 0) or 1
+        earned = d.get(f"{per}_earned", 0)
+        gap = goal - earned
+        rate = earned / goal * 100
+        w = max(0.0, min(100.0, rate))
+        pc = P["green"] if rate >= 90 else "#facc15" if rate >= 50 else "#3b82f6"
+        gaptxt = f"Beat goal by · {_m(-gap)}" if gap < 0 else f"Gap to goal · {_m(gap)}"
+        gcol = P["green"] if gap < 0 else P["amber"]
+        return (f"<div class='ck-grow'>"
+                f"<div class='ck-phead'><span class='ck-plabel'>💰 {title}</span>"
+                f"<span class='ck-pval'><b style='color:{pc}'>{_m(earned)}</b> "
+                f"<span>/ {_m(goal)}</span></span></div>"
+                f"<div class='ck-pbot'><span class='ck-pgaptxt' style='color:{gcol}'>{gaptxt}</span>"
+                f"<div class='ck-pbar'><div class='ck-pband'></div>"
+                f"<div class='ck-pneedle' style='left:{w:.1f}%'></div></div>"
+                f"<span class='ck-prpct' style='color:{pc}'>{rate:.0f}%</span></div></div>")
+
+    return (f"<div class='ck-card ck-goalcard'>{_btag('🎯 PREMIUM GOALS', 'weekly · monthly', P)}"
+            f"{row('wk', 'Weekly earned')}{row('mo', 'Monthly earned')}</div>")
+
+
 def _extra_css(P: dict) -> str:
     return f"""<style>
+.ck-goalcard{{padding:13px 18px 14px}}
+.ck-grow{{padding:9px 0 7px}}
+.ck-grow + .ck-grow{{border-top:1px solid {P['lsoft']}}}
 .ck-bcard{{padding:14px 18px 8px;margin-bottom:14px}}
 .ck-btbl{{width:100%;border-collapse:collapse;margin-top:8px}}
 .ck-btbl th{{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:{P['mut']};
@@ -172,6 +210,7 @@ def render(c: dict) -> None:
           <div class="s">band {band_lbl} · now {r.get('alloc', 0) * 100:.0f}%</div>
         </div>
       </div>
+      {_goal_card(r.get('premium', []), P, ck._month_earned())}
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
