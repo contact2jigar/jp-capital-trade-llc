@@ -143,11 +143,32 @@ def _goal_card(prem: list, P: dict, mo_earned: float | None = None) -> str:
             f"{row('wk', 'Weekly earned')}{row('mo', 'Monthly earned')}</div>")
 
 
+def _breaker_card(r: dict, P: dict) -> str:
+    """CC Breaker — all three gauges (IRA · LLC · Total), the exact Cockpit semicircle."""
+    def one(name, a):
+        brk = (a.get("ccbrk") or 0) * 100
+        zc = P["green"] if brk < 30 else P["amber"] if brk < 45 else P["red"]
+        ztx = ("Safe · below 30%" if brk < 30 else
+               "Caution · elite only" if brk < 45 else "Frozen · CSPs halted")
+        return (f"<div class='ck-bg'><div class='ck-bglabel'>{name}</div>"
+                f"{ck._gauge(brk, P, 'b' + name)}"
+                f"<div class='ck-gv'>{brk:.1f}%</div>"
+                f"<div class='ck-gz' style='color:{zc}'>{ztx}</div></div>")
+    accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CC BREAKER', 'cap 45%', P)}"
+            f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div></div>")
+
+
 def _extra_css(P: dict) -> str:
     return f"""<style>
-.ck-goalcard{{padding:13px 18px 14px}}
+.ck-brow{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}}
+.ck-goalcard,.ck-brkcard{{padding:13px 18px 14px}}
 .ck-grow{{padding:9px 0 7px}}
 .ck-grow + .ck-grow{{border-top:1px solid {P['lsoft']}}}
+.ck-bgrow{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;align-items:end}}
+.ck-bg{{display:flex;flex-direction:column;align-items:center;gap:1px}}
+.ck-bglabel{{font-size:12px;font-weight:700;letter-spacing:.06em;color:{P['mid']};margin-bottom:4px}}
+@media (max-width:820px){{.ck-brow{{grid-template-columns:1fr}}}}
 .ck-bcard{{padding:14px 18px 8px;margin-bottom:14px}}
 .ck-btbl{{width:100%;border-collapse:collapse;margin-top:8px}}
 .ck-btbl th{{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:{P['mut']};
@@ -210,7 +231,10 @@ def render(c: dict) -> None:
           <div class="s">band {band_lbl} · now {r.get('alloc', 0) * 100:.0f}%</div>
         </div>
       </div>
-      {_goal_card(r.get('premium', []), P, ck._month_earned())}
+      <div class="ck-brow">
+        {_goal_card(r.get('premium', []), P, ck._month_earned())}
+        {_breaker_card(r, P)}
+      </div>
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
