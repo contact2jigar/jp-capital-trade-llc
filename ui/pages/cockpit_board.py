@@ -225,19 +225,20 @@ def _extra_css(P: dict) -> str:
 .ck-bgrow{{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px;align-items:end}}
 .ck-bg{{display:flex;flex-direction:column;align-items:center;gap:0}}
 .ck-bglabel{{font-size:10px;font-weight:700;letter-spacing:.05em;color:{P['mid']};margin-bottom:0}}
-.ck-brkcard .ck-bg svg{{max-width:60px!important}}
-.ck-brkcard .ck-gv{{font-size:12.5px;margin-top:-5px}}
-.ck-brkcard .ck-gz{{font-size:8px;margin-top:1px}}
+.ck-brkcard .ck-bg svg{{max-width:120px!important}}
+.ck-brkcard .ck-gv{{font-size:16px;margin-top:-14px;line-height:1.1;font-weight:700}}
+.ck-brkcard .ck-gz{{font-size:9.5px;margin-top:2px;line-height:1.1}}
+.ck-brkcard .ck-bglabel{{line-height:1.1}}
 @media (max-width:820px){{.ck-brow{{grid-template-columns:1fr}}}}
-.ck-bcard{{padding:10px 15px 12px;margin-bottom:14px}}
-.ck-mgrid{{display:grid;grid-template-columns:1fr auto auto;column-gap:20px;margin-top:8px}}
+.ck-bcard{{padding:9px 14px 9px;margin-bottom:14px}}
+.ck-mgrid{{display:grid;grid-template-columns:1fr auto auto;column-gap:20px;margin-top:6px}}
 .ck-mh{{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;
-  line-height:1.1;text-align:right;padding:2px 0 5px;border-bottom:1px solid {P['line']}}}
+  line-height:1.1;text-align:right;padding:1px 0 4px;border-bottom:1px solid {P['line']}}}
 .ck-mhl{{text-align:left}}
-.ck-ml{{font-size:12px;font-weight:600;line-height:1.15;color:{P['ink']};padding:4px 0;
+.ck-ml{{font-size:12px;font-weight:600;line-height:1.1;color:{P['ink']};padding:2.5px 0;
   border-bottom:1px solid {P['lsoft']}}}
-.ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;font-weight:700;line-height:1.15;
-  color:{P['ink']};text-align:right;padding:4px 0;border-bottom:1px solid {P['lsoft']}}}
+.ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;font-weight:700;line-height:1.1;
+  color:{P['ink']};text-align:right;padding:2.5px 0;border-bottom:1px solid {P['lsoft']}}}
 .ck-mgrid > :nth-last-child(-n+3){{border-bottom:none}}
 .ck-btbl{{width:100%;border-collapse:collapse;margin-top:5px}}
 .ck-btbl th{{font-size:9px!important;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};
