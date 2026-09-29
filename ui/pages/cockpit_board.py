@@ -242,7 +242,7 @@ def _summary_grid(r: dict, P: dict) -> str:
             pct = (amt / b * 100) if b else 0
             if k == "ready":                               # green/red badge, black text (bright in both themes)
                 bg = "#43c463" if amt >= 0 else "#f2555a"
-                cells += (f"<div class='ck-wc'><span class='ck-rbadge' style='background:{bg}'>"
+                cells += (f"<div class='ck-wc ck-kcell'><span class='ck-rbadge' style='background:{bg}'>"
                           f"<b>{_m(amt)}</b><em>{pct:.1f}%</em></span></div>")
                 continue
             cls = "ck-wc ck-kcell" if isk else "ck-wc"
@@ -423,8 +423,9 @@ def _extra_css(P: dict) -> str:
 .ck-pcell{{text-align:center;padding:5px 6px;font-family:'IBM Plex Mono',ui-monospace,monospace;
   font-weight:600;font-size:11px;background:{P['phi']};line-height:1.1;white-space:nowrap}}
 .ck-ptot{{background:{P['glow']}!important;font-weight:800!important;font-size:11.5px}}
-.ck-khf{{color:{P['ink']}!important;font-weight:800!important;background:{P['glow']}!important}}
-.ck-kcell{{background:{P['glow']}!important}}
+.ck-khf{{color:{P['ink']}!important;font-weight:800!important;
+  background:linear-gradient(rgba(0,0,0,.07),rgba(0,0,0,.07)),{P['plo']}!important}}
+.ck-kcell{{background:linear-gradient(rgba(0,0,0,.06),rgba(0,0,0,.06)),{P['phi']}!important}}
 .ck-rbadge{{display:inline-flex;flex-direction:column;align-items:center;padding:3px 12px;border-radius:7px;
   color:#0c1116;line-height:1.15}}
 .ck-rbadge b{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:800}}

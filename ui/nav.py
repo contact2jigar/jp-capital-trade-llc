@@ -4,7 +4,6 @@ from __future__ import annotations
 
 # TOP tabs — the WheelEngine daily flow.
 TOP: list[tuple[str, str]] = [
-    ("Board", "📊"),
     ("Cockpit", "🛰️"),
     ("Trade Positions", "📒"),
     ("Decision Desk", "⚖️"),
@@ -18,6 +17,7 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
     "WHEEL STRATEGY": [
         ("Command Center", "🎛️", "Cockpit"),
         ("Portfolio Center", "🏦", "Portfolio Center"),   # classic board — phasing out
+        ("Cockpit (Classic)", "🛰️", "Cockpit (Classic)"),  # old instrument view — phasing out
         ("P/L", "📊", "P/L"),
         ("Performance", "📈", "Performance"),
         ("Allocation", "🧮", "Allocation"),
@@ -38,8 +38,8 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
 
 ROUTES: dict[str, str] = {
     "Portfolio Center":  "ui.pages.command_center",
-    "Board":             "ui.pages.cockpit_board",
-    "Cockpit":           "ui.pages.cockpit",
+    "Cockpit":           "ui.pages.cockpit_board",       # the Board is now the Cockpit
+    "Cockpit (Classic)": "ui.pages.cockpit",             # old instrument view — phasing out
     "Trade Positions":   "ui.pages.trade_position",
     "Candidate Scanner": "ui.pages.csp_scanner",
     "LEAP Scanner":      "ui.pages.leap_scanner",
