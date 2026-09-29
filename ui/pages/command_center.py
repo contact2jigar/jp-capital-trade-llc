@@ -668,6 +668,7 @@ def _pl_yoy(c: dict, df: pd.DataFrame) -> None:
     # Current year pops in blue (gold is reserved for the brand); the prior year recedes to
     # grey (theme-aware — light grey on dark, dark grey on the grey theme).
     cur_col = "#3b82f6"
+    lbl_col = "#2563eb" if _is_light(c.get("bg", "")) else "#9ec5ff"   # readable on either ground
     palette = [cur_col, c["mid"]]
     ax = dict(labelColor=c["mid"], titleColor=c["muted"], gridColor=c["border_soft"],
               domainColor=c["border"], tickColor=c["border"], labelFontSize=13, titleFontSize=12)
@@ -689,12 +690,12 @@ def _pl_yoy(c: dict, df: pd.DataFrame) -> None:
                      alt.Tooltip("pl:Q", title="Profit / Loss", format="$,.0f"),
                      alt.Tooltip("cash:Q", title="Cash Reserve", format="$,.0f"),
                      alt.Tooltip("n:Q", title="# Trades", format="d")])
-        # Value labels on the current-year (gold) bars only — keeps it uncluttered.
-        labels = alt.Chart(cur).mark_text(dy=-5, fontSize=10.5, fontWeight="bold",
-                                          color=cur_col).encode(
+        # Value labels on the current-year bars only — keeps it uncluttered.
+        labels = alt.Chart(cur).mark_text(dy=-6, fontSize=13, fontWeight="bold",
+                                          color=lbl_col).encode(
             x=x, xOffset=xo, y=alt.Y(f"{field}:Q"),
             text=alt.Text(f"{field}:Q", format=lbl))
-        return (bars + labels).properties(height=height)
+        return (bars + labels).properties(height=height, width="container")
 
     sw = "".join(
         f"<span style='display:inline-block;width:11px;height:11px;border-radius:3px;"
