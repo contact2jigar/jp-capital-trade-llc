@@ -372,11 +372,6 @@ def render(c: dict) -> None:
         {_breaker_card(r, P)}
         {_money_card(r, P)}
       </div>
-      <div class="ck-arow">
-        {_acct_card('IRA', r['ira'], P['blue'], P)}
-        {_acct_card('LLC', r['llc'], P['purple'], P)}
-        {_acct_card('Total', _total_acct(r['ira'], r['llc']), P['steel'], P)}
-      </div>
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
