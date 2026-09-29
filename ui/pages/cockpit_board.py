@@ -23,8 +23,8 @@ _m = ck._m
 
 def _btag(icon_label: str, sub: str, P: dict) -> str:
     return (f"<div class='ck-chead'><div class='ck-acct'>"
-            f"<span class='ck-tag' style='color:{P['steel']};background:{P['steel']}22;"
-            f"border:1px solid {P['steel']}66'>{icon_label}</span>"
+            f"<span class='ck-tag' style='color:{P['ink']};background:{P['steel']}33;"
+            f"border:1px solid {P['steel']}88'>{icon_label}</span>"
             f"<span class='ck-sub'>{sub}</span></div></div>")
 
 
@@ -199,30 +199,56 @@ def _money_card(r: dict, P: dict) -> str:
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
 
+def _ccotm(df) -> dict:
+    """Per-account $ of covered calls that are OUT of the money (open CALL, strike > current)."""
+    od = engine._openrows(df)
+    if od.empty or "Opt Typ" not in od:
+        return {}
+    d = od[od["Opt Typ"].astype(str).str.upper() == "CALL"].copy()
+    if d.empty or "Current Price" not in d or "Strike Price" not in d or "Cash Reserve" not in d:
+        return {}
+    cp = d["Current Price"].map(engine._money)
+    k = d["Strike Price"].map(engine._money)
+    d = d[(cp > 0) & (k > cp)]
+    if d.empty:
+        return {}
+    res = (d.assign(_r=d["Cash Reserve"].map(engine._money))
+           .groupby(d["Account"].astype(str).str.upper())["_r"].sum())
+    return res.to_dict()
+
+
 def _summary_grid(r: dict, P: dict) -> str:
-    """One consolidated table — IRA/LLC/Total rows; capital, deploy, positions & gates as columns."""
+    """One consolidated table — IRA/LLC/Total rows; the 3 decision metrics (Ready · %CSP ITM ·
+    CC Breaker) sit in the centre, capital/deploy on the left, positions on the right."""
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", _total_acct(r["ira"], r["llc"]))]
-    dmetrics = [("Capital", "wcap", "cap", False), ("VIX Target", "vtgt", "wcap", False),
-                ("Deployed", "dep", "wcap", False), ("CSP", "csp", "wcap", False),
-                ("CC", "cc", "wcap", False), ("LEAP", "leap", "wcap", False),
-                ("Ready to Deploy", "rtd", "wcap", True)]
-    header = ["Account"] + [m[0] for m in dmetrics] + ["%CSP ITM", "CC Breaker"]
-    cells = "".join(f"<div class='ck-fh{' ck-fhl' if i == 0 else ''}'>{h}</div>"
-                    for i, h in enumerate(header))
+    # (label, kind, key, base, is_key)  kind: dollar | ready (green $) | itm (%)
+    cols = [("Capital", "dollar", "wcap", "cap", False),
+            ("VIX Target", "dollar", "vtgt", "wcap", False),
+            ("Deployed", "dollar", "dep", "wcap", False),
+            ("Ready to Deploy", "ready", "rtd", "wcap", True),
+            ("%CSP ITM", "itm", "cspitm", None, True),
+            ("CC OTM", "dollar", "ccotm", "wcap", True),
+            ("CSP", "dollar", "csp", "wcap", False),
+            ("CC", "dollar", "cc", "wcap", False),
+            ("LEAP", "dollar", "leap", "wcap", False)]
+    head = "<div class='ck-fh ck-fhl'>Account</div>"
+    head += "".join(f"<div class='ck-fh{' ck-khf' if isk else ''}'>{lbl}</div>"
+                    for lbl, k, key, base, isk in cols)
+    cells = head
     for name, a in accts:
         cells += f"<div class='ck-fa'>{name}</div>"
-        for lbl, key, base, hi in dmetrics:
+        for lbl, k, key, base, isk in cols:
+            if k == "itm":
+                cells += (f"<div class='ck-wc ck-kcell'>"
+                          f"<span class='ck-wca'>{(a.get('cspitm') or 0) * 100:.1f}%</span></div>")
+                continue
             amt = a.get(key) or 0
             b = a.get(base) or 0
             pct = (amt / b * 100) if b else 0
-            cells += (f"<div class='{'ck-wc-hi' if hi else 'ck-wc'}'><span class='ck-wca'>{_m(amt)}</span>"
+            cls = "ck-wc-hi" if k == "ready" else ("ck-wc ck-kcell" if isk else "ck-wc")
+            cells += (f"<div class='{cls}'><span class='ck-wca'>{_m(amt)}</span>"
                       f"<span class='ck-wcp'>{pct:.1f}%</span></div>")
-        itm = (a.get("cspitm") or 0) * 100
-        cells += f"<div class='ck-wc'><span class='ck-wca'>{itm:.1f}%</span></div>"
-        ccb = (a.get("ccbrk") or 0) * 100
-        bc = P["green"] if ccb < 30 else P["amber"] if ccb < 45 else P["red"]
-        cells += f"<div class='ck-wc'><span class='ck-wca' style='color:{bc}'>{ccb:.1f}%</span></div>"
-    return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', 'capital · deploy · positions · gates', P)}"
+    return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', 'capital · deploy · ready · %csp itm · cc otm · positions', P)}"
             f"<div class='ck-sgrid'>{cells}</div></div>")
 
 
@@ -249,7 +275,7 @@ def _matrix_grid(r: dict, P: dict) -> str:
 
 
 def _total_acct(I: dict, L: dict) -> dict:
-    ks = ["cap", "wcap", "vtgt", "cih", "dep", "csp", "cc", "leap", "rtd", "brkgap", "leapgap", "itm"]
+    ks = ["cap", "wcap", "vtgt", "cih", "dep", "csp", "cc", "leap", "rtd", "brkgap", "leapgap", "itm", "ccotm"]
     T = {k: (I.get(k) or 0) + (L.get(k) or 0) for k in ks}
     w = T["wcap"] or 0
     T["ccbrk"] = ((T["cc"] + T["itm"]) / w) if w else 0.0
@@ -344,10 +370,12 @@ def _extra_css(P: dict) -> str:
   border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
 .ck-sgrid{{display:grid;grid-template-columns:auto repeat(9,1fr);gap:1px;background:{P['line']};
   border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
+.ck-khf{{color:{P['ink']}!important;font-weight:800!important;background:{P['glow']}!important}}
+.ck-kcell{{background:{P['glow']}!important}}
 .ck-wc,.ck-wc-hi{{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;background:{P['phi']}}}
 .ck-wc-hi{{background:{P['green']}22}}
 .ck-wca{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11.5px;font-weight:700;color:{P['ink']};line-height:1.15}}
-.ck-wcp{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;font-weight:600;color:{P['mut']};line-height:1.15}}
+.ck-wcp{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;font-weight:600;color:{P['subv']};line-height:1.15}}
 .ck-wc-hi .ck-wca,.ck-wc-hi .ck-wcp{{color:{P['green']}}}
 .ck-acard{{padding:10px 15px 11px}}
 .ck-agrid{{display:grid;grid-template-columns:1fr auto auto;column-gap:14px;margin-top:6px}}
@@ -368,7 +396,7 @@ def _extra_css(P: dict) -> str:
 .ck-grow + .ck-grow{{border-top:1px solid {P['lsoft']}}}
 .ck-pcard2{{padding:11px 13px 12px;display:flex;flex-direction:column}}
 .ck-p2head{{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}}
-.ck-p2label{{font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:{P['mut']}}}
+.ck-p2label{{font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:{P['mid']}}}
 .ck-p2icon{{width:26px;height:26px;flex:none;border-radius:8px;display:flex;align-items:center;
   justify-content:center;font-size:13px;background:{P['gold']}1e;border:1px solid {P['gold']}44}}
 .ck-p2val{{margin-top:5px;font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:700;color:{P['gold']}}}
@@ -429,6 +457,9 @@ def render(c: dict) -> None:
     except Exception:
         mdf = None
     _pd = _prem_dict(r.get("premium", []), ck._month_earned())
+    cco = _ccotm(cc._tradelog_full())                  # covered calls out of the money, per account
+    r["ira"]["ccotm"] = cco.get("IRA", 0)
+    r["llc"]["ccotm"] = cco.get("LLC", 0)
 
     band = r.get("band", 2)
     bdef = engine.BANDS[band] if 0 <= band < len(engine.BANDS) else engine.BANDS[2]
