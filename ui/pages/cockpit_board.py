@@ -241,7 +241,12 @@ def _summary_grid(r: dict, P: dict) -> str:
             amt = a.get(key) or 0
             b = a.get(base) or 0
             pct = (amt / b * 100) if b else 0
-            cls = "ck-wc-hi" if k == "ready" else ("ck-wc ck-kcell" if isk else "ck-wc")
+            if k == "ready":                               # green/red badge, black text
+                bg = P["green"] if amt >= 0 else P["red"]
+                cells += (f"<div class='ck-wc'><span class='ck-rbadge' style='background:{bg}'>"
+                          f"<b>{_m(amt)}</b><em>{pct:.1f}%</em></span></div>")
+                continue
+            cls = "ck-wc ck-kcell" if isk else "ck-wc"
             cells += (f"<div class='{cls}'><span class='ck-wca'>{_m(amt)}</span>"
                       f"<span class='ck-wcp'>{pct:.1f}%</span></div>")
     return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', 'capital · deploy · ready · cash · csp itm · positions', P)}"
@@ -368,6 +373,10 @@ def _extra_css(P: dict) -> str:
   border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
 .ck-khf{{color:{P['ink']}!important;font-weight:800!important;background:{P['glow']}!important}}
 .ck-kcell{{background:{P['glow']}!important}}
+.ck-rbadge{{display:inline-flex;flex-direction:column;align-items:center;padding:3px 12px;border-radius:7px;
+  color:#0c1116;line-height:1.15}}
+.ck-rbadge b{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:800}}
+.ck-rbadge em{{font-style:normal;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;font-weight:700;opacity:.85}}
 .ck-wc,.ck-wc-hi{{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;background:{P['phi']}}}
 .ck-wc-hi{{background:{P['green']}22}}
 .ck-wca{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11.5px;font-weight:700;color:{P['ink']};line-height:1.15}}
