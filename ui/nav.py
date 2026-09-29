@@ -19,8 +19,6 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("P/L", "📊", "P/L"),
         ("Performance", "📈", "Performance"),
         ("Allocation", "🧮", "Allocation"),
-        ("Portfolio Center", "🏦", "Portfolio Center"),   # classic board — phasing out (last)
-        ("Cockpit (Classic)", "🛰️", "Cockpit (Classic)"),  # old instrument view — phasing out (last)
     ],
     "ANALYSIS": [
         ("Price Wall Map", "🧱", "Price Wall Map"),
@@ -33,6 +31,10 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
     "REFERENCE": [
         ("Risk Gates", "🛡️", "Risk Gates"),
         ("Entry Setup", "📊", "Entry Setup"),
+    ],
+    "LEGACY": [   # classic views — phasing out
+        ("Portfolio Center", "🏦", "Portfolio Center"),
+        ("Cockpit (Classic)", "🛰️", "Cockpit (Classic)"),
     ],
 }
 
