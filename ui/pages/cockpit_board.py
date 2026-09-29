@@ -143,6 +143,34 @@ def _goal_card(prem: list, P: dict, mo_earned: float | None = None) -> str:
             f"{row('wk', 'Weekly earned')}{row('mo', 'Monthly earned')}</div>")
 
 
+def _prem_dict(prem: list, mo_earned: float | None = None) -> dict:
+    d = {}
+    for lbl, val in prem or []:
+        s = str(lbl).lower()
+        per = "wk" if ("wk" in s or "week" in s) else "mo"
+        kind = "goal" if "goal" in s else "earned" if "earn" in s else "gap" if "gap" in s else None
+        if kind:
+            d[f"{per}_{kind}"] = float(val or 0)
+    if mo_earned is not None:
+        d["mo_earned"] = mo_earned
+    return d
+
+
+def _period_card(title: str, earned: float, goal: float, P: dict) -> str:
+    """Small single-period premium card: label + 💰, earned/goal, run-rate bar + %."""
+    goal = goal or 1
+    rate = earned / goal * 100
+    w = max(0.0, min(100.0, rate))
+    rcol = P["green"] if rate >= 100 else P["gold"]
+    return (f"<div class='ck-card ck-pcard2'>"
+            f"<div class='ck-p2head'><span class='ck-p2label'>{title} earned premium</span>"
+            f"<span class='ck-p2icon'>💰</span></div>"
+            f"<div class='ck-p2val'><b>{_m(earned)}</b> <span>/ {_m(goal)}</span></div>"
+            f"<div class='ck-p2rate'><span>{title} run rate</span>"
+            f"<span style='color:{rcol}'>{rate:.1f}%</span></div>"
+            f"<div class='ck-p2track'><div class='ck-p2fill' style='width:{w:.1f}%'></div></div></div>")
+
+
 def _breaker_card(r: dict, P: dict) -> str:
     """CC Breaker — all three gauges (IRA · LLC · Total), the exact Cockpit semicircle."""
     def one(name, a):
@@ -161,10 +189,22 @@ def _breaker_card(r: dict, P: dict) -> str:
 
 def _extra_css(P: dict) -> str:
     return f"""<style>
-.ck-brow{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}}
+.ck-brow{{display:grid;grid-template-columns:1fr 1fr 1.9fr;gap:12px;margin-bottom:14px;align-items:stretch}}
 .ck-goalcard,.ck-brkcard{{padding:13px 18px 14px}}
 .ck-grow{{padding:9px 0 7px}}
 .ck-grow + .ck-grow{{border-top:1px solid {P['lsoft']}}}
+.ck-pcard2{{padding:12px 16px 14px;display:flex;flex-direction:column}}
+.ck-p2head{{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}}
+.ck-p2label{{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:{P['mut']}}}
+.ck-p2icon{{width:30px;height:30px;flex:none;border-radius:9px;display:flex;align-items:center;
+  justify-content:center;font-size:15px;background:{P['gold']}1e;border:1px solid {P['gold']}44}}
+.ck-p2val{{margin-top:7px;font-family:'IBM Plex Mono',monospace;font-size:23px;font-weight:700;color:{P['gold']}}}
+.ck-p2val span{{color:{P['subv']};font-size:14px;font-weight:600}}
+.ck-p2rate{{display:flex;justify-content:space-between;align-items:baseline;margin-top:auto;padding-top:11px;
+  font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;color:{P['mut']}}}
+.ck-p2track{{height:8px;border-radius:6px;background:{P['track']};border:1px solid {P['lsoft']};
+  overflow:hidden;margin-top:5px}}
+.ck-p2fill{{height:100%;border-radius:6px;background:linear-gradient(90deg,#e8893a,{P['gold']},{P['green']})}}
 .ck-bgrow{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;align-items:end}}
 .ck-bg{{display:flex;flex-direction:column;align-items:center;gap:1px}}
 .ck-bglabel{{font-size:12px;font-weight:700;letter-spacing:.06em;color:{P['mid']};margin-bottom:4px}}
@@ -198,6 +238,7 @@ def render(c: dict) -> None:
         mdf, _ = benchmark.monthly_df()
     except Exception:
         mdf = None
+    _pd = _prem_dict(r.get("premium", []), ck._month_earned())
 
     band = r.get("band", 2)
     bdef = engine.BANDS[band] if 0 <= band < len(engine.BANDS) else engine.BANDS[2]
@@ -232,7 +273,8 @@ def render(c: dict) -> None:
         </div>
       </div>
       <div class="ck-brow">
-        {_goal_card(r.get('premium', []), P, ck._month_earned())}
+        {_period_card('Monthly', _pd.get('mo_earned', 0), _pd.get('mo_goal', 0), P)}
+        {_period_card('Weekly', _pd.get('wk_earned', 0), _pd.get('wk_goal', 0), P)}
         {_breaker_card(r, P)}
       </div>
     </div>"""
