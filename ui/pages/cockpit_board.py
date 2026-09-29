@@ -181,7 +181,7 @@ def _breaker_card(r: dict, P: dict) -> str:
                 f"<div class='ck-gv'>{brk:.1f}%</div>"
                 f"<div class='ck-gz' style='color:{zc}'>{_m(gap)} <span>gap</span></div></div>")
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
-    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CC BREAKER', 'cap 45% · safe &lt; 30% · $ gap to cap', P)}"
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CC BREAKER', 'cap 45% · safe &lt; 30%', P)}"
             f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div></div>")
 
 
