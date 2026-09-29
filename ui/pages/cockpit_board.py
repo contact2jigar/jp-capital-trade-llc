@@ -176,14 +176,13 @@ def _breaker_card(r: dict, P: dict) -> str:
     def one(name, a):
         brk = (a.get("ccbrk") or 0) * 100
         zc = P["green"] if brk < 30 else P["amber"] if brk < 45 else P["red"]
-        ztx = ("Safe · below 30%" if brk < 30 else
-               "Caution · elite only" if brk < 45 else "Frozen · CSPs halted")
+        gap = a.get("brkgap", 0)                            # $ headroom to the 45% cap
         return (f"<div class='ck-bg'><div class='ck-bglabel'>{name}</div>"
                 f"{ck._gauge(brk, P, 'b' + name)}"
                 f"<div class='ck-gv'>{brk:.1f}%</div>"
-                f"<div class='ck-gz' style='color:{zc}'>{ztx}</div></div>")
+                f"<div class='ck-gz' style='color:{zc}'>{_m(gap)} <span>gap</span></div></div>")
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
-    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CC BREAKER', 'cap 45%', P)}"
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CC BREAKER', 'cap 45% · safe &lt; 30% · $ gap to cap', P)}"
             f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div></div>")
 
 
@@ -355,7 +354,9 @@ def _extra_css(P: dict) -> str:
 .ck-bglabel{{font-size:10px;font-weight:700;letter-spacing:.05em;color:{P['mid']};margin-bottom:0}}
 .ck-brkcard .ck-bg svg{{max-width:120px!important}}
 .ck-brkcard .ck-gv{{font-size:16px;margin-top:-14px;line-height:1.1;font-weight:700}}
-.ck-brkcard .ck-gz{{font-size:9.5px;margin-top:2px;line-height:1.1}}
+.ck-brkcard .ck-gz{{font-size:11px;font-weight:700;margin-top:2px;line-height:1.1;
+  font-family:'IBM Plex Mono',ui-monospace,monospace}}
+.ck-brkcard .ck-gz span{{color:{P['mut']};font-weight:600;font-size:8px;font-family:'IBM Plex Sans',system-ui,sans-serif}}
 .ck-brkcard .ck-bglabel{{line-height:1.1}}
 @media (max-width:820px){{.ck-brow{{grid-template-columns:1fr}}}}
 .ck-bcard{{padding:9px 14px 9px;margin-bottom:14px}}
