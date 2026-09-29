@@ -172,10 +172,6 @@ def render(c: dict) -> None:
           <div class="s">band {band_lbl} · now {r.get('alloc', 0) * 100:.0f}%</div>
         </div>
       </div>
-      {_goals(r.get('premium', []), P, ck._month_earned())}
-      {_wheel_table(r, P)}
-      {_matrix_table(r, P)}
-      {ck._perf(mdf, P)}
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
