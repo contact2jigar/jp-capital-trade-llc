@@ -187,8 +187,34 @@ def _breaker_card(r: dict, P: dict) -> str:
             f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div></div>")
 
 
+def _money_card(r: dict, P: dict) -> str:
+    """Money — Capital · All Time High · Cash Vault (30% ATH), IRA/LLC with $ and %."""
+    accts = [("IRA", r["ira"]), ("LLC", r["llc"])]
+    rows_def = [("Capital", "cap"), ("All Time High", "ath"), ("Cash Vault · 30% ATH", "vault")]
+    head = ("<tr><th>Money</th>"
+            + "".join(f"<th>{n}</th><th>{n} %</th>" for n, _ in accts) + "</tr>")
+    body = ""
+    for lbl, key in rows_def:
+        cells = ""
+        for _, a in accts:
+            amt = a.get(key) or 0
+            if key == "cap":
+                ptxt = "100%"
+            elif key == "ath":
+                ptxt = "—"
+            else:
+                ptxt = f"{(a['vault'] / a['ath'] * 100) if a.get('ath') else 30:.0f}%"
+            cells += f"<td>{_m(amt)}</td><td class='ck-mpct'>{ptxt}</td>"
+        body += f"<tr><td class='ck-btl'>{lbl}</td>{cells}</tr>"
+    return (f"<div class='ck-card ck-bcard'>{_btag('💰 MONEY', 'capital · ath · vault', P)}"
+            f"<table class='ck-btbl'><thead>{head}</thead><tbody>{body}</tbody></table></div>")
+
+
 def _extra_css(P: dict) -> str:
     return f"""<style>
+.ck-brow2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;align-items:start}}
+.ck-mpct{{color:{P['mut']}!important;font-weight:600!important}}
+@media (max-width:820px){{.ck-brow2{{grid-template-columns:1fr}}}}
 .ck-brow{{display:grid;grid-template-columns:1fr 1fr 1.9fr;gap:12px;margin-bottom:14px;align-items:stretch}}
 .ck-goalcard,.ck-brkcard{{padding:13px 18px 14px}}
 .ck-grow{{padding:9px 0 7px}}
@@ -276,6 +302,9 @@ def render(c: dict) -> None:
         {_period_card('Monthly', _pd.get('mo_earned', 0), _pd.get('mo_goal', 0), P)}
         {_period_card('Weekly', _pd.get('wk_earned', 0), _pd.get('wk_goal', 0), P)}
         {_breaker_card(r, P)}
+      </div>
+      <div class="ck-brow2">
+        {_money_card(r, P)}
       </div>
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
