@@ -372,14 +372,15 @@ def _css(P: dict) -> str:
 .ck-rv{{font-size:21px;font-weight:700;color:{P['green']}}}
 .ck-rp{{font-size:13.5px;color:{P['green']};margin-left:8px}}
 .ck-prow{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}}
-.ck-ptwrap{{max-height:218px;overflow-y:auto;margin-top:10px}}
+.ck-sumrow{{align-items:start}}                     /* COMBINED + PERF size to their own content */
+.ck-ptwrap{{max-height:242px;overflow-y:auto;margin-top:8px}}
 .ck-ptbl{{width:100%;border-collapse:collapse}}
-.ck-ptbl th{{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:{P['mut']};
-  font-weight:700;text-align:right;padding:5px 12px;border-bottom:1px solid {P['line']};
+.ck-ptbl th{{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:{P['mut']};
+  font-weight:700;text-align:right;padding:4px 12px;border-bottom:1px solid {P['line']};
   position:sticky;top:0;background:{P['phi']};z-index:1;white-space:nowrap}}
 .ck-ptbl th:first-child{{text-align:left}}
-.ck-ptbl td{{font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:700;text-align:right;
-  padding:5px 12px;border-bottom:1px solid {P['lsoft']};white-space:nowrap}}
+.ck-ptbl td{{font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;text-align:right;
+  padding:2.5px 12px;border-bottom:1px solid {P['lsoft']};white-space:nowrap}}
 .ck-ptbl tr:last-child td{{border-bottom:none}}
 .ck-pfmo{{text-align:left!important;color:{P['ink']};font-family:'IBM Plex Sans',system-ui,sans-serif}}
 .ck-pcard{{padding:11px 20px 12px}}
@@ -451,7 +452,7 @@ def render(c: dict) -> None:
       </div>
       {_premium(r.get('premium', []), P, _month_earned())}
       <div class="ck-cards">{_card('IRA', P['blue'], r['ira'], P)}{_card('LLC', P['purple'], r['llc'], P)}</div>
-      <div class="ck-cards">{_card('COMBINED', P['steel'], _combined(r['ira'], r['llc']), P)}{_perf(_mdf, P)}</div>
+      <div class="ck-cards ck-sumrow">{_card('COMBINED', P['steel'], _combined(r['ira'], r['llc']), P)}{_perf(_mdf, P)}</div>
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
