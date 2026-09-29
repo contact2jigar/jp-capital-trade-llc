@@ -191,19 +191,20 @@ def _money_card(r: dict, P: dict) -> str:
     """Money — Capital · All Time High · Cash Vault (30% ATH), IRA/LLC with $ and %."""
     accts = [("IRA", r["ira"]), ("LLC", r["llc"])]
     rows_def = [("Capital", "cap"), ("All Time High", "ath"), ("Cash Vault · 30% ATH", "vault")]
-    head = "<tr><th>Money</th>" + "".join(f"<th>{n}</th>" for n, _ in accts) + "</tr>"
-    body = ""
+    cells = ("<div class='ck-mh ck-mhl'>Money</div>"
+             + "".join(f"<div class='ck-mh'>{n}</div>" for n, _ in accts))
     for lbl, key in rows_def:
-        cells = "".join(f"<td>{_m(a.get(key) or 0)}</td>" for _, a in accts)
-        body += f"<tr><td class='ck-btl'>{lbl}</td>{cells}</tr>"
+        cells += f"<div class='ck-ml'>{lbl}</div>"
+        cells += "".join(f"<div class='ck-mv'>{_m(a.get(key) or 0)}</div>" for _, a in accts)
     return (f"<div class='ck-card ck-bcard'>{_btag('💰 MONEY', 'capital · ath · vault', P)}"
-            f"<table class='ck-btbl'><thead>{head}</thead><tbody>{body}</tbody></table></div>")
+            f"<div class='ck-mgrid'>{cells}</div></div>")
 
 
 def _extra_css(P: dict) -> str:
     return f"""<style>
 .ck-brow2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;align-items:start}}
 .ck-mpct{{color:{P['mut']}!important;font-weight:600!important}}
+.ck-bcard .ck-chead,.ck-brkcard .ck-chead{{margin-bottom:2px}}
 @media (max-width:820px){{.ck-brow2{{grid-template-columns:1fr}}}}
 .ck-brow{{display:grid;grid-template-columns:0.8fr 0.8fr 1.7fr 1.5fr;gap:11px;margin-bottom:14px;align-items:stretch}}
 .ck-goalcard,.ck-brkcard{{padding:10px 14px 10px}}
@@ -214,27 +215,38 @@ def _extra_css(P: dict) -> str:
 .ck-p2label{{font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:{P['mut']}}}
 .ck-p2icon{{width:26px;height:26px;flex:none;border-radius:8px;display:flex;align-items:center;
   justify-content:center;font-size:13px;background:{P['gold']}1e;border:1px solid {P['gold']}44}}
-.ck-p2val{{margin-top:6px;font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:700;color:{P['gold']}}}
+.ck-p2val{{margin-top:5px;font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:700;color:{P['gold']}}}
 .ck-p2val span{{color:{P['subv']};font-size:12.5px;font-weight:600}}
-.ck-p2rate{{display:flex;justify-content:space-between;align-items:baseline;margin-top:auto;padding-top:11px;
+.ck-p2rate{{display:flex;justify-content:space-between;align-items:baseline;margin-top:auto;padding-top:8px;
   font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;color:{P['mut']}}}
-.ck-p2track{{height:8px;border-radius:6px;background:{P['track']};border:1px solid {P['lsoft']};
-  overflow:hidden;margin-top:5px}}
+.ck-p2track{{height:7px;border-radius:6px;background:{P['track']};border:1px solid {P['lsoft']};
+  overflow:hidden;margin-top:4px}}
 .ck-p2fill{{height:100%;border-radius:6px;background:linear-gradient(90deg,#e8893a,{P['gold']},{P['green']})}}
 .ck-bgrow{{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px;align-items:end}}
 .ck-bg{{display:flex;flex-direction:column;align-items:center;gap:0}}
 .ck-bglabel{{font-size:10px;font-weight:700;letter-spacing:.05em;color:{P['mid']};margin-bottom:0}}
-.ck-brkcard .ck-bg svg{{max-width:78px}}
-.ck-brkcard .ck-gv{{font-size:13px;margin-top:-13px}}
-.ck-brkcard .ck-gz{{font-size:8px;margin-top:0}}
+.ck-brkcard .ck-bg svg{{max-width:60px!important}}
+.ck-brkcard .ck-gv{{font-size:12.5px;margin-top:-5px}}
+.ck-brkcard .ck-gz{{font-size:8px;margin-top:1px}}
 @media (max-width:820px){{.ck-brow{{grid-template-columns:1fr}}}}
-.ck-bcard{{padding:10px 14px 6px;margin-bottom:14px}}
-.ck-btbl{{width:100%;border-collapse:collapse;margin-top:6px}}
-.ck-btbl th{{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:{P['mut']};
-  font-weight:700;text-align:right;padding:4px 10px;border-bottom:1px solid {P['line']};white-space:nowrap}}
+.ck-bcard{{padding:10px 15px 12px;margin-bottom:14px}}
+.ck-mgrid{{display:grid;grid-template-columns:1fr auto auto;column-gap:20px;margin-top:8px}}
+.ck-mh{{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;
+  line-height:1.1;text-align:right;padding:2px 0 5px;border-bottom:1px solid {P['line']}}}
+.ck-mhl{{text-align:left}}
+.ck-ml{{font-size:12px;font-weight:600;line-height:1.15;color:{P['ink']};padding:4px 0;
+  border-bottom:1px solid {P['lsoft']}}}
+.ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;font-weight:700;line-height:1.15;
+  color:{P['ink']};text-align:right;padding:4px 0;border-bottom:1px solid {P['lsoft']}}}
+.ck-mgrid > :nth-last-child(-n+3){{border-bottom:none}}
+.ck-btbl{{width:100%;border-collapse:collapse;margin-top:5px}}
+.ck-btbl th{{font-size:9px!important;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};
+  line-height:1.2!important;font-weight:700;text-align:right;padding:2px 10px 3px!important;
+  border-bottom:1px solid {P['line']};white-space:nowrap}}
 .ck-btbl th:first-child{{text-align:left}}
-.ck-btbl td{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;font-weight:700;
-  text-align:right;padding:6px 10px;border-bottom:1px solid {P['lsoft']};white-space:nowrap;color:{P['ink']}}}
+.ck-btbl td{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px!important;font-weight:700;
+  line-height:1.2!important;text-align:right;padding:2.5px 10px!important;border-bottom:1px solid {P['lsoft']};
+  white-space:nowrap;color:{P['ink']}}}
 .ck-btbl tbody tr:last-child td{{border-bottom:none}}
 .ck-btl{{text-align:left!important;color:{P['ink']}!important;
   font-family:'IBM Plex Sans',system-ui,sans-serif!important;font-weight:600!important}}
