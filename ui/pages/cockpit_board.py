@@ -199,6 +199,33 @@ def _money_card(r: dict, P: dict) -> str:
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
 
+def _summary_grid(r: dict, P: dict) -> str:
+    """One consolidated table — IRA/LLC/Total rows; capital, deploy, positions & gates as columns."""
+    accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", _total_acct(r["ira"], r["llc"]))]
+    dmetrics = [("Capital", "wcap", "cap", False), ("VIX Target", "vtgt", "wcap", False),
+                ("Deployed", "dep", "wcap", False), ("CSP", "csp", "wcap", False),
+                ("CC", "cc", "wcap", False), ("LEAP", "leap", "wcap", False),
+                ("Ready to Deploy", "rtd", "wcap", True)]
+    header = ["Account"] + [m[0] for m in dmetrics] + ["%CSP ITM", "CC Breaker"]
+    cells = "".join(f"<div class='ck-fh{' ck-fhl' if i == 0 else ''}'>{h}</div>"
+                    for i, h in enumerate(header))
+    for name, a in accts:
+        cells += f"<div class='ck-fa'>{name}</div>"
+        for lbl, key, base, hi in dmetrics:
+            amt = a.get(key) or 0
+            b = a.get(base) or 0
+            pct = (amt / b * 100) if b else 0
+            cells += (f"<div class='{'ck-wc-hi' if hi else 'ck-wc'}'><span class='ck-wca'>{_m(amt)}</span>"
+                      f"<span class='ck-wcp'>{pct:.1f}%</span></div>")
+        itm = (a.get("cspitm") or 0) * 100
+        cells += f"<div class='ck-wc'><span class='ck-wca'>{itm:.1f}%</span></div>"
+        ccb = (a.get("ccbrk") or 0) * 100
+        bc = P["green"] if ccb < 30 else P["amber"] if ccb < 45 else P["red"]
+        cells += f"<div class='ck-wc'><span class='ck-wca' style='color:{bc}'>{ccb:.1f}%</span></div>"
+    return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', 'capital · deploy · positions · gates', P)}"
+            f"<div class='ck-sgrid'>{cells}</div></div>")
+
+
 def _matrix_grid(r: dict, P: dict) -> str:
     """Focus matrix — IRA/LLC/Total as rows, gates as columns, with green/red cell fills."""
     rows = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
@@ -314,6 +341,8 @@ def _extra_css(P: dict) -> str:
 .ck-fr{{text-align:center;padding:8px 8px;font-family:'IBM Plex Mono',ui-monospace,monospace;
   font-weight:700;font-size:12px;line-height:1.1;background:{P['red']}26;color:{P['red']}}}
 .ck-wgrid{{display:grid;grid-template-columns:auto repeat(8,1fr);gap:1px;background:{P['line']};
+  border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
+.ck-sgrid{{display:grid;grid-template-columns:auto repeat(9,1fr);gap:1px;background:{P['line']};
   border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
 .ck-wc,.ck-wc-hi{{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;background:{P['phi']}}}
 .ck-wc-hi{{background:{P['green']}22}}
@@ -439,8 +468,7 @@ def render(c: dict) -> None:
         {_period_card('Weekly', _pd.get('wk_earned', 0), _pd.get('wk_goal', 0), P)}
         {_period_card('Monthly', _pd.get('mo_earned', 0), _pd.get('mo_goal', 0), P)}
       </div>
-      {_wheel_grid(r, P)}
-      {_matrix_grid(r, P)}
+      {_summary_grid(r, P)}
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
