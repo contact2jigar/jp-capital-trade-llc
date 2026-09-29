@@ -14,6 +14,7 @@ import streamlit as st
 from logic import gtc_refresh
 from logic import monitor as engine
 from services import gsheet, yahoo
+from ui import benchmark
 
 # Column order mirrors the sheet's TradeLog, + Cash Reserve/Release, DTE & Action at the end.
 _TL_COLS = ["Stock", "Account", "Status", "Opt Typ", "Close Date", "Open Date", "Exp Date",
@@ -667,16 +668,33 @@ def _pl_yoy(c: dict, df: pd.DataFrame) -> None:
     order = [m for m in _MONTHS_ORDER if m in set(agg["Month"])]
     # Current year pops in blue (gold is reserved for the brand); the prior year recedes to
     # grey (theme-aware — light grey on dark, dark grey on the grey theme).
+    light = _is_light(c.get("bg", ""))
     cur_col = "#3b82f6"
-    lbl_col = "#2563eb" if _is_light(c.get("bg", "")) else "#9ec5ff"   # readable on either ground
+    lbl_col = "#2563eb" if light else "#9ec5ff"               # current-year label, readable on either ground
+    prev_lbl_col = "#64748b" if light else "#cbd5e1"          # previous-year label (grey, still legible)
+    lblscale = alt.Scale(domain=years, range=[lbl_col, prev_lbl_col])
     palette = [cur_col, c["mid"]]
     ax = dict(labelColor=c["mid"], titleColor=c["muted"], gridColor=c["border_soft"],
               domainColor=c["border"], tickColor=c["border"], labelFontSize=13, titleFontSize=12)
     cscale = alt.Scale(domain=years, range=palette[:len(years)])
 
-    cur = agg[agg["Year"] == years[0]]                        # current year rows only
+    # Monthly account % change (IRA+LLC combined) from the Performance sheet, matched by
+    # year-month, so each bar can also show how the portfolio moved that month.
+    pctmap = {}
+    try:
+        mdf, _ = benchmark.monthly_df()
+        if not mdf.empty:
+            mm = mdf.dropna(subset=["date"]).copy()
+            base = mm["ira_start"].fillna(0) + mm["llc_start"].fillna(0)
+            endv = mm["IRA"].fillna(0) + mm["LLC"].fillna(0)
+            mm["pctv"] = (endv - base) / base.replace(0, pd.NA)
+            for _, rr in mm.iterrows():
+                pctmap[(str(rr["date"].year), rr["date"].strftime("%b"))] = rr["pctv"]
+    except Exception:
+        pctmap = {}
+    agg["pct"] = [pctmap.get((y, m)) for y, m in zip(agg["Year"], agg["Month"])]
 
-    def panel(field, title, height, show_x, legend):
+    def panel(field, title, height, show_x, legend, pct_labels=False):
         fmt = "d" if field == "n" else "$,.0f"
         lbl = "d" if field == "n" else "$.2s"                 # compact label (e.g. $56k)
         x = alt.X("Month:N", sort=order, title=None,
@@ -689,13 +707,24 @@ def _pl_yoy(c: dict, df: pd.DataFrame) -> None:
             tooltip=[alt.Tooltip("Year:N"), alt.Tooltip("Month:N"),
                      alt.Tooltip("pl:Q", title="Profit / Loss", format="$,.0f"),
                      alt.Tooltip("cash:Q", title="Cash Reserve", format="$,.0f"),
-                     alt.Tooltip("n:Q", title="# Trades", format="d")])
-        # Value labels on the current-year bars only — keeps it uncluttered.
-        labels = alt.Chart(cur).mark_text(dy=-6, fontSize=13, fontWeight="bold",
-                                          color=lbl_col).encode(
+                     alt.Tooltip("n:Q", title="# Trades", format="d"),
+                     alt.Tooltip("pct:Q", title="Acct % chg", format="+.1%")])
+        # Value labels on BOTH years (current bright, previous grey). When % labels ride
+        # above, lift the $ value to make room for the % line beneath it.
+        labels = alt.Chart(agg).mark_text(dy=(-18 if pct_labels else -6),
+                                          fontSize=12, fontWeight="bold").encode(
             x=x, xOffset=xo, y=alt.Y(f"{field}:Q"),
-            text=alt.Text(f"{field}:Q", format=lbl))
-        return (bars + labels).properties(height=height, width="container")
+            text=alt.Text(f"{field}:Q", format=lbl),
+            color=alt.Color("Year:N", scale=lblscale, legend=None))
+        layers = [bars, labels]
+        if pct_labels:                                        # monthly account % move, green/red by sign
+            pdata = agg[agg["pct"].notna()]
+            plabels = alt.Chart(pdata).mark_text(dy=-5, fontSize=9.5, fontWeight="bold").encode(
+                x=x, xOffset=xo, y=alt.Y(f"{field}:Q"),
+                text=alt.Text("pct:Q", format="+.1%"),
+                color=alt.condition("datum.pct >= 0", alt.value(c["pos"]), alt.value(c["neg"])))
+            layers.append(plabels)
+        return alt.layer(*layers).properties(height=height, width="container")
 
     sw = "".join(
         f"<span style='display:inline-block;width:11px;height:11px;border-radius:3px;"
@@ -708,7 +737,7 @@ def _pl_yoy(c: dict, df: pd.DataFrame) -> None:
     if metric == "# Trades":                                  # already the # Trades chart
         chart = panel("n", metric, 300, True, True)
     else:                                                     # metric on top, # Trades "volume" strip below
-        main = panel(fld, metric, 240, False, True)
+        main = panel(fld, metric, 240, False, True, pct_labels=(metric == "Profit / Loss"))
         vol = panel("n", "# Trades", 90, True, False)
         chart = alt.vconcat(main, vol, spacing=6).resolve_scale(x="shared")
     chart = chart.configure_view(strokeWidth=0, fill=None).configure(background="transparent")
