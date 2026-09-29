@@ -99,27 +99,27 @@ def _money_matrix(r: dict, pal: dict) -> str:
     body += rowvals("🛡️ CSP", I["csp"], I["csp"] / I["wcap"], L["csp"], L["csp"] / L["wcap"])
     body += rowvals("🚀 LEAP", I["leap"], I["leap"] / I["wcap"], L["leap"], L["leap"] / L["wcap"])
     body += rowvals("💰 Ready to deploy", I["rtd"], I["rtd"] / I["wcap"], L["rtd"], L["rtd"] / L["wcap"], ready=True)
-    return (f"<table style='border-collapse:collapse;font-size:12.5px;width:100%;'>"
+    return (f"<table style='border-collapse:collapse;font-size:14.5px;width:100%;'>"
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
 
 
 def _vix_table(r: dict, pal: dict) -> str:
     head = "".join(f"<th style='background:{_MB_SUB};color:#fff;border:1px solid {pal['bd']};"
-                   f"padding:5px 6px;text-align:center;font-weight:700;font-size:11px;white-space:nowrap;'>{h}</th>"
+                   f"padding:8px 11px;text-align:center;font-weight:700;font-size:14px;white-space:nowrap;'>{h}</th>"
                    for h in ["VIX Range", "Up Min", "Up Max", "Dn Min", "Dn Max"])
     up = r["trend"] == "Uptrend"
     body = ""
     for i, b in enumerate(engine.BANDS):
         active = i == r["band"]
-        rng = (f"<td style='border:1px solid {pal['bd']};padding:5px 6px;text-align:center;"
-               f"background:{_MB_BAND[i]};color:#111;font-weight:700;font-size:11px;'>{b[0]}</td>")
+        rng = (f"<td style='border:1px solid {pal['bd']};padding:8px 11px;text-align:center;"
+               f"background:{_MB_BAND[i]};color:#111;font-weight:700;font-size:14px;'>{b[0]}</td>")
         tds = ""
         for j, val in enumerate(b[1:]):
             hot = active and ((up and j in (0, 1)) or (not up and j in (2, 3)))
             bg = _MB_BLUE if hot else pal["body"]
             fg = "#111" if hot else pal["txt"]
-            tds += (f"<td style='border:1px solid {pal['bd']};padding:5px 6px;text-align:center;"
-                    f"background:{bg};color:{fg};font-size:11px;{'font-weight:700;' if hot else ''}'>{val * 100:.0f}%</td>")
+            tds += (f"<td style='border:1px solid {pal['bd']};padding:8px 11px;text-align:center;"
+                    f"background:{bg};color:{fg};font-size:14px;{'font-weight:700;' if hot else ''}'>{val * 100:.0f}%</td>")
         body += f"<tr>{rng}{tds}</tr>"
     return (f"<table style='border-collapse:collapse;width:100%;'>"
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
@@ -127,17 +127,17 @@ def _vix_table(r: dict, pal: dict) -> str:
 
 def _premium_table(r: dict, pal: dict) -> str:
     head = (f"<th colspan='2' style='background:{_MB_DARK};color:{_MB_GOLD};border:1px solid {pal['bd']};"
-            f"padding:5px 6px;text-align:center;font-weight:700;font-size:11px;'>📊 PREMIUM TRACKER</th>")
+            f"padding:8px 11px;text-align:center;font-weight:700;font-size:14px;'>📊 PREMIUM TRACKER</th>")
     body = ""
     for lbl, val in r["premium"]:
         gap = "Gap" in lbl
         bg = pal["body"]
         if gap:
             bg = _MB_GREEN if val <= 0 else _MB_YELLOW
-        lab = (f"<td style='border:1px solid {pal['bd']};padding:5px 6px;background:{_MB_SUB};color:#fff;"
-               f"font-weight:700;font-size:11px;white-space:nowrap;'>{lbl}</td>")
-        val_c = (f"<td style='border:1px solid {pal['bd']};padding:5px 6px;text-align:center;"
-                 f"background:{bg};color:{'#111' if gap else pal['txt']};font-size:11px;font-weight:700;'>{_m0(val)}</td>")
+        lab = (f"<td style='border:1px solid {pal['bd']};padding:8px 11px;background:{_MB_SUB};color:#fff;"
+               f"font-weight:700;font-size:14px;white-space:nowrap;'>{lbl}</td>")
+        val_c = (f"<td style='border:1px solid {pal['bd']};padding:8px 11px;text-align:center;"
+                 f"background:{bg};color:{'#111' if gap else pal['txt']};font-size:14px;font-weight:700;'>{_m0(val)}</td>")
         body += f"<tr>{lab}{val_c}</tr>"
     return (f"<table style='border-collapse:collapse;width:100%;'>"
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
@@ -146,15 +146,15 @@ def _premium_table(r: dict, pal: dict) -> str:
 def _gaps_table(r: dict, pal: dict) -> str:
     cols = ["Account", "CSP Gap", "CC Breaker", "Breaker Gap", "%CSP ITM", "LEAP %", "LEAP Gap"]
     head = "".join(f"<th style='background:{_MB_DARK};color:#fff;border:1px solid {pal['bd']};"
-                   f"padding:5px 6px;text-align:center;font-weight:700;font-size:11px;white-space:nowrap;'>{h}</th>"
+                   f"padding:8px 11px;text-align:center;font-weight:700;font-size:14px;white-space:nowrap;'>{h}</th>"
                    for h in cols)
 
     def brk_bg(v):
         return _MB_RED if v >= 0.45 else (_MB_YELLOW if v >= 0.30 else _MB_GREEN)
 
     def rowline(name, d):
-        lab = (f"<td style='border:1px solid {pal['bd']};padding:5px 6px;background:{_MB_SUB};color:#fff;"
-               f"font-weight:700;text-align:center;font-size:11px;'>{name}</td>")
+        lab = (f"<td style='border:1px solid {pal['bd']};padding:8px 11px;background:{_MB_SUB};color:#fff;"
+               f"font-weight:700;text-align:center;font-size:14px;'>{name}</td>")
         cells = [
             (_m0(d["rtd"]), _MB_GREEN if d["rtd"] >= 0 else _MB_RED),
             (_pc(d["ccbrk"]), brk_bg(d["ccbrk"])),
@@ -163,9 +163,9 @@ def _gaps_table(r: dict, pal: dict) -> str:
             (_pc(d["leappct"]), pal["body"]),
             (_m0(d["leapgap"]), _MB_GREEN if d["leapgap"] >= 0 else _MB_RED),
         ]
-        tds = "".join(f"<td style='border:1px solid {pal['bd']};padding:5px 6px;text-align:center;"
+        tds = "".join(f"<td style='border:1px solid {pal['bd']};padding:8px 11px;text-align:center;"
                       f"background:{bg};color:{'#111' if bg != pal['body'] else pal['txt']};"
-                      f"font-weight:700;font-size:11px;white-space:nowrap;'>{v}</td>" for v, bg in cells)
+                      f"font-weight:700;font-size:14px;white-space:nowrap;'>{v}</td>" for v, bg in cells)
         return f"<tr>{lab}{tds}</tr>"
 
     body = rowline("IRA", r["ira"]) + rowline("LLC", r["llc"]) + rowline("Total", r["total"])
@@ -173,11 +173,12 @@ def _gaps_table(r: dict, pal: dict) -> str:
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
 
 
-def _monitor_board(c: dict) -> None:
+def board_data() -> dict | None:
+    """Live Monitor-Board payload (r + market context), shared by the Command Center
+    and the Cockpit view so both read the exact same numbers."""
     df = _tradelog_full()
     if df.empty:
-        st.warning("Couldn't load the TradeLog tab.")
-        return
+        return None
     ext = _mb_externals()
     mkt = _mb_market()
     vix = mkt.get("vix") or ext.get("vix") or 16.57
@@ -185,6 +186,16 @@ def _monitor_board(c: dict) -> None:
     vix_chg = vc if vc is not None else (ext.get("vix_chg") or 0.0)
     trend = mkt.get("trend") or ext.get("trend") or "Uptrend"
     r = engine.monitor_board(df, ext.get("ath_ira", 0), ext.get("ath_llc", 0), vix, vix_chg, trend)
+    return {"r": r, "vix": vix, "vix_chg": vix_chg, "trend": trend, "live": bool(mkt.get("vix"))}
+
+
+def _monitor_board(c: dict) -> None:
+    data = board_data()
+    if data is None:
+        st.warning("Couldn't load the TradeLog tab.")
+        return
+    r, vix, vix_chg, trend, mkt = (data["r"], data["vix"], data["vix_chg"],
+                                   data["trend"], {"vix": data["live"] or None})
     pal = _mb_pal(c)
 
     chg_bg = _MB_GREEN if vix_chg <= 0 else _MB_RED
@@ -221,6 +232,86 @@ def _sign(c: dict, v):
         return ""
 
 
+_PL_MONEY = {"P/L", "Cash Release"}
+
+
+def _pl_html(c: dict, df: pd.DataFrame) -> str:
+    """Big-font HTML rendering of a P/L frame ($ formatted, P/L colored green/red).
+    Replaces st.dataframe so the font is readable — the columns have plenty of room."""
+    cols = list(df.columns)
+    head = "".join(
+        f"<th style='position:sticky;top:0;background:{c['raised']};color:{c['text']};"
+        f"border:1px solid {c['border']};padding:11px 16px;font-weight:800;font-size:14.5px;"
+        f"white-space:nowrap;text-align:{'left' if i == 0 else 'right'};'>{col}</th>"
+        for i, col in enumerate(cols))
+    body = ""
+    for _, r in df.iterrows():
+        tds = ""
+        for i, col in enumerate(cols):
+            v = r[col]
+            if col in _PL_MONEY:
+                try:
+                    disp = f"${float(v):,.0f}"
+                except (TypeError, ValueError):
+                    disp = str(v)
+            elif col == "Trades":
+                try:
+                    disp = f"{int(v):,}"
+                except (TypeError, ValueError):
+                    disp = str(v)
+            else:
+                disp = str(v)
+            base = (f"border:1px solid {c['border']};padding:10px 16px;color:{c['text']};"
+                    f"white-space:nowrap;font-size:15px;text-align:{'left' if i == 0 else 'right'};")
+            if col == "P/L":
+                base += _sign(c, v) + ";font-weight:800;"
+            elif i == 0:
+                base += "font-weight:700;"
+            tds += f"<td style='{base}'>{disp}</td>"
+        body += f"<tr style='background:{c['panel']};'>{tds}</tr>"
+    return (f"<div style='overflow:auto;max-height:640px;border:1px solid {c['border']};border-radius:9px;'>"
+            f"<table style='border-collapse:collapse;font-size:15px;width:max-content;min-width:100%;'>"
+            f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>")
+
+
+def _pl_stats(c: dict, yt: pd.DataFrame) -> str:
+    pl, cr, tr = yt["P/L"].sum(), yt["Cash Release"].sum(), int(yt["Trades"].sum())
+
+    def tile(lbl, val, col):
+        return (f"<div style='flex:1;min-width:118px;background:{c['panel']};border:1px solid {c['border']};"
+                f"border-radius:12px;padding:13px 15px;'>"
+                f"<div style='font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;"
+                f"color:{c['muted']};'>{lbl}</div>"
+                f"<div style='margin-top:5px;font-size:19px;font-weight:800;color:{col};"
+                f"white-space:nowrap;font-variant-numeric:tabular-nums;'>{val}</div></div>")
+    return (f"<div style='display:flex;gap:11px;flex-wrap:wrap;margin:4px 0 12px;'>"
+            f"{tile('Realized P/L', f'${pl:,.0f}', c['pos'] if pl >= 0 else c['neg'])}"
+            f"{tile('Cash Released', f'${cr:,.0f}', c['gold'])}"
+            f"{tile('Trades', f'{tr:,}', c['blue'])}</div>")
+
+
+def _pl_bars(c: dict, yt: pd.DataFrame) -> str:
+    if yt.empty:
+        return ""
+    recs = list(reversed(yt.to_dict("records")))            # chronological, Jan→latest
+    mx = max((abs(float(r["P/L"])) for r in recs), default=1) or 1
+    rows = ""
+    for r in recs:
+        pl = float(r["P/L"])
+        w = abs(pl) / mx * 100
+        col = c["pos"] if pl >= 0 else c["neg"]
+        rows += (f"<div style='display:flex;align-items:center;gap:10px;margin:6px 0;'>"
+                 f"<span style='width:34px;font-size:12.5px;color:{c['mid']};font-weight:700;'>{r['Month']}</span>"
+                 f"<div style='flex:1;height:15px;background:{c['raised']};border-radius:5px;overflow:hidden;'>"
+                 f"<div style='width:{w:.1f}%;height:100%;background:{col};border-radius:5px;'></div></div>"
+                 f"<span style='width:88px;text-align:right;font-size:13px;font-weight:800;color:{col};"
+                 f"font-variant-numeric:tabular-nums;'>${pl:,.0f}</span></div>")
+    return (f"<div style='background:{c['panel']};border:1px solid {c['border']};border-radius:12px;"
+            f"padding:13px 15px;margin-bottom:13px;'>"
+            f"<div style='font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;"
+            f"color:{c['muted']};margin-bottom:6px;'>Monthly P/L</div>{rows}</div>")
+
+
 def _pl_section(c: dict, icon: str, title: str, sub: str, rollup: pd.DataFrame, key: str) -> None:
     st.markdown(f"##### {icon} {title}")
     st.caption(sub)
@@ -233,22 +324,15 @@ def _pl_section(c: dict, icon: str, title: str, sub: str, rollup: pd.DataFrame, 
     yr = st.selectbox("Year", years, key=f"{key}_yr")
     yt = totals[totals["Year"] == yr].drop(columns="Year").reset_index(drop=True)
 
-    st.markdown(f"**{yr}** · P/L **${yt['P/L'].sum():,.0f}** · "
-                f"Cash Release **${yt['Cash Release'].sum():,.0f}** · {int(yt['Trades'].sum())} trades")
-    st.dataframe(
-        yt.style.map(lambda v: _sign(c, v), subset=["P/L"])
-        .format({"P/L": "${:,.0f}", "Cash Release": "${:,.0f}"}),
-        use_container_width=True, hide_index=True)
+    st.markdown(_pl_stats(c, yt) + _pl_bars(c, yt), unsafe_allow_html=True)
+    st.markdown(_pl_html(c, yt), unsafe_allow_html=True)
 
     with st.expander("Drill into a month (account → stock)"):
         months = yt["Month"].tolist()
         if months:
             m = st.selectbox("Month", months, key=f"{key}_mo")
             det = engine.detail_for(rollup, yr, m)
-            st.dataframe(
-                det.style.map(lambda v: _sign(c, v), subset=["P/L"])
-                .format({"P/L": "${:,.0f}", "Cash Release": "${:,.0f}"}),
-                use_container_width=True, hide_index=True)
+            st.markdown(_pl_html(c, det), unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -372,15 +456,15 @@ def _tl_palette(c, light):
     if light:
         return dict(row="#ffffff", alt="#eef1f3", txt="#16212c", bd="#c7ced3",
                     hbg="#1c2e33", htxt="#ffffff",
-                    opt={"Put": ("#2f7e25", "#fff"), "Call": ("#d9a400", "#1a1a1a"),
-                         "LEAP": ("#3b78d8", "#fff"), "HOLD": ("#241a00", "#ffd066")},
+                    opt={"Put": ("transparent", "#347fd1"), "Call": ("transparent", "#b8860b"),
+                         "LEAP": ("transparent", "#6b3fa0"), "HOLD": ("transparent", "#8a6800")},
                     pos="#188038", neg="#c5221f",
                     cap_pos=("#b7e1cd", "#0d652d"), cap_neg=("#f4c7c3", "#a50e0e"),
                     pl_neg=("#f4c7c3", "#a50e0e"), cash=("#241a00", "#ffd066"))
     return dict(row=c["panel"], alt=c["bg"], txt=c["text"], bd=c["border"],
                 hbg=c["raised"], htxt=c["text"],
-                opt={"Put": ("rgba(22,163,74,.32)", "#c9f7d6"), "Call": ("rgba(234,179,8,.32)", "#fff0bf"),
-                     "LEAP": ("rgba(59,130,246,.30)", "#cfe4ff"), "HOLD": ("rgba(140,105,20,.40)", "#ffd479")},
+                opt={"Put": ("transparent", c["blue"]), "Call": ("transparent", c["gold"]),
+                     "LEAP": ("transparent", "#a78bfa"), "HOLD": ("transparent", c["amber"])},
                 pos="#43c463", neg="#f2555a",
                 cap_pos=("rgba(67,196,99,.22)", "#c9f7d6"), cap_neg=("rgba(242,85,90,.22)", "#ffc9cb"),
                 pl_neg=("transparent", "#f2555a"), cash=("rgba(58,44,10,.6)", "#ffd479"))
@@ -454,7 +538,7 @@ def _tl_html(vv, cols, c, light) -> str:
             tds += f"<td style='{style}'>{disp}</td>"
         body += f"<tr style='background:{p['row']};'>{tds}</tr>"
     return (f"<div style='overflow:auto;max-height:600px;border:1px solid {p['bd']};border-radius:8px;'>"
-            f"<table style='border-collapse:collapse;font-size:12.5px;width:100%;'>"
+            f"<table style='border-collapse:collapse;font-size:14.5px;width:100%;'>"
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>")
 
 

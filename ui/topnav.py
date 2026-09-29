@@ -11,8 +11,8 @@ import streamlit as st
 
 from ui import brand, nav
 
-_MARK = (f'<span style="display:inline-flex;vertical-align:middle;margin-right:8px;">'
-         f'{brand.gearframe(22)}</span>')
+_MARK = (f'<span style="display:inline-flex;vertical-align:middle;margin-right:9px;">'
+         f'{brand.gearframe(30)}</span>')
 
 
 def _href(page: str, theme: str) -> str:

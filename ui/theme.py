@@ -90,8 +90,7 @@ def apply_theme(name: str) -> dict:
 
       .sb-logo {{ display:flex; align-items:center; gap:10px; padding:8px 8px 12px;
                   border-bottom:1px solid {c['border_soft']}; margin-bottom:6px; }}
-      .sb-logo-icon {{ font-size:20px; width:34px; height:34px; border-radius:9px;
-                       background:{c['nav_active_bg']}; display:flex; align-items:center;
+      .sb-logo-icon {{ width:44px; height:44px; display:flex; align-items:center;
                        justify-content:center; flex-shrink:0; }}
       .sb-logo-title {{ font-size:16px; font-weight:800; color:{c['text']}; line-height:1.15; }}
       .sb-logo-title .eng {{ color:{c['gold']}; }}

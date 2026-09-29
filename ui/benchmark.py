@@ -190,9 +190,7 @@ def growth_chart(c: dict, df: pd.DataFrame, order: list, colmap: dict, actcol: d
         x=xenc,
         y=alt.Y("pct:Q", title=y_title, scale=alt.Scale(zero=True),
                 axis=alt.Axis(format="+.0%", **ax)),
-        color=alt.Color("series:N", scale=cscale, sort=order,
-                        legend=alt.Legend(title=None, labelColor=c["text"], labelFontSize=14,
-                                          symbolStrokeWidth=3, orient="top-left")),
+        color=alt.Color("series:N", scale=cscale, sort=order, legend=None),
         size=alt.Size("series:N", scale=wscale, legend=None))
     enddot = alt.Chart(ends).mark_circle(size=90).encode(
         x=xenc, y="pct:Q", color=alt.Color("series:N", scale=cscale, legend=None))
@@ -282,9 +280,11 @@ def _money(v, esc: str = "\\$") -> str:
     return f"{esc}{v:,.0f}"
 
 
-def year_edge(c: dict, df: pd.DataFrame, year: int, order: list) -> str:
+def year_edge(c: dict, df: pd.DataFrame, year: int, order: list, colmap: dict | None = None) -> str:
     """Year chip: combined account \\$ (start→now, +gain), each series' % for the year,
-    and the combined portfolio's edge vs SPY. All % come straight from the 100-indices."""
+    and the combined portfolio's edge vs SPY. Each series NAME is painted its own line
+    color (so the header doubles as the legend); the % keeps its up/down green/red."""
+    colmap = colmap or {}
     def ret(k):
         return df[k].iloc[-1] - 100 if k in df and not df[k].empty else 0.0
     start = df["tot_start"].iloc[0] if "tot_start" in df and not df["tot_start"].empty else None
@@ -297,15 +297,16 @@ def year_edge(c: dict, df: pd.DataFrame, year: int, order: list) -> str:
     parts = []
     for k in order:
         v = ret(k)
-        col = c["pos"] if v >= 0 else c["neg"]
-        parts.append(f"{k} <b style='color:{col};'>{v:+.1f}%</b>")
+        vcol = c["pos"] if v >= 0 else c["neg"]
+        ncol = colmap.get(k, c["text"])
+        parts.append(f"<b style='color:{ncol};'>{k}</b> <b style='color:{vcol};'>{v:+.1f}%</b>")
     port = (now / start * 100 - 100) if (start and now) else 0.0    # combined, raw
     edge = port - ret("SPY")
     ecol = c["pos"] if edge >= 0 else c["neg"]
     return (f"### {year} &nbsp; <span style='font-size:15px;color:{c['muted']};'>{dollars}</span>\n\n"
-            f"<span style='font-size:14px;color:{c['muted']};'>"
-            f"{' · '.join(parts)} &nbsp;·&nbsp; combined edge vs SPY "
-            f"<b style='color:{ecol};'>{edge:+.1f} pts</b></span>")
+            f"<span style='font-size:14.5px;'>"
+            f"{' &nbsp;·&nbsp; '.join(parts)} <span style='color:{c['muted']};'>&nbsp;·&nbsp; "
+            f"combined edge vs SPY <b style='color:{ecol};'>{edge:+.1f} pts</b></span></span>")
 
 
 def header_dollar(c: dict, df: pd.DataFrame, series: list, label: str) -> str:
@@ -324,18 +325,22 @@ def header_dollar(c: dict, df: pd.DataFrame, series: list, label: str) -> str:
             f"{edge:+.1f} pts</b></span>")
 
 
-def header_index(c: dict, df: pd.DataFrame, series: list, label: str) -> str:
+def header_index(c: dict, df: pd.DataFrame, series: list, label: str,
+                 colmap: dict | None = None) -> str:
+    colmap = colmap or {}
     def ret(k):
         return df[k].iloc[-1] / df[k].iloc[0] * 100 - 100
     spy = ret("SPY") if "SPY" in df else 0
     parts = []
     for k in series:
         v = ret(k)
-        col = c["pos"] if v >= 0 else c["neg"]
-        parts.append(f"{k} <b style='color:{col};'>{v:+.1f}%</b>")
+        vcol = c["pos"] if v >= 0 else c["neg"]
+        ncol = colmap.get(k, c["text"])
+        parts.append(f"<b style='color:{ncol};'>{k}</b> <b style='color:{vcol};'>{v:+.1f}%</b>")
     edge = ret("Mine") - spy
     ecol = c["pos"] if edge >= 0 else c["neg"]
     return (f"### 📈 Mine vs Rayan vs SPY "
             f"<span style='font-size:15px;color:{c['muted']};'>({label})</span>\n\n"
-            f"<span style='font-size:14px;color:{c['muted']};'>{' · '.join(parts)} &nbsp;·&nbsp; "
-            f"edge vs SPY <b style='color:{ecol};'>{edge:+.1f} pts</b></span>")
+            f"<span style='font-size:14.5px;'>{' &nbsp;·&nbsp; '.join(parts)} "
+            f"<span style='color:{c['muted']};'>&nbsp;·&nbsp; edge vs SPY "
+            f"<b style='color:{ecol};'>{edge:+.1f} pts</b></span></span>")

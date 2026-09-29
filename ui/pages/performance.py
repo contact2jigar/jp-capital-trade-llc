@@ -46,31 +46,31 @@ def _summary_cards(c, row0):
 
 def _table(c, header, rows):
     head = "".join(
-        f"<th style='position:sticky;top:0;background:{c['raised']};color:{c['text']};"
-        f"border:1px solid {c['border']};padding:7px 9px;text-align:{'left' if i == 0 else 'right'};"
-        f"font-weight:700;font-size:10.5px;white-space:nowrap;'>{h}</th>" for i, h in enumerate(header))
+        f"<th style='position:sticky;top:0;{'left:0;z-index:3;' if i == 0 else 'z-index:2;'}"
+        f"background:{c['raised']};color:{c['text']};"
+        f"border:1px solid {c['border']};padding:11px 16px;text-align:{'left' if i == 0 else 'right'};"
+        f"font-weight:800;font-size:14.5px;white-space:nowrap;'>{h}</th>" for i, h in enumerate(header))
     body = ""
     for r in rows:
         tds = ""
         for i, h in enumerate(header):
             v = str(r[i]).strip() if i < len(r) else ""
-            base = (f"border:1px solid {c['border']};padding:6px 9px;color:{c['text']};"
-                    f"white-space:nowrap;text-align:{'left' if i == 0 else 'right'};font-size:11.5px;")
-            if i in _PCT_COLS or i in _CHG_COLS:
-                if v and v not in ("0", "0.00%", "—"):
-                    base += f"color:{c['neg'] if _neg(v) else c['pos']};font-weight:800;"
-            if i == 0:
-                base += "font-weight:800;"
+            base = (f"border:1px solid {c['border']};padding:10px 16px;color:{c['text']};"
+                    f"white-space:nowrap;text-align:{'left' if i == 0 else 'right'};font-size:15px;")
+            if i == 0:                                   # Date — freeze it so it stays while scrolling right
+                base += f"position:sticky;left:0;z-index:1;background:{c['raised']};font-weight:800;"
+            elif (i in _PCT_COLS or i in _CHG_COLS) and v and v not in ("0", "0.00%", "—"):
+                base += f"color:{c['neg'] if _neg(v) else c['pos']};font-weight:800;"
             tds += f"<td style='{base}'>{v or '—'}</td>"
         body += f"<tr style='background:{c['panel']};'>{tds}</tr>"
-    return (f"<div style='overflow:auto;max-height:640px;border:1px solid {c['border']};border-radius:9px;'>"
-            f"<table style='border-collapse:collapse;font-size:12px;width:100%;'>"
+    # width:max-content lets the table keep its natural (wide) width so the many
+    # columns overflow horizontally → a horizontal scrollbar to reach Total.
+    return (f"<div style='overflow:auto;max-height:700px;border:1px solid {c['border']};border-radius:9px;'>"
+            f"<table style='border-collapse:collapse;font-size:15px;width:max-content;min-width:100%;'>"
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>")
 
 
 def render(c: dict) -> None:
-    st.caption("Monthly → my accounts in actual \\$ (IRA · LLC · Total). "
-               "Weekly & Daily → Mine vs Rayan vs SPY, growth of \\$100 (Scoreboard tab).")
     gran = st.radio("Granularity", ["Monthly", "Weekly", "Daily"], horizontal=True,
                     label_visibility="collapsed", key="perf_gran")
 
@@ -78,9 +78,6 @@ def render(c: dict) -> None:
         df, series = benchmark.monthly_df()
         if not df.empty:
             st.markdown(benchmark.header_dollar(c, df, series, "monthly"), unsafe_allow_html=True)
-            st.caption("Each year **starts at 0%** (January opening) and the labeled dot is **where you are now** — "
-                       "% up / down straight from the sheet's Start→End. IRA (gold) · LLC (green) vs "
-                       "SPY (blue) · QQQ (gray); hover any point for the actual Fidelity \\$. Newest year on the left.")
             order = ["IRA", "LLC", "SPY", "QQQ"]
             colmap = {"IRA": c["gold"], "LLC": c["pos"], "SPY": c["blue"], "QQQ": c["muted"]}
             actcol = {"IRA": "ira_usd", "LLC": "llc_usd", "SPY": "s_lvl", "QQQ": "q_lvl"}
@@ -98,7 +95,7 @@ def render(c: dict) -> None:
                 ydf["LLC"] = ydf["llc_usd"] / b_l * 100 if b_l else 100
                 ydf["SPY"] = ydf["s_lvl"] / b_s * 100 if b_s else 100
                 ydf["QQQ"] = ydf["q_lvl"] / b_q * 100 if b_q else 100
-                col.markdown(benchmark.year_edge(c, ydf, y, order), unsafe_allow_html=True)
+                col.markdown(benchmark.year_edge(c, ydf, y, order, colmap), unsafe_allow_html=True)
                 anchor = pd.DataFrame([{"mon": "Start", "IRA": 100, "LLC": 100, "SPY": 100, "QQQ": 100,
                                         "ira_usd": b_i, "llc_usd": b_l, "s_lvl": b_s, "q_lvl": b_q}])
                 keep = ["mon", "IRA", "LLC", "SPY", "QQQ", "ira_usd", "llc_usd", "s_lvl", "q_lvl"]
@@ -130,9 +127,7 @@ def render(c: dict) -> None:
                     wdf = benchmark.rebase(wdf, series)[keep].copy()
             colmap = {"Mine": c["gold"], "Rayan": c["accent"], "SPY": c["blue"]}
             actcol = {k: k for k in series}
-            st.markdown(benchmark.header_index(c, wdf, series, lbl), unsafe_allow_html=True)
-            st.caption("**% up / down** by week, from the month's opening (0%) — Mine (gold) vs "
-                       "Rayan (teal) vs SPY (blue). Labeled dot = where each stands now; hover for growth of \\$100.")
+            st.markdown(benchmark.header_index(c, wdf, series, lbl, colmap), unsafe_allow_html=True)
             st.altair_chart(benchmark.growth_chart(c, wdf, series, colmap, actcol,
                             dollar_keys=set(series), x_field="wk", x_title="Week",
                             y_title="Up / down since the month's start (0%)",
@@ -146,10 +141,10 @@ def render(c: dict) -> None:
             pick = st.selectbox("Month", list(labels), key="perf_day_month")
             mdf = df[df["date"].dt.to_period("M") == labels[pick]]
             mdf = benchmark.rebase(mdf, series)
-            st.markdown(benchmark.header_index(c, mdf, series, pick), unsafe_allow_html=True)
+            colmap = {"Mine": c["gold"], "Rayan": c["accent"], "SPY": c["blue"]}
+            st.markdown(benchmark.header_index(c, mdf, series, pick, colmap), unsafe_allow_html=True)
             st.altair_chart(benchmark.chart(c, mdf, series, mode="index", x_fmt="%b %d",
                                             tip_fmt="%b %d, %Y"), use_container_width=True)
-            st.caption("Daily growth of \\$100 for the selected month — Mine (gold) vs Rayan vs SPY.")
 
     # The full monthly IRA·LLC·SPY·QQQ table lives under the Monthly view.
     if gran == "Monthly":

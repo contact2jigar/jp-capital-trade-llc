@@ -18,7 +18,7 @@ def _href(page: str, theme: str) -> str:
 def render_sidebar(c: dict, active: str, theme: str) -> None:
     with st.sidebar:
         st.markdown(
-            f'<div class="sb-logo"><div class="sb-logo-icon">{brand.gearframe(26)}</div>'
+            f'<div class="sb-logo"><div class="sb-logo-icon">{brand.gearframe(44)}</div>'
             '<div><div class="sb-logo-title">Wheel<span class="eng">Engine</span></div>'
             '<div class="sb-logo-sub">by JP Capital &amp; Trade</div></div></div>',
             unsafe_allow_html=True)
