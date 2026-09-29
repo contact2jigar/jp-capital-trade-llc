@@ -194,7 +194,7 @@ def _money_card(r: dict, P: dict) -> str:
     for lbl, key in rows_def:
         cells += f"<div class='ck-ml'>{lbl}</div>"
         cells += "".join(f"<div class='ck-mv'>{_m(a.get(key) or 0)}</div>" for _, a in accts)
-    return (f"<div class='ck-card ck-bcard'>{_btag('💰 MONEY', 'capital · ath · vault', P)}"
+    return (f"<div class='ck-card ck-bcard'>{_btag('💰 MONEY', 'Capital · ATH · Vault', P)}"
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
 
