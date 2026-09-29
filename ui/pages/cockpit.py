@@ -373,7 +373,7 @@ def _css(P: dict) -> str:
 .ck-rp{{font-size:13.5px;color:{P['green']};margin-left:8px}}
 .ck-prow{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}}
 .ck-sumrow{{align-items:start}}                     /* COMBINED + PERF size to their own content */
-.ck-ptwrap{{max-height:242px;overflow-y:auto;margin-top:8px}}
+.ck-ptwrap{{max-height:285px;overflow-y:auto;margin-top:8px}}
 .ck-ptbl{{width:100%;border-collapse:collapse}}
 .ck-ptbl th{{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:{P['mut']};
   font-weight:700;text-align:right;padding:4px 12px;border-bottom:1px solid {P['line']};
