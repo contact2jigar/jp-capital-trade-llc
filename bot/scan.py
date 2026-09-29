@@ -24,6 +24,7 @@ from bot import basis as basis_src   # noqa: E402
 
 STATE = HERE / "state.json"
 EXPIRY_DTE = 3          # flag ITM positions inside this many days
+LEAP_SNOOZE = date(2026, 11, 30)   # LEAPs set aside — Jun-2028 expiry, 627 DTE, no time pressure (Jigar, Sep 29)
 ROLL_RECHECK = 0.25     # re-alert a roll only if it moves 25%+
 DIGEST_OVER  = 3        # more than this in one run -> one summary, not N pings
 OPEN_AT  = dtime(10, 0)   # Yahoo option chains (deltas) are not live until ~9:55 ET
@@ -137,6 +138,8 @@ def build_alerts(op) -> list[dict]:
 
         # ⛔ cut loss flagged by the sheet
         if "cut" in act.lower():
+            if typ == "LEAP" and date.today() < LEAP_SNOOZE:
+                continue
             out.append(dict(kind="CUT", k=key(r), title=f"⛔ CUT LOSS · {tick}",
                             sub=f"{acct} · {typ}",
                             body=f"{pos}\n{cap} · sheet flags Cut Loss",

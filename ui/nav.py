@@ -8,6 +8,7 @@ TOP: list[tuple[str, str]] = [
     ("Trade Positions", "📒"),
     ("Decision Desk", "⚖️"),
     ("Candidate Scanner", "🔎"),
+    ("LEAP Scanner", "🚀"),
 ]
 
 # LEFT sidebar groups → [(label, icon, target_page)]. "Command Center" points back to
@@ -39,6 +40,7 @@ ROUTES: dict[str, str] = {
     "Cockpit":           "ui.pages.cockpit",
     "Trade Positions":   "ui.pages.trade_position",
     "Candidate Scanner": "ui.pages.csp_scanner",
+    "LEAP Scanner":      "ui.pages.leap_scanner",
     "Decision Desk":     "ui.pages.candidate_hunt",
     "P/L":               "ui.pages.pl",
     "Performance":       "ui.pages.performance",
