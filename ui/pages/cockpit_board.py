@@ -161,13 +161,12 @@ def _period_card(title: str, earned: float, goal: float, P: dict) -> str:
     goal = goal or 1
     rate = earned / goal * 100
     w = max(0.0, min(100.0, rate))
-    rcol = P["green"] if rate >= 100 else P["gold"]
+    rcol = P["green"] if rate >= 100 else P["blue"]        # on track = blue, goal beaten = green
     return (f"<div class='ck-card ck-pcard2'>"
             f"<div class='ck-p2head'><span class='ck-p2label'>{title} earned premium</span>"
             f"<span class='ck-p2icon'>💰</span></div>"
-            f"<div class='ck-p2val'><b>{_m(earned)}</b> <span>/ {_m(goal)}</span></div>"
-            f"<div class='ck-p2rate'><span>{title} run rate</span>"
-            f"<span style='color:{rcol}'>{rate:.1f}%</span></div>"
+            f"<div class='ck-p2val'><b style='color:{rcol}'>{_m(earned)}</b> <span>/ {_m(goal)}</span></div>"
+            f"<div class='ck-p2rate'><span style='color:{rcol}'>{rate:.1f}%</span></div>"
             f"<div class='ck-p2track'><div class='ck-p2fill' style='width:{w:.1f}%'></div></div></div>")
 
 
@@ -241,8 +240,8 @@ def _summary_grid(r: dict, P: dict) -> str:
             amt = a.get(key) or 0
             b = a.get(base) or 0
             pct = (amt / b * 100) if b else 0
-            if k == "ready":                               # green/red badge, black text
-                bg = P["green"] if amt >= 0 else P["red"]
+            if k == "ready":                               # green/red badge, black text (bright in both themes)
+                bg = "#43c463" if amt >= 0 else "#f2555a"
                 cells += (f"<div class='ck-wc'><span class='ck-rbadge' style='background:{bg}'>"
                           f"<b>{_m(amt)}</b><em>{pct:.1f}%</em></span></div>")
                 continue
@@ -379,7 +378,7 @@ def _extra_css(P: dict) -> str:
 .ck-rbadge em{{font-style:normal;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;font-weight:700;opacity:.85}}
 .ck-wc,.ck-wc-hi{{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;background:{P['phi']}}}
 .ck-wc-hi{{background:{P['green']}22}}
-.ck-wca{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11.5px;font-weight:700;color:{P['ink']};line-height:1.15}}
+.ck-wca{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11.5px;font-weight:500;color:{P['ink']};line-height:1.15}}
 .ck-wcp{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;font-weight:600;color:{P['subv']};line-height:1.15}}
 .ck-wc-hi .ck-wca,.ck-wc-hi .ck-wcp{{color:{P['green']}}}
 .ck-acard{{padding:10px 15px 11px}}
@@ -396,6 +395,8 @@ def _extra_css(P: dict) -> str:
 .ck-bcard .ck-chead,.ck-brkcard .ck-chead{{margin-bottom:2px}}
 @media (max-width:820px){{.ck-brow2{{grid-template-columns:1fr}}}}
 .ck-brow{{display:grid;grid-template-columns:1.5fr 1.7fr 0.8fr 0.8fr;gap:11px;margin-bottom:14px;align-items:stretch}}
+.ck-seg{{color:#0c1116!important}}
+.ck-sd{{opacity:1!important;color:#0c1116!important}}
 .ck-goalcard,.ck-brkcard{{padding:10px 14px 10px}}
 .ck-grow{{padding:9px 0 7px}}
 .ck-grow + .ck-grow{{border-top:1px solid {P['lsoft']}}}
@@ -406,8 +407,8 @@ def _extra_css(P: dict) -> str:
   justify-content:center;font-size:13px;background:{P['gold']}1e;border:1px solid {P['gold']}44}}
 .ck-p2val{{margin-top:5px;font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:700;color:{P['gold']}}}
 .ck-p2val span{{color:{P['subv']};font-size:12.5px;font-weight:600}}
-.ck-p2rate{{display:flex;justify-content:space-between;align-items:baseline;margin-top:auto;padding-top:8px;
-  font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;color:{P['mut']}}}
+.ck-p2rate{{display:flex;justify-content:flex-end;align-items:baseline;margin-top:auto;padding-top:8px;
+  font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700}}
 .ck-p2track{{height:7px;border-radius:6px;background:{P['track']};border:1px solid {P['lsoft']};
   overflow:hidden;margin-top:4px}}
 .ck-p2fill{{height:100%;border-radius:6px;background:linear-gradient(90deg,#e8893a,{P['gold']},{P['green']})}}
@@ -428,7 +429,7 @@ def _extra_css(P: dict) -> str:
 .ck-mhl{{text-align:left}}
 .ck-ml{{font-size:12px;font-weight:600;line-height:1.1;color:{P['ink']};padding:2.5px 0;
   border-bottom:1px solid {P['lsoft']}}}
-.ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;font-weight:700;line-height:1.1;
+.ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;font-weight:500;line-height:1.1;
   color:{P['ink']};text-align:right;padding:2.5px 0;border-bottom:1px solid {P['lsoft']}}}
 .ck-mgrid > :nth-last-child(-n+3){{border-bottom:none}}
 .ck-btbl{{width:100%;border-collapse:collapse;margin-top:5px}}
