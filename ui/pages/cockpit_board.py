@@ -200,6 +200,28 @@ def _money_card(r: dict, P: dict) -> str:
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
 
+def _matrix_grid(r: dict, P: dict) -> str:
+    """Focus matrix — IRA/LLC/Total as rows, gates as columns, with green/red cell fills."""
+    rows = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
+    cols = ["Account", "CSP Gap", "CC Breaker", "Breaker Gap", "%CSP ITM", "LEAP %", "LEAP Gap"]
+    cells = "".join(f"<div class='ck-fh{' ck-fhl' if i == 0 else ''}'>{c}</div>"
+                    for i, c in enumerate(cols))
+    for name, a in rows:
+        rtd, ccb = a.get("rtd", 0), (a.get("ccbrk") or 0) * 100
+        brkgap, itm = a.get("brkgap", 0), (a.get("cspitm") or 0) * 100
+        lp, lg = (a.get("leappct") or 0) * 100, a.get("leapgap", 0)
+        bc = P["green"] if ccb < 30 else P["amber"] if ccb < 45 else P["red"]
+        cells += f"<div class='ck-fa'>{name}</div>"
+        cells += f"<div class='ck-fg'>{_m(rtd)}</div>"
+        cells += f"<div class='ck-fg' style='color:{bc}'>{ccb:.1f}%</div>"
+        cells += f"<div class='ck-fg'>{_m(brkgap)}</div>"
+        cells += f"<div class='ck-fn'>{itm:.1f}%</div>"
+        cells += f"<div class='ck-fn'>{lp:.1f}%</div>"
+        cells += f"<div class='ck-{'fg' if lg >= 0 else 'fr'}'>{_m(lg)}</div>"
+    return (f"<div class='ck-card ck-fcard'>{_btag('🚦 FOCUS MATRIX', 'gaps · breaker · itm · leap', P)}"
+            f"<div class='ck-fgrid'>{cells}</div></div>")
+
+
 def _total_acct(I: dict, L: dict) -> dict:
     ks = ["cap", "wcap", "vtgt", "cih", "dep", "csp", "cc", "leap", "rtd", "brkgap", "leapgap", "itm"]
     T = {k: (I.get(k) or 0) + (L.get(k) or 0) for k in ks}
@@ -255,6 +277,20 @@ def _acct_card(name: str, a: dict, accent: str, P: dict) -> str:
 def _extra_css(P: dict) -> str:
     return f"""<style>
 .ck-arow{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;margin-bottom:14px;align-items:start}}
+.ck-fcard{{padding:10px 15px 12px;margin-bottom:14px}}
+.ck-fgrid{{display:grid;grid-template-columns:auto repeat(6,1fr);gap:1px;background:{P['line']};
+  border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
+.ck-fh{{font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:{P['mid']};font-weight:700;
+  line-height:1.1;text-align:center;padding:6px 8px;background:{P['plo']}}}
+.ck-fhl{{text-align:left}}
+.ck-fa{{font-weight:700;font-size:12px;line-height:1.1;padding:8px 11px;text-align:left;
+  background:{P['plo']};color:{P['ink']}}}
+.ck-fg{{text-align:center;padding:8px 8px;font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-weight:700;font-size:12px;line-height:1.1;background:{P['green']}22;color:{P['green']}}}
+.ck-fn{{text-align:center;padding:8px 8px;font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-weight:700;font-size:12px;line-height:1.1;background:{P['phi']};color:{P['ink']}}}
+.ck-fr{{text-align:center;padding:8px 8px;font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-weight:700;font-size:12px;line-height:1.1;background:{P['red']}26;color:{P['red']}}}
 .ck-acard{{padding:10px 15px 11px}}
 .ck-agrid{{display:grid;grid-template-columns:1fr auto auto;column-gap:14px;margin-top:6px}}
 .ck-al{{font-size:11.5px;font-weight:600;color:{P['ink']};line-height:1.1;padding:2.5px 0}}
@@ -372,6 +408,7 @@ def render(c: dict) -> None:
         {_breaker_card(r, P)}
         {_money_card(r, P)}
       </div>
+      {_matrix_grid(r, P)}
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
