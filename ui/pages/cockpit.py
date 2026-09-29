@@ -148,7 +148,24 @@ def _vix_meter(vix: float, band: int, up: bool) -> str:
             f"<div class='ck-needle' style='left:{left:.1f}%'></div>")
 
 
-def _premium(prem: list, P: dict) -> str:
+def _month_earned() -> float | None:
+    """Current month's earned premium from the P/L (Open Date) month table — premium is
+    earned when a CSP/CC is opened, so we group by open date. The MonitorBoard's own
+    monthly-premium figure is unreliable, so we read it from the P/L page's source."""
+    try:
+        from datetime import date
+        tot = engine.monthly_totals(engine.pl_rollup(cc._tradelog(), "Open Date"))
+        if tot.empty:
+            return None
+        today = date.today()
+        row = tot[(tot["Year"] == today.year) & (tot["Month"] == today.strftime("%b"))]
+        row = row if not row.empty else tot.head(1)         # else newest month
+        return float(row["P/L"].iloc[0])
+    except Exception:
+        return None
+
+
+def _premium(prem: list, P: dict, mo_earned: float | None = None) -> str:
     d = {}
     for lbl, val in prem or []:
         s = str(lbl).lower()
@@ -157,18 +174,29 @@ def _premium(prem: list, P: dict) -> str:
         if kind:
             d[f"{per}_{kind}"] = float(val or 0)
 
-    def bar(per, title):
+    if mo_earned is not None:
+        d["mo_earned"] = mo_earned                          # from the P/L month table
+
+    def card(per, title):
         goal = d.get(f"{per}_goal", 0) or 1
         earned = d.get(f"{per}_earned", 0)
-        gap = d.get(f"{per}_gap", goal - earned)
-        w = max(0.0, min(100.0, earned / goal * 100))
-        return (f"<div class='ck-bar'><div class='ck-btop'><span class='ck-k'>{title}</span>"
-                f"<span class='ck-v'><b>{_m(earned)}</b> / {_m(goal)}</span></div>"
-                f"<div class='ck-track'><div class='ck-fill' style='width:{w:.1f}%'></div></div>"
-                f"<div class='ck-gap'>Gap to goal · {_m(gap)}</div></div>")
+        rate = earned / goal * 100                          # true run rate (can exceed 100)
+        w = max(0.0, min(100.0, rate))                       # bar width, capped
+        gap = goal - earned
+        rcol = P["green"] if rate >= 100 else P["gold"]
+        gaptxt = (f"Beat goal by · {_m(-gap)}" if gap < 0 else f"Gap to goal · {_m(gap)}")
+        gcol = P["green"] if gap < 0 else P["amber"]
+        return (f"<div class='ck-pcard'>"
+                f"<div class='ck-phead'><div>"
+                f"<div class='ck-plabel'>{title} earned premium</div>"
+                f"<div class='ck-pval'><b>{_m(earned)}</b> <span>/ {_m(goal)}</span></div>"
+                f"</div><div class='ck-picon'>💰</div></div>"
+                f"<div class='ck-prate'><span>{title} run rate</span>"
+                f"<span class='ck-prpct' style='color:{rcol}'>{rate:.0f}%</span></div>"
+                f"<div class='ck-ptrack'><div class='ck-pfill' style='width:{w:.1f}%'></div></div>"
+                f"<div class='ck-pgap' style='color:{gcol}'>{gaptxt}</div></div>")
 
-    return (f"<div class='ck-prem'><div class='ck-ptitle'><b>📊 Premium Tracker</b>"
-            f"<span>Collected vs target</span></div>{bar('wk', 'This Week')}{bar('mo', 'This Month')}</div>")
+    return f"<div class='ck-prow'>{card('wk', 'Weekly')}{card('mo', 'Monthly')}</div>"
 
 
 def _css(P: dict) -> str:
@@ -185,7 +213,7 @@ def _css(P: dict) -> str:
 .ck-brand p{{margin:3px 0 0;font-size:11.5px;color:{P['mut']};letter-spacing:.15em;text-transform:uppercase}}
 .ck-chip{{font-size:11px;color:{P['mut']};border:1px dashed {P['line']};border-radius:999px;padding:5px 12px;
   letter-spacing:.08em;text-transform:uppercase}}
-.ck-panel,.ck-card,.ck-prem{{border:1px solid {P['line']};border-radius:16px;
+.ck-panel,.ck-card,.ck-pcard{{border:1px solid {P['line']};border-radius:16px;
   background:linear-gradient(155deg,{P['phi']},{P['plo']});
   box-shadow:inset 0 1px 0 {P['hi']},{P['shadow']}}}
 .ck-vix{{padding:16px 20px;margin-bottom:16px;display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center}}
@@ -242,19 +270,22 @@ def _css(P: dict) -> str:
 .ck-rl{{font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:{P['green']};font-weight:600}}
 .ck-rv{{font-size:21px;font-weight:700;color:{P['green']}}}
 .ck-rp{{font-size:13.5px;color:{P['green']};margin-left:8px}}
-.ck-prem{{padding:18px 20px;display:grid;grid-template-columns:auto 1fr 1fr;gap:24px;align-items:center}}
-.ck-ptitle{{display:flex;flex-direction:column;gap:4px}}
-.ck-ptitle b{{font-size:15.5px;font-weight:700}}
-.ck-ptitle span{{font-size:12.5px;color:{P['mut']}}}
-.ck-btop{{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}}
-.ck-k{{font-size:12.5px;letter-spacing:.11em;text-transform:uppercase;color:{P['mut']}}}
-.ck-v{{font-size:14.5px}}
-.ck-v b{{color:{P['gold']}}}
-.ck-track{{height:13px;border-radius:7px;background:{P['track']};border:1px solid {P['lsoft']};overflow:hidden}}
-.ck-fill{{height:100%;border-radius:7px 0 0 7px;background:linear-gradient(90deg,{P['gold']}bb,{P['gold']});
-  box-shadow:0 0 14px -2px {P['gold']}88}}
-.ck-gap{{font-size:12.5px;color:{P['amber']};margin-top:8px}}
-@media (max-width:820px){{.ck-vix,.ck-cards,.ck-prem,.ck-inst{{grid-template-columns:1fr}}.ck-regime{{text-align:left}}}}
+.ck-prow{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
+.ck-pcard{{padding:18px 20px}}
+.ck-phead{{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}}
+.ck-plabel{{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:{P['mut']}}}
+.ck-pval{{margin-top:6px;font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:700;color:{P['gold']}}}
+.ck-pval span{{color:{P['subv']};font-size:16px;font-weight:600}}
+.ck-picon{{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  font-size:20px;background:{P['gold']}1e;border:1px solid {P['gold']}44}}
+.ck-prate{{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}}
+.ck-prate span:first-child{{font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:{P['mut']}}}
+.ck-prpct{{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700}}
+.ck-ptrack{{height:12px;border-radius:7px;background:{P['track']};border:1px solid {P['lsoft']};overflow:hidden}}
+.ck-pfill{{height:100%;border-radius:7px;background:linear-gradient(90deg,#e8893a,{P['amber']},{P['green']});
+  box-shadow:0 0 14px -2px {P['green']}66}}
+.ck-pgap{{font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:9px}}
+@media (max-width:820px){{.ck-vix,.ck-cards,.ck-prow,.ck-inst{{grid-template-columns:1fr}}.ck-regime{{text-align:left}}}}
 @media (max-width:520px){{.ck-segs{{height:50px}}.ck-sr{{font-size:11px}}.ck-sd{{font-size:9px}}
   .ck-cap{{font-size:26px}}.ck-target{{font-size:24px}}}}
 </style>"""
@@ -288,7 +319,7 @@ def render(c: dict) -> None:
         </div>
       </div>
       <div class="ck-cards">{_card('IRA', P['blue'], r['ira'], P)}{_card('LLC', P['purple'], r['llc'], P)}</div>
-      {_premium(r.get('premium', []), P)}
+      {_premium(r.get('premium', []), P, _month_earned())}
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
