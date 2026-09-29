@@ -126,6 +126,18 @@ def _fg_gauge(v: float, rating: str, col: str, P: dict) -> str:
             f'<div class="ck-fgl" style="color:{col}">F&amp;G <b>{v:.0f}</b> · {rating}</div></div>')
 
 
+def _combined(I: dict, L: dict) -> dict:
+    """IRA + LLC summed into one dict shaped for _card: dollar fields added, ratios re-derived
+    on the combined wheel capital (matches the board's wcap-weighted total)."""
+    def s(k):
+        return (I.get(k) or 0) + (L.get(k) or 0)
+    wcap = s("wcap")
+    return dict(cap=s("cap"), ath=s("ath"), wcap=wcap, dep=s("dep"), cc=s("cc"),
+                csp=s("csp"), leap=s("leap"), itm=s("itm"), rtd=s("rtd"), cih=s("cih"),
+                cspitm=(s("itm") / wcap if wcap else 0.0),
+                ccbrk=((s("cc") + s("itm")) / wcap if wcap else 0.0))
+
+
 def _card(name: str, cls_col: str, d: dict, P: dict) -> str:
     wcap = d.get("wcap") or 0
     csp, ccp = _pct(d.get("csp"), wcap), _pct(d.get("cc"), wcap)
@@ -294,6 +306,8 @@ def _css(P: dict) -> str:
 .ck-target{{font-size:22px;font-weight:600;color:{P['gold']};line-height:1.05;margin:1px 0}}
 .ck-regime .s{{font-size:12.5px;color:{P['mut']};margin-top:2px}}
 .ck-cards{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}}
+.ck-totalwrap{{margin-bottom:16px}}
+.ck-totalwrap .ck-card{{border-color:{P['steel']}66}}
 .ck-card{{padding:20px}}
 .ck-chead{{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}}
 .ck-acct{{display:flex;align-items:center;gap:10px}}
@@ -393,6 +407,7 @@ def render(c: dict) -> None:
         </div>
       </div>
       <div class="ck-cards">{_card('IRA', P['blue'], r['ira'], P)}{_card('LLC', P['purple'], r['llc'], P)}</div>
+      <div class="ck-totalwrap">{_card('COMBINED', P['steel'], _combined(r['ira'], r['llc']), P)}</div>
       {_premium(r.get('premium', []), P, _month_earned())}
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
