@@ -274,6 +274,38 @@ def _matrix_grid(r: dict, P: dict) -> str:
             f"<div class='ck-fgrid'>{cells}</div></div>")
 
 
+def _perf_grid(mdf, P: dict, year: int) -> str:
+    """Performance for one year — IRA/LLC/SPY/QQQ rows, months as columns (% return, green/red)."""
+    tag = _btag(f"📈 PERFORMANCE {year}", "monthly return · vs indexes", P)
+    if mdf is None or getattr(mdf, "empty", True):
+        return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub'>No performance data.</div></div>"
+    recs = [rr for rr in mdf.sort_values("date", ascending=False).to_dict("records")
+            if rr["date"].year == year]
+    if not recs:
+        return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub'>No {year} data.</div></div>"
+    mlabels = [rr["date"].strftime("%b") for rr in recs]
+
+    def pc(end, start):
+        return (float(end) / float(start) - 1) * 100 if (start and end) else None
+
+    series = [("IRA", P["blue"], "IRA", "ira_start"), ("LLC", P["purple"], "LLC", "llc_start"),
+              ("SPY", P["mid"], "SPY", "spy_start"), ("QQQ", P["mid"], "QQQ", "qqq_start")]
+    cells = "<div class='ck-fh ck-fhl'>Series</div>" + "".join(f"<div class='ck-fh'>{m}</div>" for m in mlabels)
+    for name, col, endk, startk in series:
+        cells += f"<div class='ck-fa' style='color:{col}'>{name}</div>"
+        for rr in recs:
+            v = pc(rr.get(endk), rr.get(startk))
+            if v is None:
+                cells += f"<div class='ck-pcell' style='color:{P['mut']}'>—</div>"
+            else:
+                cc = P["green"] if v >= 0 else P["red"]
+                cells += f"<div class='ck-pcell' style='color:{cc}'>{v:+.1f}%</div>"
+    n = len(mlabels)
+    return (f"<div class='ck-card ck-fcard'>{tag}"
+            f"<div class='ck-pgw'><div class='ck-pgrid' "
+            f"style='grid-template-columns:auto repeat({n},minmax(52px,1fr))'>{cells}</div></div></div>")
+
+
 def _total_acct(I: dict, L: dict) -> dict:
     ks = ["cap", "wcap", "vtgt", "cih", "dep", "csp", "cc", "leap", "rtd", "brkgap", "leapgap", "itm", "ccotm"]
     T = {k: (I.get(k) or 0) + (L.get(k) or 0) for k in ks}
@@ -370,6 +402,11 @@ def _extra_css(P: dict) -> str:
   border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
 .ck-sgrid{{display:grid;grid-template-columns:auto repeat(9,1fr);gap:1px;background:{P['line']};
   border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
+.ck-pgw{{overflow-x:auto;margin-top:8px}}
+.ck-pgrid{{display:grid;gap:1px;background:{P['line']};border:1px solid {P['line']};
+  border-radius:8px;overflow:hidden;min-width:100%}}
+.ck-pcell{{text-align:center;padding:5px 6px;font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-weight:600;font-size:11px;background:{P['phi']};line-height:1.1;white-space:nowrap}}
 .ck-khf{{color:{P['ink']}!important;font-weight:800!important;background:{P['glow']}!important}}
 .ck-kcell{{background:{P['glow']}!important}}
 .ck-rbadge{{display:inline-flex;flex-direction:column;align-items:center;padding:3px 12px;border-radius:7px;
@@ -463,6 +500,8 @@ def render(c: dict) -> None:
     except Exception:
         mdf = None
     _pd = _prem_dict(r.get("premium", []), ck._month_earned())
+    _yrs = sorted(set(mdf["date"].dt.year), reverse=True) if (mdf is not None and not getattr(mdf, "empty", True)) else []
+    _perf = "".join(_perf_grid(mdf, P, y) for y in _yrs)
 
     band = r.get("band", 2)
     bdef = engine.BANDS[band] if 0 <= band < len(engine.BANDS) else engine.BANDS[2]
@@ -503,6 +542,7 @@ def render(c: dict) -> None:
         {_period_card('Monthly', _pd.get('mo_earned', 0), _pd.get('mo_goal', 0), P)}
       </div>
       {_summary_grid(r, P)}
+      {_perf}
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
