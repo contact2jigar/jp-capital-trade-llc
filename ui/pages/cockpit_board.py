@@ -492,9 +492,9 @@ def _extra_css(P: dict) -> str:
 .ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;font-weight:500;line-height:1.1;
   color:{P['ink']};text-align:right;padding:2.5px 0;border-bottom:1px solid {P['lsoft']}}}
 .ck-mgrid > :nth-last-child(-n+3){{border-bottom:none}}
-.ck-athflash{{color:#37b24d!important;font-weight:700!important;animation:ck-athpulse 1.3s ease-in-out infinite}}
+.ck-athflash{{color:#37b24d!important;font-weight:700!important;animation:ck-athpulse 2.8s ease-in-out infinite}}
 @keyframes ck-athpulse{{0%,100%{{opacity:1;text-shadow:0 0 0 transparent}}
-  50%{{opacity:.6;text-shadow:0 0 9px rgba(67,196,99,.75)}}}}
+  50%{{opacity:.72;text-shadow:0 0 10px rgba(67,196,99,.8)}}}}
 @media (prefers-reduced-motion:reduce){{.ck-athflash{{animation:none}}}}
 .ck-btbl{{width:100%;border-collapse:collapse;margin-top:5px}}
 .ck-btbl th{{font-size:9px!important;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};
