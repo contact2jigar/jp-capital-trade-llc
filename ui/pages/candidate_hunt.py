@@ -206,11 +206,11 @@ def _cap_cell(c, acct_res):
 
 
 def _decisions_table(c, rows):
-    cols = ["Ticker", "Setup", "Current", "Strike", "Expiry", "Δ", "Prem", "AOR",
+    cols = ["Ticker", "Setup", "Current", "%Chg", "Strike", "Expiry", "Δ", "Prem", "AOR",
             "RSI", "BB", "Earnings", "GTC", "IRA", "LLC", "Decision", "Why"]
-    aligns = {"Current": "right", "Strike": "right", "Δ": "center", "Prem": "right",
-              "AOR": "center", "RSI": "center", "GTC": "right", "IRA": "center",
-              "LLC": "center", "Decision": "center"}
+    aligns = {"Current": "right", "%Chg": "right", "Strike": "right", "Δ": "center",
+              "Prem": "right", "AOR": "center", "RSI": "center", "GTC": "right",
+              "IRA": "center", "LLC": "center", "Decision": "center"}
     head = "".join(
         f"<th style='position:sticky;top:0;background:{c['raised']};color:{c['text']};"
         f"border:1px solid {c['border']};padding:7px 9px;text-align:{aligns.get(h, 'left')};"
@@ -229,6 +229,14 @@ def _decisions_table(c, rows):
                  else f"<span style='background:rgba(242,85,90,.16);color:{c['neg']};font-weight:900;"
                  f"padding:3px 11px;border-radius:6px;font-size:11px;letter-spacing:.03em;'>NO</span>")
         cur = f"${r['cur']:.2f}" if r.get("cur") else "—"
+        # %Chg = today's move. DOWN today is the setup trigger, so down = green (favorable), up = red.
+        chgv = r.get("chg")
+        if chgv is None:
+            chg_td = f"<td style='{base}text-align:right;color:{c['muted']};'>—</td>"
+        else:
+            chg_col = c["pos"] if chgv < 0 else c["neg"] if chgv > 0 else c["muted"]
+            chg_td = (f"<td style='{base}text-align:right;font-weight:700;color:{chg_col};'>"
+                      f"{chgv:+.1f}%</td>")
         dlt = f"{r['delta']:.2f}" if r.get("delta") is not None else "—"
         prem = f"${r['prem']:.2f}" if r.get("prem") is not None else "—"
         aor = f"{r['aor']:.0f}%" if r.get("aor") is not None else "—"
@@ -258,6 +266,7 @@ def _decisions_table(c, rows):
             f"<td style='{base}font-weight:800;'>{r['ticker']}</td>"
             f"<td style='{base}'>{icon} {r['setup']}</td>"
             f"<td style='{base}text-align:right;'>{cur}</td>"
+            f"{chg_td}"
             f"<td style='{base}text-align:right;'>${r['strike']:.0f}</td>"
             f"<td style='{base}'>{r.get('expiry') or '—'}</td>"
             f"<td style='{base}text-align:center;'>{dlt}</td>"

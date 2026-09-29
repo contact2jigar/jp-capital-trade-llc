@@ -133,7 +133,7 @@ def _size_one(cand: dict, accts: dict, od: pd.DataFrame, dte: int) -> dict:
     disc3 = _num(cand.get("3mo ↓"))                         # % below the 3-month high
     return dict(ticker=tk, setup=_clean_setup(cand.get("Setup")), strike=strike, delta=delta,
                 prem=prem, aor=aor, cash_pc=cash_pc, gtc=gtc, dte=dte,
-                cur=cur, disc=disc, disc3=disc3,
+                cur=cur, chg=_num(cand.get("Chg%")), disc=disc, disc3=disc3,
                 ira=ira, llc=llc, best=best, decision=decision, why=why,
                 tradable=best is not None)
 
@@ -155,7 +155,8 @@ def _blank_row(cand: dict, dte: int) -> dict:
     gtc = gtc_refresh.gtc_target(prem, dte) if prem is not None else None
     return dict(ticker=str(cand["Ticker"]).upper(), setup=_clean_setup(cand.get("Setup")),
                 strike=strike, delta=_num(cand.get("Δ")), prem=prem, aor=aor, cash_pc=None,
-                gtc=gtc, dte=dte, cur=_num(cand.get("Price")), disc=_num(cand.get("Cushion")),
+                gtc=gtc, dte=dte, cur=_num(cand.get("Price")), chg=_num(cand.get("Chg%")),
+                disc=_num(cand.get("Cushion")),
                 disc3=_num(cand.get("3mo ↓")), ira=None, llc=None, best=None, tradable=False)
 
 
