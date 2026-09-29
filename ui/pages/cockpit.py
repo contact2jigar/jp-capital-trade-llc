@@ -278,11 +278,10 @@ def _premium(prem: list, P: dict, mo_earned: float | None = None) -> str:
         gaptxt = (f"Beat goal by · {_m(-gap)}" if gap < 0 else f"Gap to goal · {_m(gap)}")
         gcol = P["green"] if gap < 0 else P["amber"]
         return (f"<div class='ck-pcard'>"
-                f"<div class='ck-phead'><div>"
-                f"<div class='ck-plabel'>{title} earned premium</div>"
-                f"<div class='ck-pval'><b style='color:{pc}'>{_m(earned)}</b> "
-                f"<span>/ {_m(goal)}</span></div>"
-                f"</div><div class='ck-picon'>💰</div></div>"
+                f"<div class='ck-phead'>"
+                f"<span class='ck-plabel'>💰 {title} earned premium</span>"
+                f"<span class='ck-pval'><b style='color:{pc}'>{_m(earned)}</b> "
+                f"<span>/ {_m(goal)}</span></span></div>"
                 f"<div class='ck-pbot'><span class='ck-pgaptxt' style='color:{gcol}'>{gaptxt}</span>"
                 f"<div class='ck-pbar'><div class='ck-pband'></div>"
                 f"<div class='ck-pneedle' style='left:{w:.1f}%'></div></div>"
@@ -379,15 +378,13 @@ def _css(P: dict) -> str:
   padding:7px 12px;border-bottom:1px solid {P['lsoft']}}}
 .ck-ptbl tr:last-child td{{border-bottom:none}}
 .ck-pfmo{{text-align:left!important;color:{P['ink']};font-family:'IBM Plex Sans',system-ui,sans-serif}}
-.ck-pcard{{padding:11px 20px 13px}}
-.ck-phead{{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}}
-.ck-plabel{{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:{P['mut']}}}
-.ck-pval{{margin-top:3px;font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;color:{P['gold']}}}
-.ck-pval span{{color:{P['subv']};font-size:15px;font-weight:600}}
-.ck-picon{{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
-  font-size:17px;background:{P['gold']}1e;border:1px solid {P['gold']}44}}
+.ck-pcard{{padding:11px 20px 12px}}
+.ck-phead{{display:flex;justify-content:space-between;align-items:baseline;gap:12px}}
+.ck-plabel{{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:{P['mut']};white-space:nowrap}}
+.ck-pval{{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;color:{P['gold']};white-space:nowrap}}
+.ck-pval span{{color:{P['subv']};font-size:14px;font-weight:600}}
 .ck-prpct{{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700;white-space:nowrap}}
-.ck-pbot{{display:flex;align-items:center;gap:12px;margin-top:11px}}
+.ck-pbot{{display:flex;align-items:center;gap:12px;margin-top:9px}}
 .ck-pgaptxt{{font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:nowrap}}
 .ck-pbar{{flex:1;position:relative;height:18px;display:flex;align-items:center}}
 .ck-pband{{width:100%;height:15px;border-radius:999px;border:1px solid {P['lsoft']};

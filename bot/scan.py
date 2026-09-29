@@ -20,6 +20,7 @@ sys.path.insert(0, str(HERE.parent))
 
 from services import gsheet          # noqa: E402
 from bot import notify               # noqa: E402
+from bot import basis as basis_src   # noqa: E402
 
 STATE = HERE / "state.json"
 EXPIRY_DTE = 3          # flag ITM positions inside this many days
@@ -98,6 +99,7 @@ def itm(r) -> bool:
 
 def build_alerts(op) -> list[dict]:
     out = []
+    BASIS = basis_src.share_basis()
     for _, r in op.iterrows():
         act = str(r.get("Action", "")).strip()
         dte = r.get("DTE")
@@ -119,6 +121,12 @@ def build_alerts(op) -> list[dict]:
 
         # 🔄 roll flagged by the sheet
         if act.lower().startswith("roll"):
+            # A CALL whose strike is at/above your share basis is NOT a roll —
+            # your rule is let it assign, no greed rolls. Suppress it.
+            if typ == "CALL":
+                b = BASIS.get((str(tick).upper(), str(acct).upper()))
+                if b is not None and strike >= b:
+                    continue
             out.append(dict(kind="ROLL", k=key(r), title=f"🔄 {act.upper()} · {tick}",
                             sub=f"{acct} · {dte:.0f} DTE" if dte == dte else acct,
                             body=f"{pos}\npx ${px:,.2f} vs ${strike:g} · "
