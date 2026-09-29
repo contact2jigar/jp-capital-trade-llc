@@ -668,11 +668,7 @@ def _pl_yoy(c: dict, df: pd.DataFrame) -> None:
     order = [m for m in _MONTHS_ORDER if m in set(agg["Month"])]
     # Current year pops in blue (gold is reserved for the brand); the prior year recedes to
     # grey (theme-aware — light grey on dark, dark grey on the grey theme).
-    light = _is_light(c.get("bg", ""))
     cur_col = "#3b82f6"
-    lbl_col = "#2563eb" if light else "#9ec5ff"               # current-year label, readable on either ground
-    prev_lbl_col = "#64748b" if light else "#cbd5e1"          # previous-year label (grey, still legible)
-    lblscale = alt.Scale(domain=years, range=[lbl_col, prev_lbl_col])
     palette = [cur_col, c["mid"]]
     ax = dict(labelColor=c["mid"], titleColor=c["muted"], gridColor=c["border_soft"],
               domainColor=c["border"], tickColor=c["border"], labelFontSize=13, titleFontSize=12)
@@ -711,15 +707,15 @@ def _pl_yoy(c: dict, df: pd.DataFrame) -> None:
                      alt.Tooltip("pct:Q", title="Acct % chg", format="+.1%")])
         # Value labels on BOTH years (current bright, previous grey). When % labels ride
         # above, lift the $ value to make room for the % line beneath it.
-        labels = alt.Chart(agg).mark_text(dy=(-18 if pct_labels else -6),
-                                          fontSize=12, fontWeight="bold").encode(
+        labels = alt.Chart(agg).mark_text(dy=(-23 if pct_labels else -8),
+                                          fontSize=15, fontWeight="bold",
+                                          color=c["text"]).encode(   # $ value in regular ink (both years)
             x=x, xOffset=xo, y=alt.Y(f"{field}:Q"),
-            text=alt.Text(f"{field}:Q", format=lbl),
-            color=alt.Color("Year:N", scale=lblscale, legend=None))
+            text=alt.Text(f"{field}:Q", format=lbl))
         layers = [bars, labels]
         if pct_labels:                                        # monthly account % move, green/red by sign
             pdata = agg[agg["pct"].notna()]
-            plabels = alt.Chart(pdata).mark_text(dy=-5, fontSize=9.5, fontWeight="bold").encode(
+            plabels = alt.Chart(pdata).mark_text(dy=-7, fontSize=12, fontWeight="bold").encode(
                 x=x, xOffset=xo, y=alt.Y(f"{field}:Q"),
                 text=alt.Text("pct:Q", format="+.1%"),
                 color=alt.condition("datum.pct >= 0", alt.value(c["pos"]), alt.value(c["neg"])))
@@ -739,7 +735,11 @@ def _pl_yoy(c: dict, df: pd.DataFrame) -> None:
     else:                                                     # metric on top, # Trades "volume" strip below
         main = panel(fld, metric, 240, False, True, pct_labels=(metric == "Profit / Loss"))
         vol = panel("n", "# Trades", 90, True, False)
-        chart = alt.vconcat(main, vol, spacing=6).resolve_scale(x="shared")
+        chart = alt.vconcat(main, vol, spacing=6)          # same categories keep the strips aligned
+    # Fit the whole thing (incl. axis + labels) to the container so Dec isn't clipped.
+    chart = chart.properties(
+        padding={"left": 4, "right": 22, "top": 6, "bottom": 4},
+        autosize=alt.AutoSizeParams(type="fit-x", contains="padding"))
     chart = chart.configure_view(strokeWidth=0, fill=None).configure(background="transparent")
     st.altair_chart(chart, use_container_width=True)
 
