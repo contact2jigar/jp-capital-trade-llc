@@ -13,6 +13,7 @@ import streamlit as st
 
 from logic import monitor as engine
 from services import yahoo
+from ui import benchmark
 from ui.pages import command_center as cc
 
 # VIX bands: label + segment color (bright in either theme, so dark text on them).
@@ -136,6 +137,35 @@ def _combined(I: dict, L: dict) -> dict:
                 csp=s("csp"), leap=s("leap"), itm=s("itm"), rtd=s("rtd"), cih=s("cih"),
                 cspitm=(s("itm") / wcap if wcap else 0.0),
                 ccbrk=((s("cc") + s("itm")) / wcap if wcap else 0.0))
+
+
+def _perf(mdf, P: dict) -> str:
+    """Compact performance summary — last 5 months, IRA/LLC returns next to SPY/QQQ.
+    A quick 'how am I doing vs the indexes' glance; the full detail lives on Performance."""
+    tag = (f"<div class='ck-chead'><div class='ck-acct'>"
+           f"<span class='ck-tag' style='color:{P['steel']};background:{P['steel']}22;"
+           f"border:1px solid {P['steel']}66'>PERFORMANCE</span>"
+           f"<span class='ck-sub'>monthly · vs indexes</span></div></div>")
+    if mdf is None or getattr(mdf, "empty", True):
+        return f"<div class='ck-card ck-perf'>{tag}<div class='ck-sub'>No performance data.</div></div>"
+
+    def pc(end, start):
+        return (float(end) / float(start) - 1) * 100 if (start and end) else None
+
+    def cell(v):
+        if v is None:
+            return f"<td style='color:{P['mut']}'>—</td>"
+        return f"<td style='color:{P['green'] if v >= 0 else P['red']}'>{v:+.1f}%</td>"
+
+    rows = ""
+    for _, rr in mdf.sort_values("date", ascending=False).head(5).iterrows():
+        rows += (f"<tr><td class='ck-pfmo'>{rr['date'].strftime('%b')}</td>"
+                 f"{cell(pc(rr['IRA'], rr['ira_start']))}{cell(pc(rr['LLC'], rr['llc_start']))}"
+                 f"{cell(pc(rr['SPY'], rr['spy_start']))}{cell(pc(rr['QQQ'], rr['qqq_start']))}</tr>")
+    head = (f"<tr><th>Month</th><th style='color:{P['blue']}'>IRA</th>"
+            f"<th style='color:{P['purple']}'>LLC</th><th>SPY</th><th>QQQ</th></tr>")
+    return (f"<div class='ck-card ck-perf'>{tag}"
+            f"<table class='ck-ptbl'><thead>{head}</thead><tbody>{rows}</tbody></table></div>")
 
 
 def _card(name: str, cls_col: str, d: dict, P: dict) -> str:
@@ -340,7 +370,15 @@ def _css(P: dict) -> str:
 .ck-rl{{font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:{P['green']};font-weight:600}}
 .ck-rv{{font-size:21px;font-weight:700;color:{P['green']}}}
 .ck-rp{{font-size:13.5px;color:{P['green']};margin-left:8px}}
-.ck-prow{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
+.ck-prow{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}}
+.ck-ptbl{{width:100%;border-collapse:collapse;margin-top:10px}}
+.ck-ptbl th{{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:{P['mut']};
+  font-weight:700;text-align:right;padding:5px 12px;border-bottom:1px solid {P['line']}}}
+.ck-ptbl th:first-child{{text-align:left}}
+.ck-ptbl td{{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:700;text-align:right;
+  padding:7px 12px;border-bottom:1px solid {P['lsoft']}}}
+.ck-ptbl tr:last-child td{{border-bottom:none}}
+.ck-pfmo{{text-align:left!important;color:{P['ink']};font-family:'IBM Plex Sans',system-ui,sans-serif}}
 .ck-pcard{{padding:11px 20px 13px}}
 .ck-phead{{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}}
 .ck-plabel{{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:{P['mut']}}}
@@ -373,6 +411,10 @@ def render(c: dict) -> None:
         return
     r, vix, vix_chg, trend = data["r"], data["vix"], data["vix_chg"], data["trend"]
     P = LIGHT if _is_light(c.get("bg", "")) else DARK
+    try:
+        _mdf, _ = benchmark.monthly_df()               # monthly returns for the Performance summary
+    except Exception:
+        _mdf = None
     band = r.get("band", 2)
     bdef = engine.BANDS[band] if 0 <= band < len(engine.BANDS) else engine.BANDS[2]
     up = str(trend).lower().startswith("up")
@@ -406,9 +448,9 @@ def render(c: dict) -> None:
           <div class="s">band {band_lbl} · now {r.get('alloc', 0) * 100:.0f}%</div>
         </div>
       </div>
-      <div class="ck-cards">{_card('IRA', P['blue'], r['ira'], P)}{_card('LLC', P['purple'], r['llc'], P)}</div>
-      <div class="ck-totalwrap">{_card('COMBINED', P['steel'], _combined(r['ira'], r['llc']), P)}</div>
       {_premium(r.get('premium', []), P, _month_earned())}
+      <div class="ck-cards">{_card('IRA', P['blue'], r['ira'], P)}{_card('LLC', P['purple'], r['llc'], P)}</div>
+      <div class="ck-cards">{_card('COMBINED', P['steel'], _combined(r['ira'], r['llc']), P)}{_perf(_mdf, P)}</div>
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
