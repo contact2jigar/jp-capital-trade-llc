@@ -22,11 +22,7 @@ def render_sidebar(c: dict, active: str, theme: str) -> None:
             '<div><div class="sb-logo-title">Wheel<span class="eng">Engine</span></div>'
             '<div class="sb-logo-sub">by JP Capital &amp; Trade</div></div></div>',
             unsafe_allow_html=True)
-        # Force-reload cached sheet/market data (keeps uploads — those live in
-        # cache_resource, which we deliberately don't clear).
-        if st.button("🔄 Refresh data", use_container_width=True, key="sb_refresh"):
-            st.cache_data.clear()
-            st.rerun()
+        # (Refresh lives on the 🔄 in every page's banner now — no sidebar button needed.)
 
         html = ""
         for section, items in nav.SIDE_GROUPS.items():

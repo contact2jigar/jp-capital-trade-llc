@@ -15,12 +15,12 @@ TOP: list[tuple[str, str]] = [
 # the WheelEngine home so we don't need a Back button on every page.
 SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
     "WHEEL STRATEGY": [
-        ("Command Center", "🎛️", "Cockpit"),
-        ("Portfolio Center", "🏦", "Portfolio Center"),   # classic board — phasing out
-        ("Cockpit (Classic)", "🛰️", "Cockpit (Classic)"),  # old instrument view — phasing out
+        ("Command Center", "🎛️", "Cockpit"),              # home → the Cockpit (Board)
         ("P/L", "📊", "P/L"),
         ("Performance", "📈", "Performance"),
         ("Allocation", "🧮", "Allocation"),
+        ("Portfolio Center", "🏦", "Portfolio Center"),   # classic board — phasing out (last)
+        ("Cockpit (Classic)", "🛰️", "Cockpit (Classic)"),  # old instrument view — phasing out (last)
     ],
     "ANALYSIS": [
         ("Price Wall Map", "🧱", "Price Wall Map"),
@@ -31,8 +31,8 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("Report", "📄", "Report"),
     ],
     "REFERENCE": [
-        ("Entry Setup", "📊", "Entry Setup"),
         ("Risk Gates", "🛡️", "Risk Gates"),
+        ("Entry Setup", "📊", "Entry Setup"),
     ],
 }
 
