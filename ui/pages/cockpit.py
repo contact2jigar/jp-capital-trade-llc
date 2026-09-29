@@ -158,14 +158,16 @@ def _perf(mdf, P: dict) -> str:
         return f"<td style='color:{P['green'] if v >= 0 else P['red']}'>{v:+.1f}%</td>"
 
     rows = ""
-    for _, rr in mdf.sort_values("date", ascending=False).head(5).iterrows():
-        rows += (f"<tr><td class='ck-pfmo'>{rr['date'].strftime('%b')}</td>"
+    for _, rr in mdf.sort_values("date", ascending=False).iterrows():   # all months (scrolls)
+        mo = rr["date"].strftime("%b '%y")
+        rows += (f"<tr><td class='ck-pfmo'>{mo}</td>"
                  f"{cell(pc(rr['IRA'], rr['ira_start']))}{cell(pc(rr['LLC'], rr['llc_start']))}"
                  f"{cell(pc(rr['SPY'], rr['spy_start']))}{cell(pc(rr['QQQ'], rr['qqq_start']))}</tr>")
     head = (f"<tr><th>Month</th><th style='color:{P['blue']}'>IRA</th>"
             f"<th style='color:{P['purple']}'>LLC</th><th>SPY</th><th>QQQ</th></tr>")
     return (f"<div class='ck-card ck-perf'>{tag}"
-            f"<table class='ck-ptbl'><thead>{head}</thead><tbody>{rows}</tbody></table></div>")
+            f"<div class='ck-ptwrap'><table class='ck-ptbl'>"
+            f"<thead>{head}</thead><tbody>{rows}</tbody></table></div></div>")
 
 
 def _card(name: str, cls_col: str, d: dict, P: dict) -> str:
@@ -370,12 +372,14 @@ def _css(P: dict) -> str:
 .ck-rv{{font-size:21px;font-weight:700;color:{P['green']}}}
 .ck-rp{{font-size:13.5px;color:{P['green']};margin-left:8px}}
 .ck-prow{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}}
-.ck-ptbl{{width:100%;border-collapse:collapse;margin-top:10px}}
+.ck-ptwrap{{max-height:218px;overflow-y:auto;margin-top:10px}}
+.ck-ptbl{{width:100%;border-collapse:collapse}}
 .ck-ptbl th{{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:{P['mut']};
-  font-weight:700;text-align:right;padding:5px 12px;border-bottom:1px solid {P['line']}}}
+  font-weight:700;text-align:right;padding:5px 12px;border-bottom:1px solid {P['line']};
+  position:sticky;top:0;background:{P['phi']};z-index:1;white-space:nowrap}}
 .ck-ptbl th:first-child{{text-align:left}}
-.ck-ptbl td{{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:700;text-align:right;
-  padding:7px 12px;border-bottom:1px solid {P['lsoft']}}}
+.ck-ptbl td{{font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:700;text-align:right;
+  padding:5px 12px;border-bottom:1px solid {P['lsoft']};white-space:nowrap}}
 .ck-ptbl tr:last-child td{{border-bottom:none}}
 .ck-pfmo{{text-align:left!important;color:{P['ink']};font-family:'IBM Plex Sans',system-ui,sans-serif}}
 .ck-pcard{{padding:11px 20px 12px}}
