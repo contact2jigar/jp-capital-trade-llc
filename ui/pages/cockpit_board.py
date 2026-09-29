@@ -231,6 +231,29 @@ def _total_acct(I: dict, L: dict) -> dict:
     return T
 
 
+def _wheel_grid(r: dict, P: dict) -> str:
+    """Wheel-capital breakdown — IRA/LLC/Total as rows, Capital…Ready-to-Deploy as columns ($ + %)."""
+    accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", _total_acct(r["ira"], r["llc"]))]
+    metrics = [("Capital", "wcap", "cap"), ("VIX Target", "vtgt", "wcap"),
+               ("Cash in Hand", "cih", "wcap"), ("Deployed", "dep", "wcap"),
+               ("CSP", "csp", "wcap"), ("CC", "cc", "wcap"),
+               ("LEAP", "leap", "wcap"), ("Ready to Deploy", "rtd", "wcap")]
+    cells = ("<div class='ck-fh ck-fhl'>Account</div>"
+             + "".join(f"<div class='ck-fh'>{m[0]}</div>" for m in metrics))
+    for name, a in accts:
+        cells += f"<div class='ck-fa'>{name}</div>"
+        for lbl, key, base in metrics:
+            hi = key == "rtd"
+            amt = a.get(key) or 0
+            b = a.get(base) or 0
+            pct = (amt / b * 100) if b else 0
+            cells += (f"<div class='{'ck-wc-hi' if hi else 'ck-wc'}'>"
+                      f"<span class='ck-wca'>{_m(amt)}</span>"
+                      f"<span class='ck-wcp'>{pct:.1f}%</span></div>")
+    return (f"<div class='ck-card ck-fcard'>{_btag('💰 WHEEL CAPITAL', '$ · % · IRA / LLC / Total', P)}"
+            f"<div class='ck-wgrid'>{cells}</div></div>")
+
+
 def _acct_card(name: str, a: dict, accent: str, P: dict) -> str:
     """One account column: the Wheel-capital breakdown + the Focus-matrix gates, $ + %."""
     wcap = a.get("wcap") or 1
@@ -291,6 +314,13 @@ def _extra_css(P: dict) -> str:
   font-weight:700;font-size:12px;line-height:1.1;background:{P['phi']};color:{P['ink']}}}
 .ck-fr{{text-align:center;padding:8px 8px;font-family:'IBM Plex Mono',ui-monospace,monospace;
   font-weight:700;font-size:12px;line-height:1.1;background:{P['red']}26;color:{P['red']}}}
+.ck-wgrid{{display:grid;grid-template-columns:auto repeat(8,1fr);gap:1px;background:{P['line']};
+  border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
+.ck-wc,.ck-wc-hi{{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;background:{P['phi']}}}
+.ck-wc-hi{{background:{P['green']}22}}
+.ck-wca{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11.5px;font-weight:700;color:{P['ink']};line-height:1.15}}
+.ck-wcp{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;font-weight:600;color:{P['mut']};line-height:1.15}}
+.ck-wc-hi .ck-wca,.ck-wc-hi .ck-wcp{{color:{P['green']}}}
 .ck-acard{{padding:10px 15px 11px}}
 .ck-agrid{{display:grid;grid-template-columns:1fr auto auto;column-gap:14px;margin-top:6px}}
 .ck-al{{font-size:11.5px;font-weight:600;color:{P['ink']};line-height:1.1;padding:2.5px 0}}
@@ -304,7 +334,7 @@ def _extra_css(P: dict) -> str:
 .ck-mpct{{color:{P['mut']}!important;font-weight:600!important}}
 .ck-bcard .ck-chead,.ck-brkcard .ck-chead{{margin-bottom:2px}}
 @media (max-width:820px){{.ck-brow2{{grid-template-columns:1fr}}}}
-.ck-brow{{display:grid;grid-template-columns:0.8fr 0.8fr 1.7fr 1.5fr;gap:11px;margin-bottom:14px;align-items:stretch}}
+.ck-brow{{display:grid;grid-template-columns:1.5fr 1.7fr 0.8fr 0.8fr;gap:11px;margin-bottom:14px;align-items:stretch}}
 .ck-goalcard,.ck-brkcard{{padding:10px 14px 10px}}
 .ck-grow{{padding:9px 0 7px}}
 .ck-grow + .ck-grow{{border-top:1px solid {P['lsoft']}}}
@@ -403,11 +433,12 @@ def render(c: dict) -> None:
         </div>
       </div>
       <div class="ck-brow">
-        {_period_card('Monthly', _pd.get('mo_earned', 0), _pd.get('mo_goal', 0), P)}
-        {_period_card('Weekly', _pd.get('wk_earned', 0), _pd.get('wk_goal', 0), P)}
-        {_breaker_card(r, P)}
         {_money_card(r, P)}
+        {_breaker_card(r, P)}
+        {_period_card('Weekly', _pd.get('wk_earned', 0), _pd.get('wk_goal', 0), P)}
+        {_period_card('Monthly', _pd.get('mo_earned', 0), _pd.get('mo_goal', 0), P)}
       </div>
+      {_wheel_grid(r, P)}
       {_matrix_grid(r, P)}
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
