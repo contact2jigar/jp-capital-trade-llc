@@ -84,15 +84,16 @@ def _gauge(v: float, P: dict, uid: str = "") -> str:
 
     # Zones against the real cap: green < 30, amber 30–43, red 43–45 (the redline).
     gz, ay, rz = "#43c463", "#e6b93e", "#f2555a"
+    by = cy - 8                                     # raised, shorter needle so it clears the % below
     ang = math.radians(180 - min(v, S) / S * 180)   # needle stops short; arrowhead reaches the band
-    nx, ny = cx + 56 * math.cos(ang), cy - 56 * math.sin(ang)
+    nx, ny = cx + 46 * math.cos(ang), by - 46 * math.sin(ang)
     mid = f"ccbrktip{uid}"
     return f"""<svg viewBox="0 0 180 92" width="100%" style="max-width:172px" aria-label="CC breaker {v:.1f}% of 45% cap">
-      <defs><marker id="{mid}" markerUnits="userSpaceOnUse" markerWidth="16" markerHeight="16" refX="3" refY="8" orient="auto"><path d="M0,0 L16,8 L0,16 Z" fill="{P['ink']}"/></marker></defs>
+      <defs><marker id="{mid}" markerUnits="userSpaceOnUse" markerWidth="15" markerHeight="15" refX="3" refY="7.5" orient="auto"><path d="M0,0 L15,7.5 L0,15 Z" fill="{P['ink']}"/></marker></defs>
       {arc(0, 29, gz)}{arc(30, 42, ay)}{arc(43, 45, rz)}
-      <line x1="{cx}" y1="{cy}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{P['ink']}" stroke-width="2.5" stroke-linecap="round" marker-end="url(#{mid})"/>
-      <circle cx="{cx}" cy="{cy}" r="5" fill="{P['ink']}"/>
-      <circle cx="{cx}" cy="{cy}" r="10" fill="none" stroke="{P['line']}" stroke-width="1.5"/>
+      <line x1="{cx}" y1="{by}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{P['ink']}" stroke-width="2.5" stroke-linecap="round" marker-end="url(#{mid})"/>
+      <circle cx="{cx}" cy="{by}" r="4" fill="{P['ink']}"/>
+      <circle cx="{cx}" cy="{by}" r="7" fill="none" stroke="{P['line']}" stroke-width="1.5"/>
     </svg>"""
 
 

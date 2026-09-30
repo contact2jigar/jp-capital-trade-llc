@@ -10,6 +10,8 @@ This is the in-progress replacement for the Cockpit; both run side by side for n
 
 from __future__ import annotations
 
+import math
+
 import streamlit as st
 
 from logic import monitor as engine
@@ -170,6 +172,59 @@ def _period_card(title: str, earned: float, goal: float, P: dict) -> str:
             f"<div class='ck-p2track'><div class='ck-p2fill' style='width:{w:.1f}%'></div></div></div>")
 
 
+def _meter(frac: float, P: dict, uid: str, zones: list) -> str:
+    """Semicircle meter — same geometry as the CC-breaker gauge so the row matches. A dim
+    full-arc track, then a colored fill that grows LEFT→RIGHT to `frac`, lighting each
+    `zones` colour in turn (red→amber→green), with a needle + arrowhead on top.
+    `zones` = [(start, end, colour), …] as arc fractions 0..1 covering the whole scale."""
+    cx, cy, r = 90, 86, 70
+    f = max(0.0, min(1.0, float(frac)))
+
+    def pol(deg, rad=r):
+        a = math.radians(deg)
+        return cx + rad * math.cos(a), cy - rad * math.sin(a)
+
+    def arc(f1, f2, c, w=12):
+        if f2 <= f1:
+            return ""
+        x1, y1 = pol(180 - f1 * 180)
+        x2, y2 = pol(180 - f2 * 180)
+        return (f'<path d="M{x1:.1f} {y1:.1f} A{r} {r} 0 0 1 {x2:.1f} {y2:.1f}" '
+                f'fill="none" stroke="{c}" stroke-width="{w}" stroke-linecap="round"/>')
+
+    track = arc(0.0, 1.0, P["line"], 12)
+    fill = "".join(arc(a, min(b, f), c) for a, b, c in zones if f > a)
+    by = cy - 8                                        # raised, shorter needle so it clears the % below
+    ang = math.radians(180 - f * 180)
+    nx, ny = cx + 46 * math.cos(ang), by - 46 * math.sin(ang)
+    mid = f"mtip{uid}"
+    return f"""<svg viewBox="0 0 180 92" width="100%" style="max-width:172px" aria-label="meter {f * 100:.0f}%">
+      <defs><marker id="{mid}" markerUnits="userSpaceOnUse" markerWidth="15" markerHeight="15" refX="3" refY="7.5" orient="auto"><path d="M0,0 L15,7.5 L0,15 Z" fill="{P['ink']}"/></marker></defs>
+      {track}{fill}
+      <line x1="{cx}" y1="{by}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{P['ink']}" stroke-width="2.5" stroke-linecap="round" marker-end="url(#{mid})"/>
+      <circle cx="{cx}" cy="{by}" r="4" fill="{P['ink']}"/>
+      <circle cx="{cx}" cy="{by}" r="7" fill="none" stroke="{P['line']}" stroke-width="1.5"/>
+    </svg>"""
+
+
+def _goalmeter_card(pd: dict, P: dict) -> str:
+    """Premium Goals — two meter dials (Weekly · Monthly). Needle = run-rate on a 0–100%
+    dial where 100% = goal = the far-right end; over-goal pins full right and the % still
+    shows the beat. Fills left→right: behind (red) → nearly there (amber) → met (green)."""
+    def one(per, name):
+        goal = pd.get(f"{per}_goal", 0) or 1
+        earned = pd.get(f"{per}_earned", 0) or 0
+        rate = earned / goal * 100
+        col = P["green"] if rate >= 100 else P["blue"]
+        zones = [(0.0, 0.5, P["red"]), (0.5, 0.8, P["amber"]), (0.8, 1.0, P["green"])]
+        return (f"<div class='ck-bg'><div class='ck-bglabel'>{name}</div>"
+                f"{_meter(rate / 100.0, P, 'gl' + per, zones)}"
+                f"<div class='ck-gv' style='color:{col}'>{rate:.0f}%</div>"
+                f"<div class='ck-gz'>{_m(earned)} <span>/ {_m(goal)}</span></div></div>")
+    return (f"<div class='ck-card ck-brkcard ck-gm'>{_btag('🎯 PREMIUM GOALS', 'weekly · monthly', P)}"
+            f"<div class='ck-bgrow2'>{one('wk', 'WEEKLY')}{one('mo', 'MONTHLY')}</div></div>")
+
+
 def _breaker_card(r: dict, P: dict) -> str:
     """CC Breaker — all three gauges (IRA · LLC · Total), the exact Cockpit semicircle."""
     def one(name, a):
@@ -246,10 +301,12 @@ def _summary_grid(r: dict, P: dict) -> str:
             amt = a.get(key) or 0
             b = a.get(base) or 0
             pct = (amt / b * 100) if b else 0
-            if k == "ready":                               # green/red badge, black text (bright in both themes)
-                bg = "#43c463" if amt >= 0 else "#f2555a"
-                cells += (f"<div class='ck-wc ck-kcell'><span class='ck-rbadge' style='background:{bg}'>"
-                          f"<b>{_m(amt)}</b><em>{pct:.1f}%</em></span></div>")
+            if k == "ready":                               # amount in a green/red badge (black text),
+                bg = "#43c463" if amt >= 0 else "#f2555a"  # then the % as plain green/red text below
+                pcol = "#43c463" if amt >= 0 else "#f2555a"
+                cells += (f"<div class='ck-wc ck-kcell'>"
+                          f"<span class='ck-rbadge' style='background:{bg}'><b>{_m(amt)}</b></span>"
+                          f"<span class='ck-rpct' style='color:{pcol}'>{pct:.1f}%</span></div>")
                 continue
             cls = "ck-wc ck-kcell" if isk else "ck-wc"
             cells += (f"<div class='{cls}'><span class='ck-wca'>{_m(amt)}</span>"
@@ -434,10 +491,10 @@ def _extra_css(P: dict) -> str:
 .ck-khf{{color:{P['ink']}!important;font-weight:800!important;
   background:linear-gradient(rgba(0,0,0,.07),rgba(0,0,0,.07)),{P['plo']}!important}}
 .ck-kcell{{background:linear-gradient(rgba(0,0,0,.06),rgba(0,0,0,.06)),{P['phi']}!important}}
-.ck-rbadge{{display:inline-flex;flex-direction:column;align-items:center;padding:3px 12px;border-radius:7px;
+.ck-rbadge{{display:inline-flex;align-items:center;justify-content:center;padding:3px 12px;border-radius:7px;
   color:#0c1116;line-height:1.15}}
 .ck-rbadge b{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:800}}
-.ck-rbadge em{{font-style:normal;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;font-weight:700;opacity:.85}}
+.ck-rpct{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;font-weight:700;margin-top:2px}}
 .ck-wc,.ck-wc-hi{{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;background:{P['phi']}}}
 .ck-wc-hi{{background:{P['green']}22}}
 .ck-wca{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11.5px;font-weight:500;color:{P['ink']};line-height:1.15}}
@@ -456,7 +513,10 @@ def _extra_css(P: dict) -> str:
 .ck-mpct{{color:{P['mut']}!important;font-weight:600!important}}
 .ck-bcard .ck-chead,.ck-brkcard .ck-chead{{margin-bottom:2px}}
 @media (max-width:820px){{.ck-brow2{{grid-template-columns:1fr}}}}
-.ck-brow{{display:grid;grid-template-columns:1.5fr 1.7fr 0.8fr 0.8fr;gap:11px;margin-bottom:14px;align-items:stretch}}
+.ck-brow{{display:grid;grid-template-columns:1.4fr 1.7fr 1.4fr;gap:11px;margin-bottom:14px;align-items:stretch}}
+.ck-bgrow2{{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:4px;align-items:end}}
+.ck-gm .ck-gz{{font-size:12px}}
+.ck-gm .ck-gz span{{font-size:11px!important;font-weight:600!important;color:{P['subv']}!important;font-family:'IBM Plex Sans',system-ui,sans-serif!important}}
 .ck-seg{{color:#0c1116!important}}
 .ck-sd{{opacity:1!important;color:#0c1116!important}}
 .ck-goalcard,.ck-brkcard{{padding:10px 14px 10px}}
@@ -478,7 +538,7 @@ def _extra_css(P: dict) -> str:
 .ck-bg{{display:flex;flex-direction:column;align-items:center;gap:0}}
 .ck-bglabel{{font-size:10px;font-weight:700;letter-spacing:.05em;color:{P['mid']};margin-bottom:0}}
 .ck-brkcard .ck-bg svg{{max-width:120px!important}}
-.ck-brkcard .ck-gv{{font-size:16px;margin-top:-14px;line-height:1.1;font-weight:700}}
+.ck-brkcard .ck-gv{{font-size:16px;margin-top:-2px;line-height:1.1;font-weight:700}}
 .ck-brkcard .ck-gz{{font-size:11px;font-weight:700;margin-top:2px;line-height:1.1;
   font-family:'IBM Plex Mono',ui-monospace,monospace}}
 .ck-brkcard .ck-gz span{{color:{P['mut']};font-weight:600;font-size:8px;font-family:'IBM Plex Sans',system-ui,sans-serif}}
@@ -569,8 +629,7 @@ def render(c: dict) -> None:
       <div class="ck-brow">
         {_money_card(r, P)}
         {_breaker_card(r, P)}
-        {_period_card('Weekly', _pd.get('wk_earned', 0), _pd.get('wk_goal', 0), P)}
-        {_period_card('Monthly', _pd.get('mo_earned', 0), _pd.get('mo_goal', 0), P)}
+        {_goalmeter_card(_pd, P)}
       </div>
       {_summary_grid(r, P)}
       {_perf}
