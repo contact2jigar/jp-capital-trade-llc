@@ -255,7 +255,7 @@ def _summary_grid(r: dict, P: dict) -> str:
             cells += (f"<div class='{cls}'><span class='ck-wca'>{_m(amt)}</span>"
                       f"<span class='ck-wcp'>{pct:.1f}%</span></div>")
     return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', 'Capital · Deploy · Ready · Cash · CSP ITM · Positions', P)}"
-            f"<div class='ck-sgrid'>{cells}</div></div>")
+            f"<div class='ck-sgw'><div class='ck-sgrid'>{cells}</div></div></div>")
 
 
 def _matrix_grid(r: dict, P: dict) -> str:
@@ -421,11 +421,13 @@ def _extra_css(P: dict) -> str:
   font-weight:700;font-size:12px;line-height:1.1;background:{P['red']}26;color:{P['red']}}}
 .ck-wgrid{{display:grid;grid-template-columns:auto repeat(8,1fr);gap:1px;background:{P['line']};
   border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
-.ck-sgrid{{display:grid;grid-template-columns:auto repeat(9,1fr);gap:1px;background:{P['line']};
-  border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
-.ck-pgw{{overflow-x:auto;margin-top:8px}}
-.ck-pgrid{{display:grid;gap:1px;background:{P['line']};border:1px solid {P['line']};
-  border-radius:8px;overflow:hidden;min-width:100%}}
+.ck-sgw{{overflow-x:auto;overflow-y:hidden;margin-top:8px;border:1px solid {P['line']};
+  border-radius:8px;-webkit-overflow-scrolling:touch}}
+.ck-sgrid{{display:grid;grid-template-columns:minmax(52px,auto) repeat(9,minmax(76px,1fr));gap:1px;
+  background:{P['line']};min-width:100%}}
+.ck-pgw{{overflow-x:auto;overflow-y:hidden;margin-top:8px;border:1px solid {P['line']};
+  border-radius:8px;-webkit-overflow-scrolling:touch}}
+.ck-pgrid{{display:grid;gap:1px;background:{P['line']};min-width:100%}}
 .ck-pcell{{text-align:center;padding:5px 6px;font-family:'IBM Plex Mono',ui-monospace,monospace;
   font-weight:600;font-size:11px;background:{P['phi']};line-height:1.1;white-space:nowrap}}
 .ck-ptot{{background:{P['glow']}!important;font-weight:800!important;font-size:11.5px}}

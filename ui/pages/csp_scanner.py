@@ -225,6 +225,24 @@ def _price_leg(t: str, target_iso: str, target_delta: float) -> dict:
     }
 
 
+def default_hunt_inputs() -> dict | None:
+    """Standalone inputs so the Decision Desk can run a hunt with no prior Candidate-Scanner
+    run: WatchList Growth/Alt/Spec, first expiry ≥21 DTE (the scanner's default), AOR 30, Δ 0.30.
+    None only if the WatchList or expiry list is empty."""
+    _, by_type = gsheet.watchlist_by_type()
+    cat_map = {tk: t for t, ts in by_type.items() if t != "All" for tk in ts}
+    chosen = [t for t in _DEFAULT_TYPES if t in by_type] or [t for t in by_type if t != "All"][:1]
+    stocks = sorted({tk for t in chosen for tk in by_type.get(t, [])})
+    today = date.today()
+    exps = csp_pricing.expiry_choices(today, 21)
+    if not stocks or not exps:
+        return None
+    exp = exps[1] if len(exps) > 1 else exps[0]        # matches the scanner's default (index=1)
+    return {"stocks": stocks, "cat_map": cat_map, "exp_iso": exp.isoformat(),
+            "label": f"{exp:%b %d} ({(exp - today).days}d)", "aor": 30.0, "delta": 0.30,
+            "vix": _current_vix(), "dte": (exp - today).days}
+
+
 def run_hunt(inp: dict) -> None:
     """Run the scan for `inp` and stash results + meta + inputs (so Decision Desk can
     re-run it). Shared by the Candidate Scanner's button and Decision Desk's Run Hunt."""

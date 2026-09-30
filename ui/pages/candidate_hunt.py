@@ -397,15 +397,20 @@ def render(c: dict) -> None:
                         f"Sorted by AOR · {r['n_tradable']} GO · {r['n_blocked']} NO</span>",
                         unsafe_allow_html=True)
     with runcol:
-        if st.button("🎯 Run Hunt", type="primary", use_container_width=True,
-                     disabled=inp is None, key="dd_run",
-                     help="Re-run the last hunt (same universe · expiry · min AOR · Δ)."):
-            from ui.pages import csp_scanner
+        from ui.pages import csp_scanner
+        if st.button("🎯 Run Hunt", type="primary", use_container_width=True, key="dd_run",
+                     help="Re-run the last hunt, or run the default (WatchList Growth/Alt/Spec · "
+                          "first expiry ≥21d · AOR 30 · Δ 0.30) if none is set yet."):
             with st.spinner("Running hunt…"):
-                csp_scanner.run_hunt(inp)
-            st.rerun()
+                run_inp = inp or csp_scanner.default_hunt_inputs()
+                if run_inp:
+                    csp_scanner.run_hunt(run_inp)
+                else:
+                    st.error("Couldn't build a default hunt — the WatchList looks empty.")
+            if run_inp:
+                st.rerun()
     if r is None:
-        st.info("No hunt yet. Hit **Run Hunt** to re-run the last one, or set fresh inputs on "
+        st.info("No hunt yet. Hit **Run Hunt** to run the default universe, or set fresh inputs on "
                 "**🎯 Candidate Scanner** (Universe · Expiry · Min AOR · Δ).")
         return
     _, right = st.columns([2.2, 1.6])
