@@ -184,9 +184,11 @@ def monitor_board(df: pd.DataFrame, ath_ira: float, ath_llc: float,
     today = _d.date.today()
     monday = today - _d.timedelta(days=today.weekday())
     first = today.replace(day=1)
-    wk_goal = wsum * 0.65 * 0.0077
+    # Gate 9 personal benchmark — 1.5% of combined account ATH per month (weekly = /4.33).
+    ath_sum = (I.get("ath") or 0) + (L.get("ath") or 0)
+    mo_goal = ath_sum * 0.015
+    wk_goal = mo_goal / 4.33
     wk_earn = _pl_between(df, monday, today)
-    mo_goal = wk_goal * 4.33
     mo_earn = _pl_between(df, first, today)
     premium = [("🎯 Wk Goal", wk_goal), ("💰 Wk Earned", wk_earn), ("⏳ Wk Gap", wk_goal - wk_earn),
                ("🎯 Mo Goal", mo_goal), ("💰 Mo Earned", mo_earn), ("⏳ Mo Gap", mo_goal - mo_earn)]
