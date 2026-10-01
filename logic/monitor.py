@@ -133,7 +133,8 @@ def _sumres(od: pd.DataFrame, account=None, opt=None, stock_eq=None,
 
 def _account_money(od: pd.DataFrame, acct: str, ath: float, alloc: float) -> dict:
     cap = _sumres(od, account=acct, stock_ne="VAULT")          # incl. CASH, excl. VAULT
-    ath = max(float(ath or 0), cap)                            # ratchet: max(stored, current)
+    ath0 = float(ath or 0)                                     # previous stored ATH (pre-ratchet)
+    ath = max(ath0, cap)                                       # ratchet: max(stored, current)
     vault = ath * 0.30                                          # Gate 8 crash brake
     wcap = cap - vault                                         # Wheel Capital
     vtgt = (1 - alloc) * wcap                                  # VIX Target (cash to keep)
@@ -146,7 +147,7 @@ def _account_money(od: pd.DataFrame, acct: str, ath: float, alloc: float) -> dic
     itm = _sumres(od, account=acct, itmput=True)               # ITM short-put reserve
     rtd = vtgt - dep                                           # Ready to deploy / CSP Gap
     ccbrk = (cc + itm) / wcap if wcap else 0.0                 # CC Breaker (45% cap)
-    return dict(cap=cap, ath=ath, vault=vault, wcap=wcap, vtgt=vtgt, cih=cih, dep=dep,
+    return dict(cap=cap, ath=ath, ath0=ath0, vault=vault, wcap=wcap, vtgt=vtgt, cih=cih, dep=dep,
                 cc=cc, csp=csp, leap=leap, itm=itm, rtd=rtd, ccbrk=ccbrk,
                 brkgap=(0.45 - ccbrk) * wcap, cspitm=(itm / wcap if wcap else 0.0),
                 leappct=(leap / wcap if wcap else 0.0), leapgap=0.02 * wcap - leap)

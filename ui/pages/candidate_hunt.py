@@ -207,7 +207,7 @@ def _cap_cell(c, acct_res):
 
 def _decisions_table(c, rows):
     cols = ["Ticker", "Setup", "Current", "%Chg", "Strike", "Expiry", "Δ", "Prem", "AOR",
-            "RSI", "BB", "Earnings", "GTC", "IRA", "LLC", "Decision", "Why"]
+            "RSI", "BB", "Earnings", "Financials", "GTC", "IRA", "LLC", "Decision", "Why"]
     aligns = {"Current": "right", "%Chg": "right", "Strike": "right", "Δ": "center",
               "Prem": "right", "AOR": "center", "RSI": "center", "GTC": "right",
               "IRA": "center", "LLC": "center", "Decision": "center"}
@@ -275,6 +275,7 @@ def _decisions_table(c, rows):
             f"<td style='{base}text-align:center;font-weight:{rsi_w};color:{rsi_col};'>{r['rsi']}</td>"
             f"<td style='{base}font-weight:700;color:{rg(r['bb_ok'])};'>{r['bb']}</td>"
             f"<td style='{base}font-weight:{earn_w};color:{earn_col};'>{earn_disp}</td>"
+            f"<td style='{base}font-size:11.5px;'>{r.get('fin') or '—'}</td>"
             f"<td style='{base}text-align:right;'>{('$%.2f' % r['gtc']) if r['gtc'] is not None else '—'}</td>"
             f"{cap(r['ira'])}{cap(r['llc'])}"
             f"<td style='{base}text-align:center;'>{dchip}</td>"
@@ -316,7 +317,55 @@ def render(c: dict) -> None:
     st.markdown(_answer_cards(c, board, aqres, (r["best"] if r else None), aqres["has_fidelity"]),
                 unsafe_allow_html=True)
 
-    # ── Part 2 — Portfolio Action Queue ──
+    # ── Part 2 — Ranked New CSP Decisions (the hunt) · moved up ──
+    st.write("")
+    inp = state.load_hunt_inputs()
+    hdr, runcol = st.columns([4, 1])
+    with hdr:
+        if r is None:
+            st.markdown("#### 🎯 Ranked New CSP Decisions")
+        else:
+            st.markdown(f"#### 🎯 Ranked New CSP Decisions  <span style='font-size:12px;color:{c['muted']};'>"
+                        f"Sorted by AOR · {r['n_tradable']} GO · {r['n_blocked']} NO</span>",
+                        unsafe_allow_html=True)
+    with runcol:
+        from ui.pages import csp_scanner
+        if st.button("🎯 Run Hunt", type="primary", use_container_width=True, key="dd_run",
+                     help="Re-run the last hunt, or run the default (WatchList Growth/Alt/Spec · "
+                          "first expiry ≥21d · AOR 30 · Δ 0.30) if none is set yet."):
+            with st.spinner("Running hunt…"):
+                run_inp = inp or csp_scanner.default_hunt_inputs()
+                if run_inp:
+                    csp_scanner.run_hunt(run_inp)
+                else:
+                    st.error("Couldn't build a default hunt — the WatchList looks empty.")
+            if run_inp:
+                st.rerun()
+    if r is None:
+        st.info("No hunt yet. Hit **Run Hunt** to run the default universe, or set fresh inputs on "
+                "**🎯 Candidate Scanner** (Universe · Expiry · Min AOR · Δ).")
+    elif not r["rows"]:
+        st.info("The last hunt found no setup-fired names.")
+    else:
+        _, right = st.columns([2.2, 1.6])
+        with right:
+            flt = st.radio("Filter", ["All", "GO", "NO", "IRA", "LLC"],
+                           horizontal=True, label_visibility="collapsed", key="dd_filter")
+        rows = r["rows"]
+        if flt == "GO":
+            rows = [x for x in rows if x["go"]]
+        elif flt == "NO":
+            rows = [x for x in rows if not x["go"]]
+        elif flt == "IRA":
+            rows = [x for x in rows if x["ira"] and x["ira"]["n"] > 0]
+        elif flt == "LLC":
+            rows = [x for x in rows if x["llc"] and x["llc"]["n"] > 0]
+        st.markdown(_decisions_table(c, rows), unsafe_allow_html=True)
+        st.caption(f"Hunt priced at **{meta[0]}** (Δ ≤ {meta[2]:.2f}, ≥{min_aor:.0f}% AOR) · sized against "
+                   f"5% name cap · Layer 2.5% · CSP room · CC Breaker. **Never places an order.**")
+
+    # ── Part 3 — Portfolio Action Queue · moved to the bottom ──
+    st.write("")
     src = (f"{fid_meta['name']} · Last uploaded: {fid_meta['time']}" if fid_meta
            else "TradeLog only — upload a Fidelity CSV on Reconcile for stuck & CC flags")
     st.markdown(f"#### 🧾 Portfolio Action Queue  <span style='font-size:11px;color:{c['muted']};'>"
@@ -384,51 +433,3 @@ def render(c: dict) -> None:
         st.markdown(_aq_table(c, arows), unsafe_allow_html=True)
     else:
         st.success("Nothing in the queue for this filter — the book is clean here. ✅")
-
-    # ── Part 3 — Ranked New CSP Decisions (the hunt) ──
-    st.write("")
-    inp = state.load_hunt_inputs()
-    hdr, runcol = st.columns([4, 1])
-    with hdr:
-        if r is None:
-            st.markdown("#### 🎯 Ranked New CSP Decisions")
-        else:
-            st.markdown(f"#### 🎯 Ranked New CSP Decisions  <span style='font-size:12px;color:{c['muted']};'>"
-                        f"Sorted by AOR · {r['n_tradable']} GO · {r['n_blocked']} NO</span>",
-                        unsafe_allow_html=True)
-    with runcol:
-        from ui.pages import csp_scanner
-        if st.button("🎯 Run Hunt", type="primary", use_container_width=True, key="dd_run",
-                     help="Re-run the last hunt, or run the default (WatchList Growth/Alt/Spec · "
-                          "first expiry ≥21d · AOR 30 · Δ 0.30) if none is set yet."):
-            with st.spinner("Running hunt…"):
-                run_inp = inp or csp_scanner.default_hunt_inputs()
-                if run_inp:
-                    csp_scanner.run_hunt(run_inp)
-                else:
-                    st.error("Couldn't build a default hunt — the WatchList looks empty.")
-            if run_inp:
-                st.rerun()
-    if r is None:
-        st.info("No hunt yet. Hit **Run Hunt** to run the default universe, or set fresh inputs on "
-                "**🎯 Candidate Scanner** (Universe · Expiry · Min AOR · Δ).")
-        return
-    _, right = st.columns([2.2, 1.6])
-    with right:
-        flt = st.radio("Filter", ["All", "GO", "NO", "IRA", "LLC"],
-                       horizontal=True, label_visibility="collapsed", key="dd_filter")
-    if not r["rows"]:
-        st.info("The last hunt found no setup-fired names.")
-        return
-    rows = r["rows"]
-    if flt == "GO":
-        rows = [x for x in rows if x["go"]]
-    elif flt == "NO":
-        rows = [x for x in rows if not x["go"]]
-    elif flt == "IRA":
-        rows = [x for x in rows if x["ira"] and x["ira"]["n"] > 0]
-    elif flt == "LLC":
-        rows = [x for x in rows if x["llc"] and x["llc"]["n"] > 0]
-    st.markdown(_decisions_table(c, rows), unsafe_allow_html=True)
-    st.caption(f"Hunt priced at **{meta[0]}** (Δ ≤ {meta[2]:.2f}, ≥{min_aor:.0f}% AOR) · sized against "
-               f"5% name cap · Layer 2.5% · CSP room · CC Breaker. **Never places an order.**")

@@ -95,6 +95,17 @@ def _regime() -> str:
     return "Uptrend" if float(s.iloc[-1]) >= float(s.rolling(100).mean().iloc[-1]) else "Downtrend"
 
 
+@st.cache_data(ttl=300, show_spinner="Fetching universe…")
+def _screen_source(src: str, n: int) -> list:
+    """Cached ticker universe for a non-WatchList source (5 min) — avoids re-hitting the
+    screener on every rerun (FinViz especially is multi-page)."""
+    if src == "Yahoo Day Losers":
+        return screeners.day_losers(n)
+    if src == "FinViz Quality":
+        return screeners.finviz_screen(n)
+    return screeners.most_active(n)
+
+
 def _sublabel(c: dict, text: str) -> None:
     st.markdown(f"<div style='font-size:10px;letter-spacing:.09em;text-transform:uppercase;"
                 f"color:{c['muted']};font-weight:700;margin:10px 0 2px;'>{text}</div>",
@@ -135,16 +146,17 @@ def render(c: dict) -> None:
         _market_context(c, vix, _regime(), floor)
 
         _sublabel(c, "Scan Inputs")
-        cs, c0, c1, c2, c3, c4 = st.columns([1.3, 3.2, 1.8, 0.9, 0.9, 1.7])
+        cs, c0, c1, c2, c3, c4 = st.columns([1.3, 2.6, 1.5, 1.4, 1.4, 1.5])
         with cs:
-            src = st.selectbox("Source", ["WatchList", "Yahoo Most Active"], key="csp_src")
+            src = st.selectbox("Source", ["WatchList", "Yahoo Most Active", "Yahoo Day Losers",
+                                          "FinViz Quality"], key="csp_src")
         with c0:
             if src == "WatchList":
                 chosen = st.multiselect("Universe (stock types)", pickable, default=default, key="csp_types")
                 stocks = sorted({tk for t in chosen for tk in by_type.get(t, [])})
             else:
                 n = st.slider("How many", 25, 300, 100, step=25, key="csp_ma_n")
-                stocks = screeners.most_active(n)
+                stocks = _screen_source(src, n)
         with c1:
             exp = st.selectbox("Expiry", exps, index=1, format_func=lambda e: labels[e], key="csp_exp")
         with c2:
@@ -157,7 +169,7 @@ def render(c: dict) -> None:
             scan = st.button("🎯 Run Hunt", type="primary",
                              use_container_width=True, disabled=not stocks)
         if src != "WatchList" and not stocks:
-            st.warning("Yahoo Most Active returned no names (Yahoo is likely rate-limiting the "
+            st.warning(f"{src} returned no names (Yahoo is likely rate-limiting the "
                        "screener). Try again in a moment, lower the count, or use WatchList.")
 
         _sublabel(c, "Result Criteria")

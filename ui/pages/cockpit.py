@@ -17,8 +17,8 @@ from ui import benchmark
 from ui.pages import command_center as cc
 
 # VIX bands: label + segment color (bright in either theme, so dark text on them).
-BANDS = [("8–13", "#e06666"), ("13–15", "#ef9a5c"), ("15–20", "#ffd966"),
-         ("20–25", "#b7d77a"), ("25–30", "#93c47d"), ("30–100", "#6aa84f")]
+BANDS = [("8–13", "#ef4444"), ("13–15", "#f97316"), ("15–20", "#f5c518"),
+         ("20–25", "#84cc16"), ("25–30", "#34c759"), ("30–100", "#16a34a")]
 EDGES = [8, 13, 15, 20, 25, 30, 100]
 
 # ── two palettes; data-hues shift darker on the light skin for contrast ──────
@@ -250,8 +250,9 @@ def _month_earned() -> float | None:
             return None
         today = date.today()
         row = tot[(tot["Year"] == today.year) & (tot["Month"] == today.strftime("%b"))]
-        row = row if not row.empty else tot.head(1)         # else newest month
-        return float(row["P/L"].iloc[0])
+        # A fresh month with no opens yet earns $0 — do NOT fall back to the prior month
+        # (that made Oct 1 read September's premium, ~111% of goal on day one).
+        return float(row["P/L"].iloc[0]) if not row.empty else 0.0
     except Exception:
         return None
 
@@ -322,7 +323,7 @@ def _css(P: dict) -> str:
 .ck-segs{{display:flex;height:38px;border-radius:9px;overflow:hidden;border:1px solid {P['line']}}}
 .ck-seg{{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
   color:#12181f;line-height:1.1}}
-.ck-seg.ck-dim{{opacity:.74}}
+.ck-seg.ck-dim{{opacity:.85}}
 .ck-sr{{font-size:12.5px;font-weight:700;white-space:nowrap}}
 .ck-sd{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;opacity:.82;white-space:nowrap}}
 .ck-seg:not(.ck-dim) .ck-sd{{opacity:1}}

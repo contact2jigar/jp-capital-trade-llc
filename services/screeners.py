@@ -115,3 +115,43 @@ def most_active(count: int = 200) -> list[str]:
 
 def day_gainers(count: int = 100) -> list[str]:
     return _predefined("day_gainers", count)
+
+
+def day_losers(count: int = 100) -> list[str]:
+    """Yahoo 'Day Losers' — names down the most today (the CSP setup trigger: stock down)."""
+    return _predefined("day_losers", count)
+
+
+# FinViz quality + optionable screen: mid-cap+, current ratio >1, D/E <1, positive net margin,
+# 3-yr sales growth >10%, liquid (avg vol >1M, cur vol >300K), optionable, price >$30.
+_FINVIZ_FILTERS = ("cap_midover,fa_curratio_o1,fa_debteq_u1,fa_netmargin_pos,fa_sales3years_o10,"
+                   "sh_avgvol_o1000,sh_curvol_o300,sh_opt_option,sh_price_o30")
+
+
+def finviz_screen(count: int = 100, filters: str = _FINVIZ_FILTERS) -> list[str]:
+    """FinViz screener tickers for the given filter string. Scrapes the free screener page
+    (20 rows per page). [] if FinViz blocks or rate-limits the request."""
+    import re
+    import certifi
+    import requests
+    out: list[str] = []
+    start = 1
+    while len(out) < count:
+        url = f"https://finviz.com/screener.ashx?v=111&f={filters}&ft=2&r={start}"
+        try:
+            resp = requests.get(url, headers={"User-Agent": _UA},
+                                verify=certifi.where(), timeout=15)
+            html = resp.text
+        except Exception:
+            break
+        page: list[str] = []
+        for t in re.findall(r'class="tab-link"[^>]*>([A-Z][A-Z.\-]{0,6})<', html):
+            if t not in out and t not in page:
+                page.append(t)
+        if not page:
+            break
+        out.extend(page)
+        if len(page) < 20:                                 # last page reached
+            break
+        start += 20
+    return out[:count]

@@ -216,7 +216,7 @@ def _goalmeter_card(pd: dict, P: dict) -> str:
         earned = pd.get(f"{per}_earned", 0) or 0
         rate = earned / goal * 100
         col = P["green"] if rate >= 100 else P["blue"]
-        zones = [(0.0, 0.5, P["red"]), (0.5, 0.8, P["amber"]), (0.8, 1.0, P["green"])]
+        zones = [(0.0, 0.5, P["red"]), (0.5, 0.8, "#f5c518"), (0.8, 1.0, P["green"])]  # gold, not copper
         return (f"<div class='ck-bg'><div class='ck-bglabel'>{name}</div>"
                 f"{_meter(rate / 100.0, P, 'gl' + per, zones)}"
                 f"<div class='ck-gv' style='color:{col}'>{rate:.0f}%</div>"
@@ -252,7 +252,10 @@ def _money_card(r: dict, P: dict) -> str:
             val = _m(a.get(key) or 0)
             # At a new all-time high when the account value has caught up to the ATH ratchet.
             if key == "ath" and abs((a.get("cap") or 0) - (a.get("ath") or 0)) < 1:
-                cells += f"<div class='ck-mv ck-athrow'><span class='ck-athtrophy'>🏆</span> {val}</div>"
+                delta = (a.get("cap") or 0) - (a.get("ath0") or 0)   # new ground vs the old record
+                comp = f"${delta / 1e6:.1f}M" if delta >= 1e6 else f"${delta / 1e3:.1f}K"
+                up = f" <span class='ck-athup'>({comp})</span>" if delta > 0.5 else ""
+                cells += f"<div class='ck-mv ck-athrow'><span class='ck-athtrophy'>🏆</span> {val}{up}</div>"
             else:
                 cells += f"<div class='ck-mv'>{val}</div>"
     return (f"<div class='ck-card ck-bcard'>{_btag('💰 MONEY', 'Capital · ATH · Vault', P)}"
@@ -416,6 +419,46 @@ def _alloc_card(df, name: str, a: dict, P: dict) -> str:
     return (f"<div class='ck-card ck-fcard'>"
             f"{_btag(f'🧮 {name} ALLOCATION', '% wheel cap · cap 5% · 7% if 1 lot', P)}"
             f"<div class='ck-xgw'><div class='ck-xgrid'>{inner}</div></div></div>")
+
+
+def _assignment_card(df, c: dict) -> str:
+    """Assignment watch — the Trade Log, filtered to what's about to happen: ITM Puts (price
+    below strike → will be ASSIGNED) and ITM Calls (price above strike → CALLED AWAY). Reuses
+    command_center._tl_html so every column + the logos/colours match the Trade Log exactly."""
+    if df is None or getattr(df, "empty", True):
+        return ""
+    P = ck.LIGHT if ck._is_light(c.get("bg", "")) else ck.DARK
+    light = ck._is_light(c.get("bg", ""))
+    od = engine._openrows(df).copy()
+    if od.empty or "Opt Typ" not in od.columns:
+        return ""
+    cp = od["Current Price"].map(engine._money)
+    k = od["Strike Price"].map(engine._money)
+    typ = od["Opt Typ"].astype(str).str.upper()
+    itm_put = (typ == "PUT") & (cp > 0) & (k > cp)          # price below strike → assigned
+    itm_call = (typ == "CALL") & (cp > 0) & (cp > k)        # price above strike → called away
+
+    def section(mask, title, color):
+        sub = od[mask].copy()
+        if sub.empty:
+            return ""
+        if "DTE" in sub.columns:
+            sub = sub.assign(_d=sub["DTE"].map(engine._money)).sort_values("_d")
+        sub["Logo"] = sub["Stock"].astype(str).str.strip().apply(
+            lambda t: f"https://financialmodelingprep.com/image-stock/{t}.png" if t else "")
+        cols = ["Logo"] + [x for x in cc._TL_COLS if x in sub.columns]
+        hdr = (f"<div style='background:{color}1f;color:{color};font-weight:800;font-size:13px;"
+               f"padding:7px 11px;border-radius:7px;margin:12px 0 6px;letter-spacing:.04em;"
+               f"display:inline-block'>{title} · {int(mask.sum())}</div>")
+        return hdr + cc._tl_html(sub[cols], cols, c, light)
+
+    body = (section(itm_put, "🔴 ITM Puts · will be assigned", "#f2555a")
+            + section(itm_call, "🟠 ITM Calls · called away", "#e3a63a"))
+    if not body:
+        body = f"<div class='ck-sub' style='margin-top:6px'>No ITM puts or calls right now.</div>"
+    return (f"<div class='ck-card ck-fcard'>"
+            f"{_btag('📒 ASSIGNMENT WATCH', 'ITM puts → assigned · ITM calls → called away', P)}"
+            f"{body}</div>")
 
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -674,10 +717,11 @@ def _extra_css(P: dict) -> str:
 .ck-xtot{{background:{P['glow']}!important;font-weight:800!important}}
 .ck-xgrid .ck-fa{{padding:5px 8px;font-size:13.5px}}
 .ck-xgrid .ck-fh{{padding:5px 4px}}
+.ck-xgrid.ck-itmgrid{{grid-template-columns:minmax(44px,1.1fr) 0.7fr 0.7fr 0.9fr 0.9fr 0.55fr 1.3fr 0.8fr 1fr 0.9fr}}
 .ck-mpct{{color:{P['mut']}!important;font-weight:600!important}}
 .ck-bcard .ck-chead,.ck-brkcard .ck-chead{{margin-bottom:2px}}
 @media (max-width:820px){{.ck-brow2{{grid-template-columns:1fr}}}}
-.ck-brow{{display:grid;grid-template-columns:1.4fr 1.7fr 1.4fr;gap:11px;margin-bottom:14px;align-items:stretch}}
+.ck-brow{{display:grid;grid-template-columns:1.65fr 1.65fr 1.15fr;gap:11px;margin-bottom:14px;align-items:stretch}}
 .ck-bgrow2{{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:4px;align-items:end}}
 .ck-gm .ck-gz{{font-size:12px}}
 .ck-gm .ck-gz span{{font-size:11px!important;font-weight:600!important;color:{P['subv']}!important;font-family:'IBM Plex Sans',system-ui,sans-serif!important}}
@@ -719,6 +763,7 @@ def _extra_css(P: dict) -> str:
   color:{P['ink']};text-align:right;padding:2.5px 0;border-bottom:1px solid {P['lsoft']}}}
 .ck-mgrid > :nth-last-child(-n+3){{border-bottom:none}}
 .ck-athrow{{color:#37b24d!important;font-weight:700!important}}
+.ck-athup{{font-size:9px;font-weight:600;color:#37b24d;opacity:.85}}
 .ck-athtrophy{{display:inline-block;animation:ck-athpulse 2.6s ease-in-out infinite}}
 @keyframes ck-athpulse{{0%,78%,100%{{transform:scale(1);opacity:1}}
   84%{{transform:scale(1.45);opacity:.6}}90%{{transform:scale(1);opacity:1}}}}
@@ -802,6 +847,7 @@ def render(c: dict) -> None:
         {_alloc_card(tdf, 'IRA', r['ira'], P)}
         {_alloc_card(tdf, 'LLC', r['llc'], P)}
       </div>
+      {_assignment_card(tdf, c)}
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
