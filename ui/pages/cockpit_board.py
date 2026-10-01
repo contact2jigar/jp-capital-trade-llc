@@ -664,7 +664,7 @@ def _extra_css(P: dict) -> str:
 .ck-fh{{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:{P['mid']};font-weight:700;
   line-height:1.1;text-align:center;padding:6px 8px;background:{P['plo']}}}
 .ck-fhl{{text-align:left}}
-.ck-fa{{font-weight:700;font-size:13.5px;line-height:1.1;padding:8px 11px;text-align:left;
+.ck-fa{{font-weight:700;font-size:13.5px;line-height:1.1;padding:4px 11px;text-align:left;
   background:{P['plo']};color:{P['ink']}}}
 .ck-fg{{text-align:center;padding:8px 8px;font-family:'IBM Plex Mono',ui-monospace,monospace;
   font-weight:700;font-size:12px;line-height:1.1;background:{P['green']}22;color:{P['green']}}}
@@ -697,7 +697,7 @@ def _extra_css(P: dict) -> str:
   color:#0c1116;line-height:1.15}}
 .ck-rbadge b{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13.5px;font-weight:800}}
 .ck-rpct{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;font-weight:700;margin-top:2px}}
-.ck-wc,.ck-wc-hi{{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;background:{P['phi']}}}
+.ck-wc,.ck-wc-hi{{display:flex;flex-direction:column;align-items:center;gap:1px;padding:4px 6px;background:{P['phi']}}}
 .ck-wc-hi{{background:{P['green']}22}}
 .ck-wca{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;font-weight:500;color:{P['ink']};line-height:1.15}}
 .ck-wcp{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;font-weight:600;color:{P['subv']};line-height:1.15}}
