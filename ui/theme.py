@@ -35,8 +35,16 @@ def apply_theme(name: str) -> dict:
     """Inject the palette's CSS and return the palette dict."""
     c = PALETTES.get(name, PALETTES["Dark"])
     st.markdown(f"""<style>
-      html {{ font-size: 13.5px; }}   /* scale the whole app down to fit more */
+      html {{ font-size: 15.5px; }}   /* readable base (was 13.5) — easy on the eyes, no zooming */
       .block-container {{ padding:2.2rem 2rem 2rem !important; max-width:100% !important; }}
+      /* sidebar expand chevron (»): hidden by default, fades in on hover (mouse near the
+         top-left corner); themed colour so it's visible on the light ground when it appears */
+      [data-testid="stSidebarCollapsedControl"], [data-testid="stExpandSidebarButton"],
+      [data-testid="collapsedControl"] {{ opacity:0; transition:opacity .18s ease; }}
+      [data-testid="stSidebarCollapsedControl"]:hover, [data-testid="stExpandSidebarButton"]:hover,
+      [data-testid="collapsedControl"]:hover {{ opacity:1; }}
+      [data-testid="stSidebarCollapsedControl"] *, [data-testid="stExpandSidebarButton"] *,
+      [data-testid="collapsedControl"] * {{ color:{c['text']} !important; fill:{c['text']} !important; }}
       h1 {{ font-size:1.7rem !important; }} h2 {{ font-size:1.4rem !important; }}
       .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], .main {{
         background:{c['bg']} !important; color:{c['text']}; }}

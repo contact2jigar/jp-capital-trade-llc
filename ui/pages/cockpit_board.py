@@ -337,13 +337,115 @@ def _matrix_grid(r: dict, P: dict) -> str:
             f"<div class='ck-fgrid'>{cells}</div></div>")
 
 
+_ITYPE_ORDER = ["01-Growth", "02-Alternate", "03-Speculation", "04-LEAP"]
+
+
+def _alloc_groups(df, acct_upper: str) -> list:
+    """Per-stock aggregates for one account, grouped by Invest Type (canonical order; the
+    X-list cash bucket is excluded). Each stock aggregates its open rows: P/L & Cash Reserve
+    & Qty summed, Current Price & Strike averaged. Returns [(invest_type, [stock dicts])]."""
+    if df is None or getattr(df, "empty", True):
+        return []
+    od = engine._openrows(df)
+    need = ["Account", "Stock", "Invest Type", "Profit Loss", "Cash Reserve",
+            "Current Price", "Strike Price", "Qty"]
+    if od.empty or any(cn not in od.columns for cn in need):
+        return []
+    d = od[od["Account"].astype(str).str.upper() == acct_upper].copy()
+    su = d["Stock"].astype(str).str.upper()
+    d = d[~su.isin(["", "NAN", "CASH", "VAULT"])]
+    if d.empty:
+        return []
+    d["_stock"] = d["Stock"].astype(str).str.upper()
+    d["_it"] = d["Invest Type"].astype(str).str.strip()
+    for raw, k in [("Profit Loss", "_pl"), ("Cash Reserve", "_cash"),
+                   ("Current Price", "_price"), ("Strike Price", "_strike"), ("Qty", "_qty")]:
+        d[k] = d[raw].map(engine._money)
+    out = []
+    for it in _ITYPE_ORDER:
+        g = d[d["_it"] == it]
+        if g.empty:
+            continue
+        stocks = []
+        for stk, sg in g.groupby("_stock"):
+            stocks.append(dict(stock=stk, pl=sg["_pl"].sum(), cash=sg["_cash"].sum(),
+                               qty=sg["_qty"].sum(), price=sg["_price"].mean(),
+                               strike=sg["_strike"].mean()))
+        stocks.sort(key=lambda x: x["stock"])
+        out.append((it, stocks))
+    return out
+
+
+def _alloc_card(df, name: str, a: dict, P: dict) -> str:
+    """One account's holdings grouped by Invest Type with per-group subtotals:
+    Stock · P/L · %Alloc · Cash Reserved · Current · Qty · Strike. %Alloc = Cash Reserve as a
+    share of WHEEL capital (after the 30% vault); over the 5% cap shows red."""
+    base = a.get("wcap") or 0
+    groups = _alloc_groups(df, name.upper())
+    cols = ["Stock", "Profit Loss", "% Alloc", "Cash Reserved", "Current", "Qty", "Strike"]
+    head = "".join(f"<div class='ck-fh{' ck-fhl' if i == 0 else ''}'>{c}</div>"
+                   for i, c in enumerate(cols))
+
+    def plcol(v):
+        return P["green"] if v >= 0 else P["red"]
+
+    body = ""
+    for it, stocks in groups:
+        body += f"<div class='ck-xband'>{it}</div>"
+        gpl = gcash = gqty = 0.0
+        for s in stocks:
+            p = (s["cash"] / base * 100) if base else 0
+            cap = 7 if s["qty"] <= 1 else 5                 # 1-lot starter may run to 7%, else 5%
+            acol = P["red"] if p > cap else P["amber"] if p >= 4.5 else P["green"]  # amber = nearing cap
+            gpl += s["pl"]; gcash += s["cash"]; gqty += s["qty"]
+            body += (f"<div class='ck-fa'>{s['stock']}</div>"
+                     f"<div class='ck-ac' style='color:{plcol(s['pl'])}'>{_m(s['pl'])}</div>"
+                     f"<div class='ck-ac' style='color:{acol};font-weight:800'>{p:.1f}%</div>"
+                     f"<div class='ck-ac'>{_m(s['cash'])}</div>"
+                     f"<div class='ck-ac'>{s['price']:.2f}</div>"
+                     f"<div class='ck-ac'>{s['qty']:.0f}</div>"
+                     f"<div class='ck-ac'>{s['strike']:.2f}</div>")
+        gp = (gcash / base * 100) if base else 0
+        body += (f"<div class='ck-fa ck-xtot'>{it.split('-')[-1]} Total</div>"
+                 f"<div class='ck-ac ck-xtot' style='color:{plcol(gpl)}'>{_m(gpl)}</div>"
+                 f"<div class='ck-ac ck-xtot' style='font-weight:800'>{gp:.1f}%</div>"
+                 f"<div class='ck-ac ck-xtot'>{_m(gcash)}</div>"
+                 f"<div class='ck-ac ck-xtot'></div><div class='ck-ac ck-xtot'>{gqty:.0f}</div>"
+                 f"<div class='ck-ac ck-xtot'></div>")
+    inner = (head + body) if groups else "<div class='ck-fa'>No open positions.</div>"
+    return (f"<div class='ck-card ck-fcard'>"
+            f"{_btag(f'🧮 {name} ALLOCATION', '% wheel cap · cap 5% · 7% if 1 lot', P)}"
+            f"<div class='ck-xgw'><div class='ck-xgrid'>{inner}</div></div></div>")
+
+
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _index_monthly_pct() -> dict:
+    """SPY & QQQ month-over-month % returns straight from Yahoo (month-end close vs the
+    prior month-end). The sheet's SPY/QQQ cells are live GOOGLEFINANCE formulas that do
+    NOT evaluate in the public CSV export the app reads, so we source the indexes directly.
+    Returns {(year, month): {"SPY": pct, "QQQ": pct}}."""
+    out: dict = {}
+    for sym in ("SPY", "QQQ"):
+        try:
+            h = yahoo.get_history(sym, period="3y", interval="1d")
+            if h is None or getattr(h, "empty", True) or "Close" not in h:
+                continue
+            m = h["Close"].resample("ME").last().dropna()   # month-end closes
+            for ts, v in (m.pct_change() * 100).items():
+                if v == v:                                   # skip the leading NaN
+                    out.setdefault((ts.year, ts.month), {})[sym] = float(v)
+        except Exception:
+            continue
+    return out
 
 
 def _perf_grid(mdf, P: dict, year: int) -> str:
     """Performance for one year — IRA/LLC/SPY/QQQ rows, a FIXED Jan…Dec column set so both
     year cards align for easy comparison (months with no data show —)."""
-    tag = _btag(f"📈 PERFORMANCE {year}", "Monthly Return · vs Indexes", P)
+    tag = _btag(f"📈 PERFORMANCE {year}", "Monthly Return · $ · vs Indexes", P)
     if mdf is None or getattr(mdf, "empty", True):
         return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub'>No performance data.</div></div>"
     recs = {rr["date"].month: rr for rr in mdf.to_dict("records") if rr["date"].year == year}
@@ -351,36 +453,79 @@ def _perf_grid(mdf, P: dict, year: int) -> str:
         return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub'>No {year} data.</div></div>"
 
     def pc(end, start):
-        return (float(end) / float(start) - 1) * 100 if (start and end) else None
+        if not start or not end:
+            return None
+        r = (float(end) / float(start) - 1) * 100
+        return r if r == r else None                   # drop nan (missing SPY/QQQ fetch)
 
-    series = [("IRA", P["blue"], "IRA", "ira_start"), ("LLC", P["purple"], "LLC", "llc_start"),
-              ("SPY", P["mid"], "SPY", "spy_start"), ("QQQ", P["mid"], "QQQ", "qqq_start")]
+    def vals(rr, endk, startk, combined):
+        if combined:                                   # Total row = IRA + LLC
+            return ((rr.get("IRA") or 0) + (rr.get("LLC") or 0),
+                    (rr.get("ira_start") or 0) + (rr.get("llc_start") or 0))
+        return rr.get(endk), rr.get(startk)
+
+    def cell(v, amt_s, cc, extra=""):
+        if v is None:
+            return f"<div class='ck-pcell {extra}'><span class='ck-pv' style='color:{P['mut']}'>—</span></div>"
+        amt_html = f"<span class='ck-pa'>{amt_s}</span>" if amt_s else ""
+        return (f"<div class='ck-pcell {extra}'><span class='ck-pv' style='color:{cc}'>{v:+.1f}%</span>"
+                f"{amt_html}</div>")
+
+    # name, color, endk, startk, combined, is_index (index rows show % only — no $ meaning)
+    series = [("IRA", P["blue"], "IRA", "ira_start", False, False),
+              ("LLC", P["purple"], "LLC", "llc_start", False, False),
+              ("Total", P["ink"], None, None, True, False),
+              ("SPY", P["mid"], "SPY", "spy_start", False, True),
+              ("QQQ", P["mid"], "QQQ", "qqq_start", False, True)]
     cells = ("<div class='ck-fh ck-fhl'>Series</div>"
              + "".join(f"<div class='ck-fh'>{m}</div>" for m in reversed(_MONTHS))
              + "<div class='ck-fh ck-khf'>Total</div>")
-    for name, col, endk, startk in series:
-        cells += f"<div class='ck-fa' style='color:{col}'>{name}</div>"
+    lm = max(recs)
+    idx = _index_monthly_pct()                             # SPY/QQQ from Yahoo (sheet cells don't export)
+    for name, col, endk, startk, combined, is_index in series:
+        trow = "ck-prow-tot" if combined else ""
+        cells += f"<div class='ck-fa {trow}' style='color:{col}'>{name}</div>"
         for mi in range(12, 0, -1):
+            if is_index:                                   # SPY / QQQ — % only, from Yahoo
+                v = idx.get((year, mi), {}).get(name)
+                cc = P["green"] if (v or 0) >= 0 else P["red"]
+                cells += cell(v, "", cc, trow)
+                continue
             rr = recs.get(mi)
-            v = pc(rr.get(endk), rr.get(startk)) if rr else None
-            if v is None:
-                cells += f"<div class='ck-pcell' style='color:{P['mut']}'>—</div>"
-            else:
-                cc = P["green"] if v >= 0 else P["red"]
-                cells += f"<div class='ck-pcell' style='color:{cc}'>{v:+.1f}%</div>"
-        # Year total = point-to-point (Jan start → latest month end), matching the sheet header.
-        base = recs[1].get(startk) if 1 in recs else None
-        lm = max(recs) if recs else None
-        cur = recs[lm].get(endk) if lm else None
-        tv = (float(cur) / float(base) - 1) * 100 if (base and cur) else None
-        if tv is None:
-            cells += f"<div class='ck-pcell ck-ptot' style='color:{P['mut']}'>—</div>"
+            if not rr:
+                cells += cell(None, "", "", trow)
+                continue
+            e, s = vals(rr, endk, startk, combined)
+            v = pc(e, s)
+            cc = P["green"] if (v or 0) >= 0 else P["red"]
+            ch = (e - s) if (e is not None and s is not None) else None
+            amt = "" if (ch is None or ch != ch) else (f"+{ck._mk(ch)}" if ch >= 0 else ck._mk(ch))
+            cells += cell(v, amt, cc, trow)
+        # Year total — accounts: point-to-point (Jan start → latest end), $ change YTD.
+        #              indexes: compound the year's monthly returns (no $).
+        if is_index:
+            factor, any_m = 1.0, False
+            for mi in range(1, 13):
+                mv = idx.get((year, mi), {}).get(name)
+                if mv is not None:
+                    factor *= 1 + mv / 100
+                    any_m = True
+            tv = (factor - 1) * 100 if any_m else None
+            tc = P["green"] if (tv or 0) >= 0 else P["red"]
+            cells += cell(tv, "", tc, f"ck-ptot {trow}")
+        elif 1 in recs:
+            _, bs = vals(recs[1], endk, startk, combined)
+            ce, _ = vals(recs[lm], endk, startk, combined)
+            tv = pc(ce, bs)
+            tc = P["green"] if (tv or 0) >= 0 else P["red"]
+            ch = (ce - bs) if (ce is not None and bs is not None) else None
+            amt = "" if (ch is None or ch != ch) else (f"+{ck._mk(ch)}" if ch >= 0 else ck._mk(ch))
+            cells += cell(tv, amt, tc, f"ck-ptot {trow}")
         else:
-            tc = P["green"] if tv >= 0 else P["red"]
-            cells += f"<div class='ck-pcell ck-ptot' style='color:{tc}'>{tv:+.1f}%</div>"
+            cells += cell(None, "", "", f"ck-ptot {trow}")
     return (f"<div class='ck-card ck-fcard'>{tag}"
             f"<div class='ck-pgw'><div class='ck-pgrid' "
-            f"style='grid-template-columns:auto repeat(12,minmax(50px,1fr)) minmax(66px,1.1fr)'>"
+            f"style='grid-template-columns:auto repeat(12,minmax(40px,1fr)) minmax(54px,1fr)'>"
             f"{cells}</div></div></div>")
 
 
@@ -465,10 +610,10 @@ def _extra_css(P: dict) -> str:
 .ck-fcard{{padding:10px 15px 12px;margin-bottom:14px}}
 .ck-fgrid{{display:grid;grid-template-columns:auto repeat(6,1fr);gap:1px;background:{P['line']};
   border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
-.ck-fh{{font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:{P['mid']};font-weight:700;
+.ck-fh{{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:{P['mid']};font-weight:700;
   line-height:1.1;text-align:center;padding:6px 8px;background:{P['plo']}}}
 .ck-fhl{{text-align:left}}
-.ck-fa{{font-weight:700;font-size:12px;line-height:1.1;padding:8px 11px;text-align:left;
+.ck-fa{{font-weight:700;font-size:13.5px;line-height:1.1;padding:8px 11px;text-align:left;
   background:{P['plo']};color:{P['ink']}}}
 .ck-fg{{text-align:center;padding:8px 8px;font-family:'IBM Plex Mono',ui-monospace,monospace;
   font-weight:700;font-size:12px;line-height:1.1;background:{P['green']}22;color:{P['green']}}}
@@ -485,20 +630,26 @@ def _extra_css(P: dict) -> str:
 .ck-pgw{{overflow-x:auto;overflow-y:hidden;margin-top:8px;border:1px solid {P['line']};
   border-radius:8px;-webkit-overflow-scrolling:touch}}
 .ck-pgrid{{display:grid;gap:1px;background:{P['line']};min-width:100%}}
-.ck-pcell{{text-align:center;padding:5px 6px;font-family:'IBM Plex Mono',ui-monospace,monospace;
-  font-weight:600;font-size:11px;background:{P['phi']};line-height:1.1;white-space:nowrap}}
-.ck-ptot{{background:{P['glow']}!important;font-weight:800!important;font-size:11.5px}}
+.ck-pcell{{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  padding:4px 3px;font-family:'IBM Plex Mono',ui-monospace,monospace;background:{P['phi']};
+  line-height:1.1;white-space:nowrap}}
+.ck-pv{{font-size:12.5px;font-weight:700;line-height:1.1}}
+.ck-pa{{font-size:10px;font-weight:600;line-height:1;color:{P['subv']}}}
+.ck-ptot{{background:{P['glow']}!important}}
+.ck-ptot .ck-pv{{font-weight:800;font-size:13px}}
+.ck-pcell.ck-prow-tot{{background:{P['plo']}}}
+.ck-fa.ck-prow-tot{{font-weight:800}}
 .ck-khf{{color:{P['ink']}!important;font-weight:800!important;
   background:linear-gradient(rgba(0,0,0,.07),rgba(0,0,0,.07)),{P['plo']}!important}}
 .ck-kcell{{background:linear-gradient(rgba(0,0,0,.06),rgba(0,0,0,.06)),{P['phi']}!important}}
 .ck-rbadge{{display:inline-flex;align-items:center;justify-content:center;padding:3px 12px;border-radius:7px;
   color:#0c1116;line-height:1.15}}
-.ck-rbadge b{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:800}}
-.ck-rpct{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;font-weight:700;margin-top:2px}}
+.ck-rbadge b{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13.5px;font-weight:800}}
+.ck-rpct{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;font-weight:700;margin-top:2px}}
 .ck-wc,.ck-wc-hi{{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;background:{P['phi']}}}
 .ck-wc-hi{{background:{P['green']}22}}
-.ck-wca{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11.5px;font-weight:500;color:{P['ink']};line-height:1.15}}
-.ck-wcp{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;font-weight:600;color:{P['subv']};line-height:1.15}}
+.ck-wca{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;font-weight:500;color:{P['ink']};line-height:1.15}}
+.ck-wcp{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;font-weight:600;color:{P['subv']};line-height:1.15}}
 .ck-wc-hi .ck-wca,.ck-wc-hi .ck-wcp{{color:{P['green']}}}
 .ck-acard{{padding:10px 15px 11px}}
 .ck-agrid{{display:grid;grid-template-columns:1fr auto auto;column-gap:14px;margin-top:6px}}
@@ -510,6 +661,19 @@ def _extra_css(P: dict) -> str:
 .ck-asep{{grid-column:1/-1;height:1px;background:{P['line']};margin:4px 0}}
 @media (max-width:820px){{.ck-arow{{grid-template-columns:1fr}}}}
 .ck-brow2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;align-items:start}}
+.ck-salloc{{display:grid;grid-template-columns:auto 1fr 1fr;gap:1px;background:{P['line']};
+  border:1px solid {P['line']};border-radius:8px;overflow:hidden;margin-top:8px}}
+.ck-ac{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;font-weight:500;text-align:center;
+  padding:5px 7px;background:{P['phi']};color:{P['ink']};line-height:1.15;white-space:nowrap}}
+.ck-xgw{{overflow-x:auto;overflow-y:hidden;margin-top:8px;border:1px solid {P['line']};
+  border-radius:8px;-webkit-overflow-scrolling:touch}}
+.ck-xgrid{{display:grid;gap:1px;background:{P['line']};min-width:100%;
+  grid-template-columns:minmax(40px,1fr) auto auto minmax(64px,1.4fr) auto auto auto}}
+.ck-xband{{grid-column:1/-1;background:{P['plo']};color:{P['mid']};font-weight:800;font-size:11px;
+  letter-spacing:.06em;text-transform:uppercase;padding:5px 11px;line-height:1.1}}
+.ck-xtot{{background:{P['glow']}!important;font-weight:800!important}}
+.ck-xgrid .ck-fa{{padding:5px 8px;font-size:13.5px}}
+.ck-xgrid .ck-fh{{padding:5px 4px}}
 .ck-mpct{{color:{P['mut']}!important;font-weight:600!important}}
 .ck-bcard .ck-chead,.ck-brkcard .ck-chead{{margin-bottom:2px}}
 @media (max-width:820px){{.ck-brow2{{grid-template-columns:1fr}}}}
@@ -546,12 +710,12 @@ def _extra_css(P: dict) -> str:
 @media (max-width:820px){{.ck-brow{{grid-template-columns:1fr}}}}
 .ck-bcard{{padding:9px 14px 9px;margin-bottom:14px}}
 .ck-mgrid{{display:grid;grid-template-columns:1fr auto auto;column-gap:20px;margin-top:6px}}
-.ck-mh{{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;
+.ck-mh{{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;
   line-height:1.1;text-align:right;padding:1px 0 4px;border-bottom:1px solid {P['line']}}}
 .ck-mhl{{text-align:left}}
-.ck-ml{{font-size:12px;font-weight:600;line-height:1.1;color:{P['ink']};padding:2.5px 0;
+.ck-ml{{font-size:13.5px;font-weight:600;line-height:1.1;color:{P['ink']};padding:2.5px 0;
   border-bottom:1px solid {P['lsoft']}}}
-.ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;font-weight:500;line-height:1.1;
+.ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:14px;font-weight:500;line-height:1.1;
   color:{P['ink']};text-align:right;padding:2.5px 0;border-bottom:1px solid {P['lsoft']}}}
 .ck-mgrid > :nth-last-child(-n+3){{border-bottom:none}}
 .ck-athrow{{color:#37b24d!important;font-weight:700!important}}
@@ -585,6 +749,7 @@ def render(c: dict) -> None:
         st.warning("Couldn't load the TradeLog tab.")
         return
     r, vix, vix_chg, trend = data["r"], data["vix"], data["vix_chg"], data["trend"]
+    tdf = data.get("df")
     P = ck.LIGHT if ck._is_light(c.get("bg", "")) else ck.DARK
     try:
         mdf, _ = benchmark.monthly_df()
@@ -633,6 +798,10 @@ def render(c: dict) -> None:
       </div>
       {_summary_grid(r, P)}
       {_perf}
+      <div class="ck-brow2">
+        {_alloc_card(tdf, 'IRA', r['ira'], P)}
+        {_alloc_card(tdf, 'LLC', r['llc'], P)}
+      </div>
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
