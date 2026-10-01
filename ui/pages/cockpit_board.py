@@ -236,7 +236,7 @@ def _breaker_card(r: dict, P: dict) -> str:
                 f"<div class='ck-gv'>{brk:.1f}%</div>"
                 f"<div class='ck-gz' style='color:{zc}'>{_m(gap)} <span>gap</span></div></div>")
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
-    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CC BREAKER', 'Cap 45% · Safe &lt; 30%', P)}"
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CIRCUIT BREAKER · YIELD GATE', 'Cap 45% · Safe &lt; 30%', P)}"
             f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div></div>")
 
 
@@ -251,12 +251,14 @@ def _money_card(r: dict, P: dict) -> str:
         cells += f"<div class='ck-ml'>{lbl}</div>"
         for _, a in accts:
             val = _m(a.get(key) or 0)
-            # At a new all-time high when the account value has caught up to the ATH ratchet.
-            if key == "ath" and abs((a.get("cap") or 0) - (a.get("ath") or 0)) < 1:
-                delta = (a.get("cap") or 0) - (a.get("ath0") or 0)   # new ground vs the old record
+            cap_v, ath_v = (a.get("cap") or 0), (a.get("ath") or 0)
+            at_ath = abs(cap_v - ath_v) < 1                 # value has caught up to the ATH ratchet
+            delta = cap_v - (a.get("ath0") or 0)            # new ground made today
+            if key == "ath" and at_ath:                     # trophy + record on the ATH row
+                cells += f"<div class='ck-mv ck-athrow'><span class='ck-athtrophy'>🏆</span> {val}</div>"
+            elif key == "cap" and at_ath and delta > 0.5:   # today's gain sits on the Capital row
                 comp = f"${delta / 1e6:.1f}M" if delta >= 1e6 else f"${delta / 1e3:.1f}K"
-                up = f"<span class='ck-athup'>({comp})</span> " if delta > 0.5 else ""
-                cells += f"<div class='ck-mv ck-athrow'><span class='ck-athtrophy'>🏆</span> {up}{val}</div>"
+                cells += f"<div class='ck-mv'><span class='ck-athup'>({comp})</span> {val}</div>"
             else:
                 cells += f"<div class='ck-mv'>{val}</div>"
     return (f"<div class='ck-card ck-bcard'>{_btag('💰 MONEY', 'Capital · ATH · Vault 30%', P)}"
