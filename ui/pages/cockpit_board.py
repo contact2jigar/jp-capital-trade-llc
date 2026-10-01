@@ -221,7 +221,7 @@ def _goalmeter_card(pd: dict, P: dict) -> str:
                 f"{_meter(rate / 100.0, P, 'gl' + per, zones)}"
                 f"<div class='ck-gv' style='color:{col}'>{rate:.0f}%</div>"
                 f"<div class='ck-gz'>{_m(earned)} <span>/ {_m(goal)}</span></div></div>")
-    return (f"<div class='ck-card ck-brkcard ck-gm'>{_btag('🎯 PREMIUM GOALS', 'weekly · monthly', P)}"
+    return (f"<div class='ck-card ck-brkcard ck-gm'>{_btag('🎯 PREMIUM GOALS', '47% AOR · 1.51% of ATH', P)}"
             f"<div class='ck-bgrow2'>{one('wk', 'WEEKLY')}{one('mo', 'MONTHLY')}</div></div>")
 
 
@@ -243,7 +243,7 @@ def _breaker_card(r: dict, P: dict) -> str:
 def _money_card(r: dict, P: dict) -> str:
     """Money — Capital · All Time High · Cash Vault (30% ATH), IRA/LLC with $ and %."""
     accts = [("IRA", r["ira"]), ("LLC", r["llc"])]
-    rows_def = [("Capital", "cap"), ("All Time High", "ath"), ("Cash Vault · 30% ATH", "vault")]
+    rows_def = [("All Time High", "ath"), ("Capital", "cap"), ("Cash Vault", "vault")]
     cells = ("<div class='ck-mh ck-mhl'>Money</div>"
              + "".join(f"<div class='ck-mh'>{n}</div>" for n, _ in accts))
     for lbl, key in rows_def:
@@ -254,11 +254,11 @@ def _money_card(r: dict, P: dict) -> str:
             if key == "ath" and abs((a.get("cap") or 0) - (a.get("ath") or 0)) < 1:
                 delta = (a.get("cap") or 0) - (a.get("ath0") or 0)   # new ground vs the old record
                 comp = f"${delta / 1e6:.1f}M" if delta >= 1e6 else f"${delta / 1e3:.1f}K"
-                up = f" <span class='ck-athup'>({comp})</span>" if delta > 0.5 else ""
-                cells += f"<div class='ck-mv ck-athrow'><span class='ck-athtrophy'>🏆</span> {val}{up}</div>"
+                up = f"<span class='ck-athup'>({comp})</span> " if delta > 0.5 else ""
+                cells += f"<div class='ck-mv ck-athrow'><span class='ck-athtrophy'>🏆</span> {up}{val}</div>"
             else:
                 cells += f"<div class='ck-mv'>{val}</div>"
-    return (f"<div class='ck-card ck-bcard'>{_btag('💰 MONEY', 'Capital · ATH · Vault', P)}"
+    return (f"<div class='ck-card ck-bcard'>{_btag('💰 MONEY', 'Capital · ATH · Vault 30%', P)}"
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
 
@@ -314,7 +314,12 @@ def _summary_grid(r: dict, P: dict) -> str:
             cls = "ck-wc ck-kcell" if isk else "ck-wc"
             cells += (f"<div class='{cls}'><span class='ck-wca'>{_m(amt)}</span>"
                       f"<span class='ck-wcp'>{pct:.1f}%</span></div>")
-    return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', 'Capital · Deploy · Ready · Cash · CSP ITM · Positions', P)}"
+    T = _total_acct(r["ira"], r["llc"])
+    _wc, _dep, _rtd = (T.get("wcap") or 0), (T.get("dep") or 0), (T.get("rtd") or 0)
+    _depp = (_dep / _wc * 100) if _wc else 0
+    _rk = f"${_rtd / 1e6:.1f}M" if _rtd >= 1e6 else f"${_rtd / 1e3:.0f}K"
+    sub = f"{_depp:.0f}% deployed · {_rk} ready to deploy"
+    return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', sub, P)}"
             f"<div class='ck-sgw'><div class='ck-sgrid'>{cells}</div></div></div>")
 
 
@@ -753,7 +758,7 @@ def _extra_css(P: dict) -> str:
 .ck-brkcard .ck-bglabel{{line-height:1.1}}
 @media (max-width:820px){{.ck-brow{{grid-template-columns:1fr}}}}
 .ck-bcard{{padding:9px 14px 9px;margin-bottom:14px}}
-.ck-mgrid{{display:grid;grid-template-columns:1fr auto auto;column-gap:20px;margin-top:6px}}
+.ck-mgrid{{display:grid;grid-template-columns:auto 1fr 1fr;column-gap:14px;margin-top:6px}}
 .ck-mh{{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;
   line-height:1.1;text-align:right;padding:1px 0 4px;border-bottom:1px solid {P['line']}}}
 .ck-mhl{{text-align:left}}
