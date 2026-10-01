@@ -242,7 +242,8 @@ def _breaker_card(r: dict, P: dict) -> str:
 
 def _money_card(r: dict, P: dict) -> str:
     """Money — Capital · All Time High · Cash Vault (30% ATH), IRA/LLC with $ and %."""
-    accts = [("IRA", r["ira"]), ("LLC", r["llc"])]
+    _T = {k: (r["ira"].get(k) or 0) + (r["llc"].get(k) or 0) for k in ("cap", "ath", "ath0", "vault")}
+    accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", _T)]
     rows_def = [("All Time High", "ath"), ("Capital", "cap"), ("Cash Vault", "vault")]
     cells = ("<div class='ck-mh ck-mhl'>Money</div>"
              + "".join(f"<div class='ck-mh'>{n}</div>" for n, _ in accts))
@@ -758,7 +759,7 @@ def _extra_css(P: dict) -> str:
 .ck-brkcard .ck-bglabel{{line-height:1.1}}
 @media (max-width:820px){{.ck-brow{{grid-template-columns:1fr}}}}
 .ck-bcard{{padding:9px 14px 9px;margin-bottom:14px}}
-.ck-mgrid{{display:grid;grid-template-columns:auto 1fr 1fr;column-gap:14px;margin-top:6px}}
+.ck-mgrid{{display:grid;grid-template-columns:auto 1fr 1fr 1fr;column-gap:14px;margin-top:6px}}
 .ck-mh{{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;
   line-height:1.1;text-align:right;padding:1px 0 4px;border-bottom:1px solid {P['line']}}}
 .ck-mhl{{text-align:left}}
@@ -766,7 +767,7 @@ def _extra_css(P: dict) -> str:
   border-bottom:1px solid {P['lsoft']}}}
 .ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:14px;font-weight:500;line-height:1.1;
   color:{P['ink']};text-align:right;padding:2.5px 0;border-bottom:1px solid {P['lsoft']}}}
-.ck-mgrid > :nth-last-child(-n+3){{border-bottom:none}}
+.ck-mgrid > :nth-last-child(-n+4){{border-bottom:none}}
 .ck-athrow{{color:#37b24d!important;font-weight:700!important}}
 .ck-athup{{font-size:9px;font-weight:600;color:#37b24d;opacity:.85}}
 .ck-athtrophy{{display:inline-block;animation:ck-athpulse 2.6s ease-in-out infinite}}
