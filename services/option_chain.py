@@ -161,13 +161,19 @@ def _load_chain_yfinance(ticker: str, max_dte: int) -> pd.DataFrame:
 
 
 @cached(TTL["chain"])
-def load_puts_at(ticker: str, target_iso: str) -> dict:
+def load_puts_at(ticker: str, target_iso: str, tol_days: int | None = None) -> dict:
     """Lean single-expiry PUT chain for the CSP Scanner (yfinance).
 
     Snaps to the available expiry nearest `target_iso` (YYYY-MM-DD), since not
     every name has a weekly on the exact target Friday. Returns
     {puts: [{strike, premium, last, bid, ask, iv}], expiry, spot, dte} with a mid
-    (bid+ask)/2 premium and IV as a DECIMAL. Empty puts if unavailable."""
+    (bid+ask)/2 premium and IV as a DECIMAL. Empty puts if unavailable.
+
+    `tol_days` guards against monthly-only names: when the nearest expiry sits
+    more than tol_days from the target (no weekly in the window), the chain is
+    NOT priced — it returns {no_weekly: True} with the offending expiry, so the
+    scanner can exclude the name instead of pricing a different Friday as if it
+    were the target. None = snap at any distance (the original behaviour)."""
     empty = {"puts": [], "expiry": None, "spot": None, "dte": None}
     try:
         import yfinance as yf
@@ -184,6 +190,9 @@ def load_puts_at(ticker: str, target_iso: str) -> dict:
                 return 10 ** 6
 
         exp = min(exps, key=_dist)
+        if tol_days is not None and _dist(exp) > tol_days:
+            dte = (_date.fromisoformat(exp) - _date.today()).days
+            return {**empty, "expiry": exp, "dte": dte, "no_weekly": True}
         spot = _spot_price(tk)
         try:
             chain = tk.option_chain(exp)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import datetime
 import io
+import re
 
 from logic import action_queue as aq
 
@@ -77,3 +78,42 @@ def parse_gtc_csv(data) -> set:
         if ticker and strike not in (None, ""):
             placed.add(aq.gtc_key(acct, ticker, strike, expiry))
     return placed
+
+
+# --- Active Trader Pro "Orders" export -------------------------------------
+# ATP can export working orders (the web Positions CSV can't), which makes the
+# GTC diff automatic instead of a template the user fills by hand.
+
+_ATP_SYM = re.compile(r"^([A-Z]+)(\d{2})(\d{2})(\d{2})([PC])([\d.]+)$")
+
+
+def parse_atp_orders(data) -> dict:
+    """Open Buy-to-Close PUT orders from an ATP Orders export.
+
+    Returns {gtc_key: limit_price}. Rolls, fills and cancels are ignored —
+    only live working orders count as coverage."""
+    if hasattr(data, "read"):
+        data = data.read()
+    if isinstance(data, bytes):
+        data = data.decode("utf-8-sig", errors="replace")
+    lines = data.splitlines()
+    start = next((i for i, ln in enumerate(lines) if ln.startswith("Symbol,")), 0)
+    out: dict = {}
+    for row in csv.DictReader(io.StringIO("\n".join(lines[start:]))):
+        if str(row.get("Status", "")).strip() != "Open":
+            continue
+        if "Buy to Close" not in str(row.get("Action", "")):
+            continue
+        m = _ATP_SYM.match(str(row.get("Symbol", "")).strip())
+        if not m:
+            continue                      # rolls and multi-leg legs
+        tk, yy, mm, dd, cp, strike = m.groups()
+        if cp != "P":
+            continue
+        try:
+            limit = float(str(row.get("Order Type", "")).split("$")[-1])
+        except (ValueError, IndexError):
+            continue
+        out[(_acct(row.get("Account", "")), tk, float(strike),
+             f"20{yy}-{mm}-{dd}")] = limit
+    return out

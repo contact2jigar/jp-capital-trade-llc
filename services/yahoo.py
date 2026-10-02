@@ -70,6 +70,47 @@ def market_context() -> dict:
     return out
 
 
+def _market_open_now() -> bool:
+    """True during US cash-session hours (ET weekday 09:30–16:00)."""
+    try:
+        from zoneinfo import ZoneInfo
+        now = dt.datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        return False
+    if now.weekday() >= 5:                                  # Sat/Sun
+        return False
+    t = now.hour * 60 + now.minute
+    return 570 <= t < 960                                   # 9:30 → 16:00 ET
+
+
+@cached(TTL["price"])
+def index_quotes() -> dict:
+    """SPY & QQQ for the VIX strip. During cash hours → the ETF's own last/prev
+    (regular-session % change). When closed → the index future (ES=F / NQ=F) so a
+    pre-open read shows where the market is pointing. Each value:
+    {px, chg, fut} — chg is a fraction, fut True when it's the futures proxy.
+    {} on total failure so the caller can hide the chips."""
+    live = _market_open_now()
+    pairs = {"SPY": "SPY", "QQQ": "QQQ"} if live else {"SPY": "ES=F", "QQQ": "NQ=F"}
+    out: dict = {}
+    try:
+        import yfinance as yf
+        for label, sym in pairs.items():
+            try:
+                fi = yf.Ticker(sym).fast_info
+                last = fi.get("last_price") if isinstance(fi, dict) else fi.last_price
+                prev = fi.get("previous_close") if isinstance(fi, dict) else fi.previous_close
+                if last and prev:
+                    out[label] = {"px": float(last),
+                                  "chg": float(last) / float(prev) - 1,
+                                  "fut": not live}
+            except Exception:
+                continue
+    except Exception:
+        return {}
+    return out
+
+
 @cached(TTL["fundamentals"])
 def get_fundamentals(ticker: str) -> dict:
     """Company fundamentals (PE, margins, cash, etc.). {} on failure."""

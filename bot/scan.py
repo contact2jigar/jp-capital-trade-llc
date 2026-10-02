@@ -2,7 +2,7 @@
 something to DO.
 
   ROLL    the sheet's Action column says Roll up / Roll down
-  EXPIRY  <= 3 DTE and ITM with no roll flagged
+  (retired) EXPIRY — an alert whose body said 'no action flagged' is noise
   GTC     the position reached its ladder price
   CUT     Action says Cut Loss
 
@@ -23,7 +23,8 @@ from bot import notify               # noqa: E402
 from bot import basis as basis_src   # noqa: E402
 
 STATE = HERE / "state.json"
-EXPIRY_DTE = 3          # flag ITM positions inside this many days
+ROLL_WINDOW_DTE = 7     # rolls only matter in the CURRENT WEEK — before that the
+                        # position can still recover on its own (Jigar, Oct 2)
 LEAP_SNOOZE = date(2026, 11, 30)   # LEAPs set aside — Jun-2028 expiry, 627 DTE, no time pressure (Jigar, Sep 29)
 ROLL_RECHECK = 0.25     # re-alert a roll only if it moves 25%+
 DIGEST_OVER  = 3        # more than this in one run -> one summary, not N pings
@@ -120,8 +121,12 @@ def build_alerts(op) -> list[dict]:
                             val=float(cur)))
             continue
 
-        # 🔄 roll flagged by the sheet
+        # 🔄 roll flagged by the sheet — current week only
         if act.lower().startswith("roll"):
+            # A roll is only urgent once time has run out. Outside the current
+            # week the position has room to fix itself, so stay quiet.
+            if not (dte == dte and dte <= ROLL_WINDOW_DTE):
+                continue
             # A CALL whose strike is at/above your share basis is NOT a roll —
             # your rule is let it assign, no greed rolls. Suppress it.
             if typ == "CALL":
@@ -146,12 +151,6 @@ def build_alerts(op) -> list[dict]:
                             val=0.0))
             continue
 
-        # ⏰ expiring ITM with nothing queued
-        if dte == dte and dte <= EXPIRY_DTE and itm(r):
-            out.append(dict(kind="EXPIRY", k=key(r), title=f"⏰ EXPIRY · {tick}",
-                            sub=f"{acct} · {dte:.0f} DTE",
-                            body=f"{pos}\nITM ${abs(px-strike):,.2f} · no action flagged",
-                            val=float(dte)))
     return out
 
 

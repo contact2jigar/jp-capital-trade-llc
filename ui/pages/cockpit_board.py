@@ -21,12 +21,15 @@ from ui.pages import command_center as cc
 from ui.pages import cockpit as ck        # shared palettes + helpers (VIX strip, perf, css)
 
 _m = ck._m
+_MMF_YIELD = 3.1   # money-market 7-day yield (SPAXX-type core) — bump when Fidelity changes it
 
 
 def _btag(icon_label: str, sub: str, P: dict) -> str:
+    emoji, _, label = icon_label.partition(" ")           # enlarge just the leading emoji
+    inner = f"<span class='ck-temoji'>{emoji}</span> {label}" if label else icon_label
     return (f"<div class='ck-chead'><div class='ck-acct'>"
             f"<span class='ck-tag' style='color:{P['ink']};background:{P['steel']}33;"
-            f"border:1px solid {P['steel']}88'>{icon_label}</span>"
+            f"border:1px solid {P['steel']}88'>{inner}</span>"
             f"<span class='ck-sub'>{sub}</span></div></div>")
 
 
@@ -236,7 +239,7 @@ def _breaker_card(r: dict, P: dict) -> str:
                 f"<div class='ck-gv'>{brk:.1f}%</div>"
                 f"<div class='ck-gz' style='color:{zc}'>{_m(gap)} <span>gap</span></div></div>")
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
-    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CIRCUIT BREAKER · YIELD GATE', 'Cap 45% · Safe &lt; 30%', P)}"
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CIRCUIT BREAKER · YIELD', 'Target 15-20% · Cap 45%', P)}"
             f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div></div>")
 
 
@@ -261,7 +264,14 @@ def _money_card(r: dict, P: dict) -> str:
                 cells += f"<div class='ck-mv'><span class='ck-athup'>({comp})</span> {val}</div>"
             else:
                 cells += f"<div class='ck-mv'>{val}</div>"
-    return (f"<div class='ck-card ck-bcard'>{_btag('💰 MONEY', 'Capital · ATH · Vault 30%', P)}"
+    # Money-market cash (CSP collateral + cash in hand + vault) as a share of TOTAL capital.
+    _cash = sum((a.get("csp") or 0) + (a.get("cih") or 0) + (a.get("vault") or 0)
+                for a in (r["ira"], r["llc"]))
+    _cap = sum((a.get("cap") or 0) for a in (r["ira"], r["llc"]))
+    _cashp = (_cash / _cap * 100) if _cap else 0
+    _ck = f"${_cash / 1e6:.1f}M" if _cash >= 1e6 else f"${_cash / 1e3:.0f}K"
+    msub = f"{_cashp:.0f}% cash ({_ck}) earning ~{_MMF_YIELD:.1f}% · ATH · Vault 30%"
+    return (f"<div class='ck-card ck-bcard'>{_btag('🏦 MONEY', msub, P)}"
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
 
@@ -318,11 +328,11 @@ def _summary_grid(r: dict, P: dict) -> str:
             cells += (f"<div class='{cls}'><span class='ck-wca'>{_m(amt)}</span>"
                       f"<span class='ck-wcp'>{pct:.1f}%</span></div>")
     T = _total_acct(r["ira"], r["llc"])
-    _wc, _dep, _rtd = (T.get("wcap") or 0), (T.get("dep") or 0), (T.get("rtd") or 0)
+    _wc, _dep = (T.get("wcap") or 0), (T.get("dep") or 0)
     _depp = (_dep / _wc * 100) if _wc else 0
-    _rk = f"${_rtd / 1e6:.1f}M" if _rtd >= 1e6 else f"${_rtd / 1e3:.0f}K"
-    sub = f"{_depp:.0f}% deployed · {_rk} ready to deploy"
-    return (f"<div class='ck-card ck-fcard'>{_btag('📊 WHEEL SUMMARY', sub, P)}"
+    _wck = f"{_wc / 1e3:,.0f}K"
+    sub = f"{_depp:.0f}% deployed of Wheel Capital {_wck} · ⏰ check GTC"
+    return (f"<div class='ck-card ck-fcard'>{_btag('🛞 WHEEL SUMMARY', sub, P)}"
             f"<div class='ck-sgw'><div class='ck-sgrid'>{cells}</div></div></div>")
 
 
@@ -657,6 +667,12 @@ def _acct_card(name: str, a: dict, accent: str, P: dict) -> str:
 
 def _extra_css(P: dict) -> str:
     return f"""<style>
+.ck-temoji{{font-size:1.35em;line-height:1;vertical-align:-0.09em}}
+.ck-idx{{display:flex;flex-direction:column;gap:3px;justify-content:center;padding-left:4px}}
+.ck-ichip{{display:flex;align-items:baseline;gap:6px;line-height:1}}
+.ck-il{{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:{P['mut']};font-weight:700;min-width:30px}}
+.ck-iv{{font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}}
+.ck-ifut{{font-size:8px;font-weight:700;letter-spacing:.03em;color:{P['amber']};background:{P['amber']}22;padding:0 3px;border-radius:3px;margin-left:4px;vertical-align:1px}}
 .ck-arow{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;margin-bottom:14px;align-items:start}}
 .ck-fcard{{padding:10px 15px 12px;margin-bottom:14px}}
 .ck-fgrid{{display:grid;grid-template-columns:auto repeat(6,1fr);gap:1px;background:{P['line']};
@@ -796,6 +812,25 @@ def _extra_css(P: dict) -> str:
 </style>"""
 
 
+def _index_chips(P: dict) -> str:
+    """SPY & QQQ chips for the VIX strip — the ETF's live % during cash hours,
+    the index future (ES=F / NQ=F) % when the market is closed (marked ·fut)."""
+    q = yahoo.index_quotes()
+    if not q:
+        return ""
+    chips = ""
+    for lbl in ("SPY", "QQQ"):
+        d = q.get(lbl)
+        if not d:
+            continue
+        chg = d.get("chg") or 0
+        col = P["green"] if chg >= 0 else P["red"]
+        tag = "<span class='ck-ifut'>fut</span>" if d.get("fut") else ""
+        chips += (f"<div class='ck-ichip'><span class='ck-il'>{lbl}{tag}</span>"
+                  f"<span class='ck-iv' style='color:{col}'>{chg * 100:+.2f}%</span></div>")
+    return f"<div class='ck-idx'>{chips}</div>" if chips else ""
+
+
 def render(c: dict) -> None:
     data = cc.board_data()
     if data is None:
@@ -818,14 +853,20 @@ def render(c: dict) -> None:
     dmin, dmax = (bdef[1] if up else bdef[3]) * 100, (bdef[2] if up else bdef[4]) * 100
     band_lbl = bdef[0]
     chg_col = P["red"] if vix_chg > 0 else P["green"]
+    idx_block = _index_chips(P)
     fg = yahoo.fear_greed()
-    fg_block, vcols = "", "auto 1fr auto"
+    cols = ["auto"]                                         # VIX now
+    if idx_block:
+        cols.append("auto")                                # SPY / QQQ chips
+    fg_block = ""
     if fg:
         s = fg["score"]
         fgc = (P["red"] if s < 25 else P["amber"] if s < 45 else P["gold"] if s < 55
                else "#7cc47d" if s < 75 else P["green"])
         fg_block = ck._fg_gauge(s, fg["rating"], fgc, P)
-        vcols = "auto auto 1fr auto"
+        cols.append("auto")                                # Fear & Greed gauge
+    cols += ["1fr", "auto"]                                # meter · regime
+    vcols = " ".join(cols)
     tc = P["green"] if up else P["red"]
     trend_badge = (f"<span class='ck-trend' style='color:{tc};background:{tc}22;border:1px solid {tc}55'>"
                    f"{'↑' if up else '↓'} {trend}</span>")
@@ -836,6 +877,7 @@ def render(c: dict) -> None:
         <div class="ck-vixnow"><span class="l">VIX</span><span class="vv">{vix:.2f}</span>
           <span class="ck-chg" style="color:{chg_col};background:{chg_col}22;border:1px solid {chg_col}55">
           {vix_chg * 100:+.1f}%</span></div>
+        {idx_block}
         {fg_block}
         <div class="ck-meter">{ck._vix_meter(vix, band, up)}</div>
         <div class="ck-regime">

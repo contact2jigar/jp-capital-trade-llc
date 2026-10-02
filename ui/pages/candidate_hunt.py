@@ -207,9 +207,10 @@ def _cap_cell(c, acct_res):
 
 def _decisions_table(c, rows):
     cols = ["Ticker", "Setup", "Current", "%Chg", "Strike", "Expiry", "Δ", "Prem", "AOR",
-            "RSI", "BB", "Earnings", "Financials", "GTC", "IRA", "LLC", "Decision", "Why"]
+            "IV", "RSI", "BB", "Earnings", "Financials", "Industry", "GTC", "IRA", "LLC",
+            "Decision", "Why"]
     aligns = {"Current": "right", "%Chg": "right", "Strike": "right", "Δ": "center",
-              "Prem": "right", "AOR": "center", "RSI": "center", "GTC": "right",
+              "Prem": "right", "AOR": "center", "IV": "center", "RSI": "center", "GTC": "right",
               "IRA": "center", "LLC": "center", "Decision": "center"}
     head = "".join(
         f"<th style='position:sticky;top:0;background:{c['raised']};color:{c['text']};"
@@ -229,12 +230,12 @@ def _decisions_table(c, rows):
                  else f"<span style='background:rgba(242,85,90,.16);color:{c['neg']};font-weight:900;"
                  f"padding:3px 11px;border-radius:6px;font-size:11px;letter-spacing:.03em;'>NO</span>")
         cur = f"${r['cur']:.2f}" if r.get("cur") else "—"
-        # %Chg = today's move. DOWN today is the setup trigger, so down = green (favorable), up = red.
+        # %Chg = today's move, coloured the conventional way: up = green, down = red.
         chgv = r.get("chg")
         if chgv is None:
             chg_td = f"<td style='{base}text-align:right;color:{c['muted']};'>—</td>"
         else:
-            chg_col = c["pos"] if chgv < 0 else c["neg"] if chgv > 0 else c["muted"]
+            chg_col = c["pos"] if chgv > 0 else c["neg"] if chgv < 0 else c["muted"]
             chg_td = (f"<td style='{base}text-align:right;font-weight:700;color:{chg_col};'>"
                       f"{chgv:+.1f}%</td>")
         dlt = f"{r['delta']:.2f}" if r.get("delta") is not None else "—"
@@ -244,6 +245,11 @@ def _decisions_table(c, rows):
         aorv = r.get("aor") or 0
         aor_col = c["pos"] if aorv >= 50 else (c["amber"] if aorv >= 45 else c["text"])
         aor_w = "800" if aor_col != c["text"] else "600"
+        # IV: ≥45% green (roster-grade premium) · else regular
+        ivv = r.get("iv")
+        iv = f"{ivv:.0f}%" if ivv is not None else "—"
+        iv_col = c["pos"] if (ivv is not None and ivv >= 45) else c["text"]
+        iv_w = "700" if iv_col != c["text"] else "400"
         # RSI: <45 green · >64 red · else regular
         try:
             rsiv = float(r["rsi"])
@@ -272,10 +278,12 @@ def _decisions_table(c, rows):
             f"<td style='{base}text-align:center;'>{dlt}</td>"
             f"<td style='{base}text-align:right;'>{prem}</td>"
             f"<td style='{base}text-align:center;font-weight:{aor_w};color:{aor_col};'>{aor}</td>"
+            f"<td style='{base}text-align:center;font-weight:{iv_w};color:{iv_col};'>{iv}</td>"
             f"<td style='{base}text-align:center;font-weight:{rsi_w};color:{rsi_col};'>{r['rsi']}</td>"
             f"<td style='{base}font-weight:700;color:{rg(r['bb_ok'])};'>{r['bb']}</td>"
             f"<td style='{base}font-weight:{earn_w};color:{earn_col};'>{earn_disp}</td>"
             f"<td style='{base}font-size:11.5px;'>{r.get('fin') or '—'}</td>"
+            f"<td style='{base}font-size:11.5px;color:{c['muted']};'>{r.get('industry') or '—'}</td>"
             f"<td style='{base}text-align:right;'>{('$%.2f' % r['gtc']) if r['gtc'] is not None else '—'}</td>"
             f"{cap(r['ira'])}{cap(r['llc'])}"
             f"<td style='{base}text-align:center;'>{dchip}</td>"
@@ -362,7 +370,8 @@ def render(c: dict) -> None:
             rows = [x for x in rows if x["llc"] and x["llc"]["n"] > 0]
         st.markdown(_decisions_table(c, rows), unsafe_allow_html=True)
         st.caption(f"Hunt priced at **{meta[0]}** (Δ ≤ {meta[2]:.2f}, ≥{min_aor:.0f}% AOR) · sized against "
-                   f"5% name cap · Layer 2.5% · CSP room · CC Breaker. **Never places an order.**")
+                   f"5% name cap · Layer 2.5% · CSP room · CC Breaker · IV ≥ 45% = roster-grade premium. "
+                   f"**Never places an order.**")
 
     # ── Part 3 — Portfolio Action Queue · moved to the bottom ──
     st.write("")

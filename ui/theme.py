@@ -60,6 +60,12 @@ def apply_theme(name: str) -> dict:
       [data-baseweb="tag"] span, [data-baseweb="tag"] svg {{ color:#fff !important; fill:#fff !important; }}
       .stButton > button[kind="primary"] {{ background:#347fd1 !important;
         border-color:#347fd1 !important; color:#fff !important; }}
+      /* secondary buttons (filter chips etc.) follow the theme — were stuck dark on Grey */
+      .stButton > button[kind="secondary"], .stButton > button:not([kind="primary"]) {{
+        background:{c['panel']} !important; color:{c['text']} !important;
+        border:1px solid {c['border']} !important; font-weight:600 !important; }}
+      .stButton > button[kind="secondary"]:hover, .stButton > button:not([kind="primary"]):hover {{
+        border-color:{c['accent']} !important; color:{c['accent']} !important; }}
       [data-testid="stSlider"] [role="slider"] {{ background:#347fd1 !important; }}
       /* download / secondary buttons follow the theme (were stuck dark on Grey) */
       .stDownloadButton > button, [data-testid="stDownloadButton"] > button {{

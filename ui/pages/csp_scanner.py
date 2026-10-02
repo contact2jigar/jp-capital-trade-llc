@@ -212,12 +212,22 @@ def render(c: dict) -> None:
 
 _EMPTY_LEG = {"Strike": "—", "Cushion": "—", "Δ": "—", "Prem": "—", "AOR": None, "iv": None}
 
+# How far the nearest expiry may sit from the target Friday before we call a name
+# monthly-only (no weekly) and refuse to price it. A weekly name hits the target
+# exactly (0d); the nearest monthly is ≥7d off in the ~21-28 DTE window.
+_WEEKLY_TOL_DAYS = 3
+
 
 def _price_leg(t: str, target_iso: str, target_delta: float) -> dict:
     """The put nearest `target_delta` at the chosen expiry — strike, cushion, Δ, prem,
     AOR, and the put's OWN implied vol (so the IV column matches the priced strike, and
-    the IV Drop trigger keys off the real contract). Cushion = how far OTM below spot."""
-    ch = option_chain.load_puts_at(t, target_iso)
+    the IV Drop trigger keys off the real contract). Cushion = how far OTM below spot.
+
+    Returns {no_weekly: True} for monthly-only names (no expiry near the target),
+    so the scanner can exclude them rather than pricing a fictional target chain."""
+    ch = option_chain.load_puts_at(t, target_iso, tol_days=_WEEKLY_TOL_DAYS)
+    if ch.get("no_weekly"):
+        return {**_EMPTY_LEG, "no_weekly": True}
     spot, dte, puts = ch.get("spot"), ch.get("dte"), ch.get("puts") or []
     if not puts or not spot or not dte:
         return dict(_EMPTY_LEG)
@@ -284,6 +294,13 @@ def _scan(stocks: list, cat_map: dict, target_iso: str, aor_floor: float,
         # is the IV we show and the IV that feeds the IV Drop trigger. Fall back to the
         # ATM-chain IV only if the target-expiry put chain is unavailable.
         leg = _price_leg(t, target_iso, target_delta)
+        if leg.get("no_weekly"):
+            # Monthly-only name — the target Friday's chain doesn't exist. Exclude it
+            # (roster rule = weeklies required) rather than price a different expiry.
+            rows.append({"Ticker": t, "Type": cat_map.get(t, ""),
+                         "Setup": "—", "Quality": "—", "Industry": "—",
+                         "Note": "monthly only — no weekly"})
+            continue
         iv_pct = leg.get("iv") or yahoo.get_atm_iv(t, lr.get("price"))
         chg = lr.get("chg_pct")
         earn = yahoo.get_earnings_date(t)
