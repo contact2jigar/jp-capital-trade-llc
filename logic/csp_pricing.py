@@ -61,36 +61,53 @@ def expiry_choices(today: date | None = None, min_dte: int = 21) -> list[date]:
     return [base - timedelta(days=7), base, base + timedelta(days=7)]
 
 
-def pick_by_delta(puts, spot, dte, target_delta: float = 0.30, r: float = _R) -> dict | None:
+def pick_by_delta(puts, spot, dte, target_delta: float = 0.30, r: float = _R,
+                  min_oi: int = 100, max_spread: float = 0.25) -> dict | None:
     """The OTM put with the MOST premium whose |delta| is still **≤ target_delta**
     — a cap, not a nearest-match: never sell above the delta you set (e.g. ≤ 0.30).
-    Returns {strike, premium, delta, aor, iv} or None. If no strike sits under the
-    cap, falls back to the furthest-OTM (smallest-delta) put available."""
+    Returns {strike, premium, delta, aor, iv} or None.
+
+    Liquidity guard (the "sixth filter"): a strike with **no bid** is never chosen —
+    its mid is fictional and nobody fills it (e.g. KGC $21 showed bid 0 / ask 2.00 →
+    a fake $1.00 mid → fake 83% AOR). Among real (bid > 0) strikes we PREFER liquid
+    ones — open interest ≥ `min_oi` AND bid-ask spread ≤ `max_spread` of mid — and
+    fall back to the richest real strike, then the furthest-OTM real strike, so a
+    tradeable name still returns a row while junk strikes are excluded."""
     try:
         spot = float(spot)
     except (TypeError, ValueError):
         return None
     if spot <= 0:
         return None
-    under, under_d = None, -1.0        # best (highest |Δ|) at or under the cap
-    fallback, fallback_d = None, 1e9   # smallest |Δ| overall, if nothing fits the cap
+    liq_under, liq_under_d = None, -1.0    # best liquid strike at/under the cap
+    real_under, real_under_d = None, -1.0  # best bid>0 strike at/under the cap
+    fallback, fallback_d = None, 1e9       # smallest |Δ| bid>0 strike (last resort)
     for p in puts:
         try:
             k = float(p.get("strike", 0)); prem = float(p.get("premium", 0) or 0)
+            bid = float(p.get("bid", 0) or 0); ask = float(p.get("ask", 0) or 0)
+            oi = float(p.get("oi", 0) or 0)
         except (TypeError, ValueError):
             continue
         if k <= 0 or k >= spot or prem <= 0:
+            continue
+        if bid <= 0:                       # no real market — mid is fictional, skip it
             continue
         d = bs_put_delta(spot, k, dte, p.get("iv"), r)
         if d is None:
             continue
         ad = abs(d)
         row = {"strike": k, "premium": prem, "delta": d, "aor": aor(prem, k, dte), "iv": p.get("iv")}
-        if ad <= target_delta and ad > under_d:
-            under_d, under = ad, row
+        mid = (bid + ask) / 2
+        liquid = oi >= min_oi and ask > 0 and (ask - bid) <= max_spread * mid
+        if ad <= target_delta:
+            if liquid and ad > liq_under_d:
+                liq_under_d, liq_under = ad, row
+            if ad > real_under_d:
+                real_under_d, real_under = ad, row
         if ad < fallback_d:
             fallback_d, fallback = ad, row
-    return under or fallback
+    return liq_under or real_under or fallback
 
 
 def pick_csp_strike(puts, spot, dte, aor_floor, r: float = _R) -> dict | None:

@@ -168,19 +168,38 @@ def get_atm_iv(ticker: str, price: float) -> float | None:
 
 @cached(TTL["earnings"])
 def get_earnings_date(ticker: str) -> dt.date | None:
-    """Next earnings date, or None."""
+    """NEXT (today-or-future) earnings date, or None.
+
+    yfinance's `calendar` often reports the LAST reported earnings, not the next one
+    (e.g. a date 30 days in the past). A stale past date read as the next earnings is
+    dangerous — the board would call a name 'clear' when it could report inside the
+    holding window — so a past date is rejected and we fall back to the dated list
+    (which carries upcoming dates). None means genuinely unknown, not 'no earnings'."""
+    today = dt.date.today()
+    cand = None
     try:
         import yfinance as yf
         cal = yf.Ticker(ticker).calendar
+        val = None
         if isinstance(cal, dict):
             val = cal.get("Earnings Date")
             if isinstance(val, (list, tuple)) and val:
                 val = val[0]
-            return pd.to_datetime(val).date() if val else None
-        if hasattr(cal, "loc") and "Earnings Date" in getattr(cal, "index", []):
-            return pd.to_datetime(cal.loc["Earnings Date"][0]).date()
+        elif hasattr(cal, "loc") and "Earnings Date" in getattr(cal, "index", []):
+            val = cal.loc["Earnings Date"][0]
+        if val:
+            cand = pd.to_datetime(val).date()
     except Exception:
-        return None
+        cand = None
+    if cand and cand >= today:
+        return cand
+    # calendar missing or stale (past) → first future date from the dated list
+    try:
+        for d in get_earnings_dates(ticker):            # sorted ascending
+            if d >= today:
+                return d
+    except Exception:
+        pass
     return None
 
 

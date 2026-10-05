@@ -175,10 +175,11 @@ def _period_card(title: str, earned: float, goal: float, P: dict) -> str:
             f"<div class='ck-p2track'><div class='ck-p2fill' style='width:{w:.1f}%'></div></div></div>")
 
 
-def _meter(frac: float, P: dict, uid: str, zones: list) -> str:
+def _meter(frac: float, P: dict, uid: str, zones: list, pace: float | None = None) -> str:
     """Semicircle meter — same geometry as the CC-breaker gauge so the row matches. A dim
     full-arc track, then a colored fill that grows LEFT→RIGHT to `frac`, lighting each
-    `zones` colour in turn (red→amber→green), with a needle + arrowhead on top.
+    `zones` colour in turn (red→amber→green), with a needle + arrowhead on top. `pace`
+    (0..1) draws a 'today' tick on the arc — where you should be by end of today.
     `zones` = [(start, end, colour), …] as arc fractions 0..1 covering the whole scale."""
     cx, cy, r = 90, 86, 70
     f = max(0.0, min(1.0, float(frac)))
@@ -197,35 +198,138 @@ def _meter(frac: float, P: dict, uid: str, zones: list) -> str:
 
     track = arc(0.0, 1.0, P["line"], 12)
     fill = "".join(arc(a, min(b, f), c) for a, b, c in zones if f > a)
+    pmark = ""
+    if pace is not None:                               # "today" tick on the arc
+        pf = max(0.0, min(1.0, float(pace)))
+        mx1, my1 = pol(180 - pf * 180, r - 9)
+        mx2, my2 = pol(180 - pf * 180, r + 9)
+        pmark = (f'<line x1="{mx1:.1f}" y1="{my1:.1f}" x2="{mx2:.1f}" y2="{my2:.1f}" '
+                 f'stroke="{P["ink"]}" stroke-width="2.5"/>')
     by = cy - 8                                        # raised, shorter needle so it clears the % below
     ang = math.radians(180 - f * 180)
     nx, ny = cx + 46 * math.cos(ang), by - 46 * math.sin(ang)
     mid = f"mtip{uid}"
     return f"""<svg viewBox="0 0 180 92" width="100%" style="max-width:172px" aria-label="meter {f * 100:.0f}%">
       <defs><marker id="{mid}" markerUnits="userSpaceOnUse" markerWidth="15" markerHeight="15" refX="3" refY="7.5" orient="auto"><path d="M0,0 L15,7.5 L0,15 Z" fill="{P['ink']}"/></marker></defs>
-      {track}{fill}
+      {track}{fill}{pmark}
       <line x1="{cx}" y1="{by}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{P['ink']}" stroke-width="2.5" stroke-linecap="round" marker-end="url(#{mid})"/>
       <circle cx="{cx}" cy="{by}" r="4" fill="{P['ink']}"/>
       <circle cx="{cx}" cy="{by}" r="7" fill="none" stroke="{P['line']}" stroke-width="1.5"/>
     </svg>"""
 
 
+def _pace_fracs():
+    """How far through the week / month we are, by TRADING days (premium is earned on
+    trading days). Weekly = trading days elapsed ÷ 5; Monthly = business days elapsed ÷
+    the month's total business days. Used to pro-rate the goal to a 'should be here today'."""
+    import calendar
+    import datetime as _d
+    t = _d.date.today()
+    # Mon→1/5 … Fri→5/5, Sat→5/5 (finished week still shown); Sun→0 (new week reset).
+    wk = 0.0 if t.weekday() == 6 else min(t.weekday() + 1, 5) / 5.0
+
+    def _bdays(d1, d2):
+        n, d = 0, d1
+        while d <= d2:
+            if d.weekday() < 5:
+                n += 1
+            d += _d.timedelta(days=1)
+        return n
+    first = t.replace(day=1)
+    last = t.replace(day=calendar.monthrange(t.year, t.month)[1])
+    tot = _bdays(first, last)
+    mo = (_bdays(first, t) / tot) if tot else 0.0
+    return wk, mo
+
+
 def _goalmeter_card(pd: dict, P: dict) -> str:
     """Premium Goals — two meter dials (Weekly · Monthly). Needle = run-rate on a 0–100%
     dial where 100% = goal = the far-right end; over-goal pins full right and the % still
-    shows the beat. Fills left→right: behind (red) → nearly there (amber) → met (green)."""
+    shows the beat. A pace line shows where you should be *today* (goal pro-rated by
+    trading days elapsed) and whether you're ahead or behind that."""
+    wk_frac, mo_frac = _pace_fracs()
+
     def one(per, name):
         goal = pd.get(f"{per}_goal", 0) or 1
         earned = pd.get(f"{per}_earned", 0) or 0
         rate = earned / goal * 100
-        col = P["green"] if rate >= 100 else P["blue"]
-        zones = [(0.0, 0.5, P["red"]), (0.5, 0.8, "#f5c518"), (0.8, 1.0, P["green"])]  # gold, not copper
+        pace_t = goal * (wk_frac if per == "wk" else mo_frac)      # where you should be today
+        # Colour the dial by PACE: how you track vs today's pro-rated target.
+        ratio = (earned / pace_t) if pace_t > 0 else (2.0 if earned > 0 else 1.0)  # 0/0 = on pace
+        pcol = (P["green"] if ratio >= 1.0 else "#f2c436" if ratio >= 0.75
+                else "#f08a24" if ratio >= 0.5 else P["red"])
+        zones = [(0.0, 1.0, pcol)]                     # fill length = % of goal · colour = pace
+        tag = "ahead" if ratio >= 1.0 else "behind"
         return (f"<div class='ck-bg'><div class='ck-bglabel'>{name}</div>"
-                f"{_meter(rate / 100.0, P, 'gl' + per, zones)}"
-                f"<div class='ck-gv' style='color:{col}'>{rate:.0f}%</div>"
-                f"<div class='ck-gz'>{_m(earned)} <span>/ {_m(goal)}</span></div></div>")
+                f"{_meter(rate / 100.0, P, 'gl' + per, zones, pace=(wk_frac if per == 'wk' else mo_frac))}"
+                f"<div class='ck-gv' style='color:{pcol}'>{rate:.0f}%</div>"
+                f"<div class='ck-gz'>{_m(earned)} <span>/ {_m(goal)}</span></div>"
+                f"<div style='font-size:9.5px;font-weight:700;color:{pcol};margin-top:1px;'>"
+                f"pace {_m(pace_t)} · {tag}</div></div>")
     return (f"<div class='ck-card ck-brkcard ck-gm'>{_btag('🎯 PREMIUM GOALS', '47% AOR · 1.51% of ATH', P)}"
             f"<div class='ck-bgrow2'>{one('wk', 'WEEKLY')}{one('mo', 'MONTHLY')}</div></div>")
+
+
+_PACE_STARTED = 0.05       # below this fraction elapsed, "ahead/behind" is meaningless
+
+
+def _pace_status(earned: float, goal: float, pf: float, P: dict):
+    """(colour, label) for a bar. Colour by how earned tracks today's pace target; the
+    label carries the DOLLAR gap vs pace (±$X) — the sign says ahead/behind, the amount
+    says whether to push or coast (+$998 on day 2 ≠ +$8,000 on day 12). When the period
+    has barely started (pf < 5%) the pace target is ~0, so we show a neutral 'not started'
+    instead of pretending a dollar gap is meaningful."""
+    pace_t = goal * pf
+    if pf < _PACE_STARTED:
+        return P["mut"], "not started"
+    vs = earned - pace_t
+    ratio = (earned / pace_t) if pace_t > 0 else (2.0 if earned > 0 else 1.0)
+    col = (P["green"] if ratio >= 1.0 else "#f2c436" if ratio >= 0.75
+           else "#f08a24" if ratio >= 0.5 else P["red"])
+    return col, f"{'+' if vs >= 0 else '−'}{_m(abs(vs))} vs pace"
+
+
+def _goalbar_card(pd: dict, P: dict) -> str:
+    """Premium Goals as full bullet bars (Monthly + Weekly). The BAR is blue — it shows
+    progress toward the goal $ (0 → goal). The 'today' tick marks where you should be by
+    end of today, and the AHEAD/BEHIND badge + '±$ vs pace' line are coloured by pace
+    (green ahead · warm behind · grey not-started). Each bar also shows % complete and
+    $ remaining."""
+    wk_frac, mo_frac = _pace_fracs()
+    blue = P["blue"]
+
+    def bar(name, earned, goal, pf):
+        goal = goal or 1
+        pcol, vs_label = _pace_status(earned, goal, pf, P)     # pace colour + '±$ vs pace'
+        started = pf >= _PACE_STARTED
+        vs = earned - goal * pf
+        pct = earned / goal * 100
+        fill_pct = max(0.0, min(100.0, pct))
+        mark_pct = max(0.0, min(100.0, pf * 100))
+        badge = "AHEAD" if (started and vs >= 0) else ("BEHIND" if started else "—")
+        return (
+            f"<div style='margin:9px 8px 8px'>"
+            f"<div style='display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:5px'>"
+            f"<span style='font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:{P['mut']};"
+            f"font-weight:800'>{name}</span>"
+            f"<span style='font-size:13px;font-weight:800;color:{P['ink']};white-space:nowrap'>{_m(earned)} "
+            f"<span style='font-size:9.5px;color:{P['mid']};font-weight:600'>/ {_m(goal)}</span></span>"
+            f"<span style='font-size:7.5px;font-weight:900;letter-spacing:.04em;color:{pcol};background:{pcol}22;"
+            f"border:1px solid {pcol}55;border-radius:5px;padding:2px 6px;white-space:nowrap'>{badge}</span></div>"
+            f"<div style='position:relative;height:11px;background:{P['track']};border-radius:6px'>"
+            f"<div style='position:absolute;left:0;top:0;height:100%;width:{fill_pct:.1f}%;background:{blue};"
+            f"border-radius:6px'></div>"
+            f"<div style='position:absolute;top:-2px;bottom:-2px;left:{mark_pct:.1f}%;width:2px;background:{P['ink']}'></div></div>"
+            f"<div style='display:flex;justify-content:space-between;font-size:9.5px;margin-top:4px'>"
+            f"<span style='color:{pcol};font-weight:700'>{vs_label}</span>"
+            f"<span style='color:{P['mut']}'>{pct:.0f}% complete</span></div></div>")
+
+    mg, me = pd.get("mo_goal", 0) or 1, pd.get("mo_earned", 0) or 0
+    wg, we = pd.get("wk_goal", 0) or 1, pd.get("wk_earned", 0) or 0
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🎯 PREMIUM GOALS', '47% AOR · 1.51% of ATH', P)}"
+            f"{bar('MONTHLY', me, mg, mo_frac)}"
+            f"<div style='border-top:1px solid {P['lsoft']};margin:2px 8px'></div>"
+            f"{bar('WEEKLY', we, wg, wk_frac)}</div>")
 
 
 def _breaker_card(r: dict, P: dict) -> str:
@@ -269,8 +373,12 @@ def _money_card(r: dict, P: dict) -> str:
                 for a in (r["ira"], r["llc"]))
     _cap = sum((a.get("cap") or 0) for a in (r["ira"], r["llc"]))
     _cashp = (_cash / _cap * 100) if _cap else 0
+    _csp = sum((a.get("csp") or 0) for a in (r["ira"], r["llc"]))
+    _cspp = (_csp / _cap * 100) if _cap else 0
+    _freep = _cashp - _cspp                          # cash not tied in CSP collateral (cih + vault)
     _ck = f"${_cash / 1e6:.1f}M" if _cash >= 1e6 else f"${_cash / 1e3:.0f}K"
-    msub = f"{_cashp:.0f}% cash ({_ck}) earning ~{_MMF_YIELD:.1f}% · ATH · Vault 30%"
+    msub = (f"{_cashp:.0f}% ({_ck}) earning ~{_MMF_YIELD:.1f}% · "
+            f"Vault 30% of ATH · CASH {_freep:.0f}%")
     return (f"<div class='ck-card ck-bcard'>{_btag('🏦 MONEY', msub, P)}"
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
@@ -745,7 +853,7 @@ def _extra_css(P: dict) -> str:
 .ck-mpct{{color:{P['mut']}!important;font-weight:600!important}}
 .ck-bcard .ck-chead,.ck-brkcard .ck-chead{{margin-bottom:2px}}
 @media (max-width:820px){{.ck-brow2{{grid-template-columns:1fr}}}}
-.ck-brow{{display:grid;grid-template-columns:1.65fr 1.65fr 1.15fr;gap:11px;margin-bottom:14px;align-items:stretch}}
+.ck-brow{{display:grid;grid-template-columns:1.5fr 1.55fr 1.35fr;gap:11px;margin-bottom:14px;align-items:stretch}}
 .ck-bgrow2{{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:4px;align-items:end}}
 .ck-gm .ck-gz{{font-size:12px}}
 .ck-gm .ck-gz span{{font-size:11px!important;font-weight:600!important;color:{P['subv']}!important;font-family:'IBM Plex Sans',system-ui,sans-serif!important}}
@@ -889,7 +997,7 @@ def render(c: dict) -> None:
       <div class="ck-brow">
         {_money_card(r, P)}
         {_breaker_card(r, P)}
-        {_goalmeter_card(_pd, P)}
+        {_goalbar_card(_pd, P)}
       </div>
       {_summary_grid(r, P)}
       {_perf}

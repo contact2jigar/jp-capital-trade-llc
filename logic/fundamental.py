@@ -58,8 +58,10 @@ class FundResult:
     ocf_yoy: Optional[float] = None            # operating cash flow — SCORED (capex-agnostic)
     fcf_yoy: Optional[float] = None            # free cash flow — WARNING ONLY, not scored
     fcf_level_neg: bool = False                # current FCF ≤ 0 → ⚠ capex/burn warning
+    fcf_pos: Optional[bool] = None             # tri-state FCF level: True >0 · False ≤0 · None unknown
     op_margin_delta_bps: Optional[float] = None
     leverage_debt_over_ocf: Optional[float] = None
+    net_cash_b: Optional[float] = None         # (total cash − total debt) in $B — "tons of cash / can pay debt"
     analyst_buy_pct: Optional[float] = None    # decimal, e.g. 0.79
     pt_upside: Optional[float] = None          # decimal
     latest_quarter: str = ""                   # most recent reported quarter in the data
@@ -148,6 +150,14 @@ def score_ticker(ticker: str) -> FundResult:
         mcap = info.get("marketCap")
         if mcap:
             out.market_cap_b = mcap / 1e9
+        # Net cash = total cash − total debt ($B). Positive = more cash than debt
+        # (can pay it all off — Rayan's "tons of cash and pay debt"); negative = net debt.
+        tcash = info.get("totalCash")
+        if tcash is not None:
+            try:
+                out.net_cash_b = (float(tcash) - float(info.get("totalDebt") or 0)) / 1e9
+            except (TypeError, ValueError):
+                out.net_cash_b = None
 
         # Market snapshot — from the SAME info call (no extra fetch).
         px = info.get("currentPrice") or info.get("regularMarketPrice")
@@ -250,6 +260,7 @@ def score_ticker(ticker: str) -> FundResult:
 
         fcf_l, fcf_p, _ = _yoy_pair(fcf_row)
         if fcf_l is not None:
+            out.fcf_pos = fcf_l > 0            # tri-state FCF flag for the Financials row
             if fcf_l <= 0:
                 out.fcf_level_neg = True       # ⚠ warning only (AMZN AI-capex class)
             elif fcf_p is not None and fcf_p > 0:
@@ -398,7 +409,7 @@ def _row_from_result(r: FundResult) -> dict:
         return "✅" if v is True else ("❌" if v is False else "◻️")
 
     financials = (f"Rev{_b(r.rev_up)} Inc{_b(r.income_pos)} "
-                  f"CF{_b(r.cf_pos)} A>L{_b(r.assets_gt_liab)}")
+                  f"CF{_b(r.cf_pos)} FCF{_b(r.fcf_pos)} A>L{_b(r.assets_gt_liab)}")
 
     return {
         "Ticker": r.ticker,
@@ -412,6 +423,7 @@ def _row_from_result(r: FundResult) -> dict:
         "Sector": r.sector,
         "Industry": r.industry,
         "MCap $B": None if r.market_cap_b is None else round(r.market_cap_b, 1),
+        "Cash": None if r.net_cash_b is None else round(r.net_cash_b, 2),
         "Rev YoY %": pct(r.rev_yoy),
         "EPS YoY %": growth_cell(r.eps_yoy, r.pass_flags.get("eps_yoy")),
         "OCF YoY %": growth_cell(r.ocf_yoy, r.pass_flags.get("ocf_yoy")),

@@ -67,12 +67,19 @@ def apply_theme(name: str) -> dict:
       .stButton > button[kind="secondary"]:hover, .stButton > button:not([kind="primary"]):hover {{
         border-color:{c['accent']} !important; color:{c['accent']} !important; }}
       [data-testid="stSlider"] [role="slider"] {{ background:#347fd1 !important; }}
-      /* download / secondary buttons follow the theme (were stuck dark on Grey) */
-      .stDownloadButton > button, [data-testid="stDownloadButton"] > button {{
+      /* download buttons follow the theme (were stuck dark on Grey) — selectors kept
+         broad so they match across Streamlit DOM versions (direct child, descendant,
+         and the stBaseButton-secondary element testid) */
+      .stDownloadButton button, [data-testid="stDownloadButton"] button,
+      [data-testid="stDownloadButton"] button[data-testid="stBaseButton-secondary"] {{
         background:{c['panel']} !important; color:{c['text']} !important;
         border:1px solid {c['border']} !important; font-weight:600 !important; }}
-      .stDownloadButton > button:hover {{ border-color:{c['accent']} !important;
-        color:{c['accent']} !important; }}
+      [data-testid="stDownloadButton"] button p,
+      [data-testid="stDownloadButton"] button span,
+      [data-testid="stDownloadButton"] button svg {{
+        color:{c['text']} !important; fill:{c['text']} !important; }}
+      .stDownloadButton button:hover, [data-testid="stDownloadButton"] button:hover {{
+        border-color:{c['accent']} !important; color:{c['accent']} !important; }}
       /* input fields — distinct bg + clear border so fields read as fields (not scattered) */
       div[data-baseweb="select"] > div, div[data-baseweb="input"],
       .stNumberInput [data-baseweb="input"], .stTextInput [data-baseweb="input"] {{

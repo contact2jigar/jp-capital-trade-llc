@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-# TOP tabs — the WheelEngine daily flow.
+# TOP tabs — the WheelEngine daily flow. Candidate Scanner is now a Tool (discovery,
+# occasional — it builds the WatchList), so it's off the daily top nav.
 TOP: list[tuple[str, str]] = [
     ("Cockpit", "🛰️"),
     ("Trade Positions", "📒"),
     ("Decision Desk", "⚖️"),
-    ("Candidate Scanner", "🔎"),
     ("LEAP Scanner", "🚀"),
 ]
 
@@ -25,12 +25,14 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("Seasonality", "📅", "Seasonality"),
     ],
     "TOOLS": [
+        ("Candidate Scanner", "🔎", "Candidate Scanner"),   # discovery → build the WatchList
         ("Reconcile", "🔄", "Reconcile"),
         ("Report", "📄", "Report"),
     ],
     "REFERENCE": [
         ("Risk Gates", "🛡️", "Risk Gates"),
         ("Entry Setup", "📊", "Entry Setup"),
+        ("Financials", "💵", "Financials"),
     ],
     "LEGACY": [   # classic views — phasing out
         ("Portfolio Center", "🏦", "Portfolio Center"),
@@ -55,6 +57,7 @@ ROUTES: dict[str, str] = {
     "Report":            "ui.pages.report",
     "Entry Setup":       "ui.pages.entry_setup",
     "Risk Gates":        "ui.pages.risk_gates",
+    "Financials":        "ui.pages.financials_ref",
 }
 
 DEFAULT = "Cockpit"

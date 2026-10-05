@@ -158,10 +158,15 @@ _AQ_BADGE = {"good": ("rgba(67,196,99,.16)",), "bad": ("rgba(242,85,90,.16)",),
 def _aq_table(c, rows):
     cols = ["Ticker", "Account", "Opt Type", "Current Price", "Strike", "Qty", "Expiry", "GTC", "Action"]
     aligns = {"Current Price": "right", "Strike": "right", "Qty": "center", "GTC": "center", "Action": "center"}
-    head = "".join(
-        f"<th style='position:sticky;top:0;background:{c['raised']};color:{c['text']};"
-        f"border:1px solid {c['border']};padding:7px 9px;text-align:{aligns.get(h, 'left')};"
-        f"font-weight:700;font-size:11px;white-space:nowrap;'>{h}</th>" for h in cols)
+    # Freeze panes: header row sticks on vertical scroll; the first column sticks on
+    # horizontal scroll; the first-column header (corner) sticks for both.
+    head = ""
+    for i, h in enumerate(cols):
+        stick = (f"position:sticky;top:0;left:0;z-index:5;box-shadow:1px 1px 0 {c['border']};" if i == 0
+                 else f"position:sticky;top:0;z-index:3;box-shadow:0 1px 0 {c['border']},0 -1px 0 {c['border']};")
+        head += (f"<th style='{stick}background:{c['raised']};color:{c['text']};"
+                 f"border:1px solid {c['border']};padding:7px 9px;text-align:{aligns.get(h, 'left')};"
+                 f"font-weight:700;font-size:11px;white-space:nowrap;'>{h}</th>")
     opt_col = {"PUT": c["blue"], "CALL": c["amber"]}
     body = ""
     for r in rows:
@@ -178,7 +183,8 @@ def _aq_table(c, rows):
                     f"<span style='color:{c['muted']};'>{label}</span>")
         acct_bg = "#5b9bd5" if r["acct"] == "IRA" else "#a480c9"
         tds = (
-            f"<td style='{base}font-weight:800;'>{r['ticker']}</td>"
+            f"<td style='{base}font-weight:800;position:sticky;left:0;z-index:1;"
+            f"background:{c['raised']};box-shadow:1px 0 0 {c['border']};'>{r['ticker']}</td>"
             f"<td style='{base}'><span style='background:{acct_bg};color:#101417;font-weight:900;"
             f"padding:2px 9px;border-radius:999px;font-size:10.5px;'>{r['acct']}</span></td>"
             f"{type_td}"
@@ -207,15 +213,20 @@ def _cap_cell(c, acct_res):
 
 def _decisions_table(c, rows):
     cols = ["Ticker", "Setup", "Current", "%Chg", "Strike", "Expiry", "Δ", "Prem", "AOR",
-            "IV", "RSI", "BB", "Earnings", "Financials", "Industry", "GTC", "IRA", "LLC",
-            "Decision", "Why"]
+            "IV", "RSI", "BB", "Earnings", "Financials", "Cash", "IRA", "LLC", "Decision",
+            "Industry", "GTC", "Why"]
     aligns = {"Current": "right", "%Chg": "right", "Strike": "right", "Δ": "center",
-              "Prem": "right", "AOR": "center", "IV": "center", "RSI": "center", "GTC": "right",
-              "IRA": "center", "LLC": "center", "Decision": "center"}
-    head = "".join(
-        f"<th style='position:sticky;top:0;background:{c['raised']};color:{c['text']};"
-        f"border:1px solid {c['border']};padding:7px 9px;text-align:{aligns.get(h, 'left')};"
-        f"font-weight:700;font-size:11px;white-space:nowrap;'>{h}</th>" for h in cols)
+              "Prem": "right", "AOR": "center", "IV": "center", "RSI": "center", "Cash": "right",
+              "GTC": "right", "IRA": "center", "LLC": "center", "Decision": "center"}
+    # Freeze panes: header row sticks on vertical scroll; the first column sticks on
+    # horizontal scroll; the first-column header (corner) sticks for both.
+    head = ""
+    for i, h in enumerate(cols):
+        stick = (f"position:sticky;top:0;left:0;z-index:5;box-shadow:1px 1px 0 {c['border']};" if i == 0
+                 else f"position:sticky;top:0;z-index:3;box-shadow:0 1px 0 {c['border']},0 -1px 0 {c['border']};")
+        head += (f"<th style='{stick}background:{c['raised']};color:{c['text']};"
+                 f"border:1px solid {c['border']};padding:7px 9px;text-align:{aligns.get(h, 'left')};"
+                 f"font-weight:700;font-size:11px;white-space:nowrap;'>{h}</th>")
 
     def rg(ok):                                   # red / green text per gate
         return c["pos"] if ok else c["neg"]
@@ -250,6 +261,14 @@ def _decisions_table(c, rows):
         iv = f"{ivv:.0f}%" if ivv is not None else "—"
         iv_col = c["pos"] if (ivv is not None and ivv >= 45) else c["text"]
         iv_w = "700" if iv_col != c["text"] else "400"
+        # Cash = net cash (cash − debt), $B: green when net cash, red when net debt.
+        cashv = r.get("cash")
+        if cashv is None:
+            cash_td = f"<td style='{base}text-align:right;color:{c['muted']};'>—</td>"
+        else:
+            ccol = c["pos"] if cashv >= 0 else c["neg"]
+            ctxt = f"+${cashv:.1f}B" if cashv >= 0 else f"−${abs(cashv):.1f}B"
+            cash_td = f"<td style='{base}text-align:right;font-weight:800;color:{ccol};'>{ctxt}</td>"
         # RSI: <45 green · >64 red · else regular
         try:
             rsiv = float(r["rsi"])
@@ -269,8 +288,9 @@ def _decisions_table(c, rows):
                     f"<td style='{base}text-align:center;color:{c['muted']};'>—</td>")
 
         tds = (
-            f"<td style='{base}font-weight:800;'>{r['ticker']}</td>"
-            f"<td style='{base}'>{icon} {r['setup']}</td>"
+            f"<td style='{base}font-weight:800;position:sticky;left:0;z-index:1;"
+            f"background:{c['raised']};box-shadow:1px 0 0 {c['border']};'>{r['ticker']}</td>"
+            f"<td style='{base}font-size:11px;padding-left:6px;padding-right:6px;'>{icon} {r['setup']}</td>"
             f"<td style='{base}text-align:right;'>{cur}</td>"
             f"{chg_td}"
             f"<td style='{base}text-align:right;'>${r['strike']:.0f}</td>"
@@ -283,15 +303,76 @@ def _decisions_table(c, rows):
             f"<td style='{base}font-weight:700;color:{rg(r['bb_ok'])};'>{r['bb']}</td>"
             f"<td style='{base}font-weight:{earn_w};color:{earn_col};'>{earn_disp}</td>"
             f"<td style='{base}font-size:11.5px;'>{r.get('fin') or '—'}</td>"
-            f"<td style='{base}font-size:11.5px;color:{c['muted']};'>{r.get('industry') or '—'}</td>"
-            f"<td style='{base}text-align:right;'>{('$%.2f' % r['gtc']) if r['gtc'] is not None else '—'}</td>"
+            f"{cash_td}"
             f"{cap(r['ira'])}{cap(r['llc'])}"
             f"<td style='{base}text-align:center;'>{dchip}</td>"
+            f"<td style='{base}font-size:11.5px;color:{c['muted']};'>{r.get('industry') or '—'}</td>"
+            f"<td style='{base}text-align:right;'>{('$%.2f' % r['gtc']) if r['gtc'] is not None else '—'}</td>"
             f"<td style='{base}color:{c['muted']};font-size:11.5px;'>{r['why']}</td>")
         body += f"<tr>{tds}</tr>"
-    return (f"<div style='overflow:auto;max-height:1160px;border:1px solid {c['border']};border-radius:10px;'>"
+    return (f"<div style='overflow:auto;max-height:560px;border:1px solid {c['border']};border-radius:10px;'>"
             f"<table style='border-collapse:collapse;font-size:12.5px;width:100%;'>"
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>")
+
+
+def _decisions_csv(rows) -> str:
+    """Flat CSV of the ranked decisions — the same fields as the table, plus the
+    per-account contract count and held %, so a hunt can be saved / shared."""
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Ticker", "Setup", "Current", "%Chg", "Strike", "Expiry", "Δ", "Prem",
+                "AOR%", "IV%", "RSI", "BB", "Earnings", "Financials", "Cash $B", "Industry",
+                "GTC", "IRA Max", "IRA Held%", "LLC Max", "LLC Held%", "Decision", "Why"])
+
+    def num(v, fmt):
+        return (fmt % v) if v is not None else ""
+
+    for r in rows:
+        ira, llc = r.get("ira"), r.get("llc")
+        w.writerow([
+            r.get("ticker", ""), r.get("setup", ""),
+            num(r.get("cur"), "%.2f"), num(r.get("chg"), "%+.1f"), num(r.get("strike"), "%.0f"),
+            r.get("expiry", ""), num(r.get("delta"), "%.2f"), num(r.get("prem"), "%.2f"),
+            num(r.get("aor"), "%.0f"), num(r.get("iv"), "%.0f"),
+            r.get("rsi", ""), r.get("bb", ""), r.get("earn", ""),
+            r.get("fin", ""), num(r.get("cash"), "%.2f"), r.get("industry", ""),
+            num(r.get("gtc"), "%.2f"),
+            (ira["n"] if ira else ""), num(ira.get("held_pct") if ira else None, "%.1f"),
+            (llc["n"] if llc else ""), num(llc.get("held_pct") if llc else None, "%.1f"),
+            r.get("decision", ""), r.get("why", ""),
+        ])
+    return buf.getvalue()
+
+
+def _apply_decision_filters(rows):
+    """Apply the Decision Desk result-criteria widgets (Setup · Min AOR · Max RSI ·
+    Fin all · Avoid earnings) to the ranked rows."""
+    pick = st.session_state.get("dd_f_setup", []) or []
+    min_aor = st.session_state.get("dd_f_aor", 0)
+    max_rsi = st.session_state.get("dd_f_rsi", 100)
+    fin_all = st.session_state.get("dd_f_finall", False)
+    no_earn = st.session_state.get("dd_f_noearn", False)
+    out = []
+    for x in rows:
+        if pick and not any(p.lower() in str(x.get("setup", "")).lower() for p in pick):
+            continue
+        if fin_all and str(x.get("fin", "")).count("✅") < 5:   # all five financials ticked (incl FCF)
+            continue
+        if no_earn and not x.get("earn_ok", True):             # hide earnings-in-window names
+            continue
+        if min_aor > 0 and (x.get("aor") or -1) < min_aor:
+            continue
+        if max_rsi < 100:
+            try:
+                rv = float(x.get("rsi"))
+            except (TypeError, ValueError):
+                rv = None
+            if rv is not None and rv > max_rsi:
+                continue
+        out.append(x)
+    return out
 
 
 def render(c: dict) -> None:
@@ -325,40 +406,64 @@ def render(c: dict) -> None:
     st.markdown(_answer_cards(c, board, aqres, (r["best"] if r else None), aqres["has_fidelity"]),
                 unsafe_allow_html=True)
 
-    # ── Part 2 — Ranked New CSP Decisions (the hunt) · moved up ──
+    # ── Part 2 — Ranked New CSP Decisions · always run against the WatchList ──
     st.write("")
-    inp = state.load_hunt_inputs()
-    hdr, runcol = st.columns([4, 1])
-    with hdr:
-        if r is None:
-            st.markdown("#### 🎯 Ranked New CSP Decisions")
-        else:
-            st.markdown(f"#### 🎯 Ranked New CSP Decisions  <span style='font-size:12px;color:{c['muted']};'>"
-                        f"Sorted by AOR · {r['n_tradable']} GO · {r['n_blocked']} NO</span>",
-                        unsafe_allow_html=True)
-    with runcol:
-        from ui.pages import csp_scanner
-        if st.button("🎯 Run Hunt", type="primary", use_container_width=True, key="dd_run",
-                     help="Re-run the last hunt, or run the default (WatchList Growth/Alt/Spec · "
-                          "first expiry ≥21d · AOR 30 · Δ 0.30) if none is set yet."):
-            with st.spinner("Running hunt…"):
-                run_inp = inp or csp_scanner.default_hunt_inputs()
-                if run_inp:
-                    csp_scanner.run_hunt(run_inp)
-                else:
-                    st.error("Couldn't build a default hunt — the WatchList looks empty.")
+    from ui.pages import csp_scanner
+    _cnt = (f"  <span style='font-size:12px;color:{c['muted']};'>Sorted by AOR · "
+            f"{r['n_tradable']} GO · {r['n_blocked']} NO</span>") if r else ""
+    st.markdown(f"#### 🎯 Ranked New CSP Decisions{_cnt}", unsafe_allow_html=True)
+
+    # Left = input (WatchList types + ▶ Run) · Right = result filters.
+    left, right = st.columns([1.5, 3.4])
+    with left:
+        lt, lrun = st.columns([2.3, 1.0])
+        with lt:
+            all_types = csp_scanner.watchlist_types()
+            dflt = [t for t in csp_scanner._DEFAULT_TYPES if t in all_types] or all_types
+            picks = st.multiselect("WatchList types", all_types, default=dflt, key="dd_types",
+                                   label_visibility="collapsed", placeholder="WatchList types")
+        with lrun:
+            run_click = st.button("▶ Run", type="primary", use_container_width=True, key="dd_run",
+                                  help="Price the selected WatchList buckets at the first expiry "
+                                       "≥21d — the daily CSP run.")
+    with right:
+        if r is not None and r["rows"]:
+            x1, x2, x3, x4, x5 = st.columns([1.7, 0.95, 0.95, 0.9, 1.1])
+            with x1:
+                st.multiselect("Setup", ["Reversal", "Deep Value", "IV Drop", "Mid-Band",
+                                         "50SMA Reclaim"], key="dd_f_setup",
+                               label_visibility="collapsed", placeholder="Setup")
+            with x2:
+                st.number_input("Min AOR", 0, 200, 0, step=5, key="dd_f_aor")
+            with x3:
+                st.number_input("Max RSI", 0, 100, 100, step=5, key="dd_f_rsi")
+            with x4:
+                st.write("")
+                st.checkbox("Fin ✅", value=False, key="dd_f_finall",
+                            help="Only names where Rev · Inc · CF · FCF · A>L are all ✅.")
+            with x5:
+                st.write("")
+                st.checkbox("No earnings", value=False, key="dd_f_noearn",
+                            help="Hide names with earnings on/before the expiry (the earnings veto).")
+
+    if run_click:
+        with st.spinner("Running the WatchList…"):
+            run_inp = csp_scanner.default_hunt_inputs(types=picks or None)
             if run_inp:
-                st.rerun()
+                csp_scanner.run_hunt(run_inp)
+            else:
+                st.error("Couldn't build the run — the WatchList looks empty.")
+        if run_inp:
+            st.rerun()
+
     if r is None:
-        st.info("No hunt yet. Hit **Run Hunt** to run the default universe, or set fresh inputs on "
-                "**🎯 Candidate Scanner** (Universe · Expiry · Min AOR · Δ).")
+        st.info("Hit **▶ Run** to price your WatchList and rank the CSP decisions. "
+                "To add new names, use **🔎 Candidate Scanner** (now under Tools).")
     elif not r["rows"]:
-        st.info("The last hunt found no setup-fired names.")
+        st.info("The last run found no setup-fired names.")
     else:
-        _, right = st.columns([2.2, 1.6])
-        with right:
-            flt = st.radio("Filter", ["All", "GO", "NO", "IRA", "LLC"],
-                           horizontal=True, label_visibility="collapsed", key="dd_filter")
+        flt = st.radio("View", ["All", "GO", "NO", "IRA", "LLC"],
+                       horizontal=True, label_visibility="collapsed", key="dd_filter")
         rows = r["rows"]
         if flt == "GO":
             rows = [x for x in rows if x["go"]]
@@ -368,7 +473,12 @@ def render(c: dict) -> None:
             rows = [x for x in rows if x["ira"] and x["ira"]["n"] > 0]
         elif flt == "LLC":
             rows = [x for x in rows if x["llc"] and x["llc"]["n"] > 0]
+        rows = _apply_decision_filters(rows)
         st.markdown(_decisions_table(c, rows), unsafe_allow_html=True)
+        st.download_button(
+            "⬇︎ Download CSV", data=_decisions_csv(rows),
+            file_name=f"csp_decisions_{meta[3]}_{flt.lower()}.csv", mime="text/csv",
+            key="dd_csv", help="The rows currently shown (respects every filter above).")
         st.caption(f"Hunt priced at **{meta[0]}** (Δ ≤ {meta[2]:.2f}, ≥{min_aor:.0f}% AOR) · sized against "
                    f"5% name cap · Layer 2.5% · CSP room · CC Breaker · IV ≥ 45% = roster-grade premium. "
                    f"**Never places an order.**")

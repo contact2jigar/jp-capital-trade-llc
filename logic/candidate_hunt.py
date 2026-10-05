@@ -133,7 +133,8 @@ def _size_one(cand: dict, accts: dict, od: pd.DataFrame, dte: int) -> dict:
     disc3 = _num(cand.get("3mo ↓"))                         # % below the 3-month high
     return dict(ticker=tk, setup=_clean_setup(cand.get("Setup")), strike=strike, delta=delta,
                 prem=prem, aor=aor, iv=_num(cand.get("IV")),
-                industry=(cand.get("Industry") or "—"), cash_pc=cash_pc, gtc=gtc, dte=dte,
+                industry=(cand.get("Industry") or "—"), cash=_num(cand.get("Cash")),
+                cash_pc=cash_pc, gtc=gtc, dte=dte,
                 cur=cur, chg=_num(cand.get("Chg%")), disc=disc, disc3=disc3,
                 ira=ira, llc=llc, best=best, decision=decision, why=why,
                 tradable=best is not None)
@@ -156,7 +157,8 @@ def _blank_row(cand: dict, dte: int) -> dict:
     gtc = gtc_refresh.gtc_target(prem, dte) if prem is not None else None
     return dict(ticker=str(cand["Ticker"]).upper(), setup=_clean_setup(cand.get("Setup")),
                 strike=strike, delta=_num(cand.get("Δ")), prem=prem, aor=aor,
-                iv=_num(cand.get("IV")), industry=(cand.get("Industry") or "—"), cash_pc=None,
+                iv=_num(cand.get("IV")), industry=(cand.get("Industry") or "—"),
+                cash=_num(cand.get("Cash")), cash_pc=None,
                 gtc=gtc, dte=dte, cur=_num(cand.get("Price")), chg=_num(cand.get("Chg%")),
                 disc=_num(cand.get("Cushion")),
                 disc3=_num(cand.get("3mo ↓")), ira=None, llc=None, best=None, tradable=False)
@@ -196,9 +198,15 @@ def size(candidates: pd.DataFrame, tl_df: pd.DataFrame, ath_ira: float, ath_llc:
             continue                      # below the AOR floor → not a candidate, don't list it
         rsi_ok = rsi is None or rsi < 64
         bb_ok = not ("upper" in bb or "above" in bb)
-        earn_ok = edays is None or edays > dte            # veto only if ON/BEFORE expiry
+        # Earnings unknown ("unknown") is NOT clear — could report inside the window.
+        earn_unknown = "unknown" in earn.lower()
+        earn_ok = (not earn_unknown) and (edays is None or edays > dte)  # veto if ON/BEFORE expiry
+        # IV ≫ realized vol = the option is pricing an event (merger/litigation/FDA),
+        # not normal premium — flag it and keep it out of GO.
+        ivrv = _num(d.get("IV/RV"))
+        event_ok = ivrv is None or ivrv <= 1.5
         delta_ok = delta is None or delta <= 0.30
-        veto_ok = rsi_ok and bb_ok and earn_ok            # framework hard vetoes
+        veto_ok = rsi_ok and bb_ok and earn_ok and event_ok           # framework hard vetoes
 
         # Only size the name if it clears the vetoes — otherwise no room calc.
         if veto_ok:
@@ -210,8 +218,12 @@ def size(candidates: pd.DataFrame, tl_df: pd.DataFrame, ath_ira: float, ath_llc:
 
         go = veto_ok and aor_ok and delta_ok and room_ok
         # The single reason we're not a GO (first failing gate, in precedence).
-        if not earn_ok:
+        if earn_unknown:
+            why = "Earnings date unknown — verify"
+        elif not earn_ok:
             why = f"Earnings in {edays}d (≤ {dte}d exp)"
+        elif not event_ok:
+            why = f"IV/RV {ivrv:.1f}× — event-driven"
         elif not rsi_ok:
             why = f"RSI {rsi:.0f} ≥ 64"
         elif not bb_ok:

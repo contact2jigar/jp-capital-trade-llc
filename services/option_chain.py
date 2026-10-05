@@ -161,6 +161,32 @@ def _load_chain_yfinance(ticker: str, max_dte: int) -> pd.DataFrame:
 
 
 @cached(TTL["chain"])
+def expiry_status(ticker: str, target_iso: str, tol_days: int = 3) -> str:
+    """Light tradability check for Stage 1 — fetches only the expiry LIST (tk.options),
+    never the full chain. Returns 'weekly' (an expiry within tol_days of the target),
+    'monthly' (optionable but nearest expiry too far = no weekly), or 'none' (not
+    optionable / no data). Much cheaper than load_puts_at, which pulls every strike."""
+    try:
+        import yfinance as yf
+        exps = list(yf.Ticker(ticker).options or [])
+        if not exps:
+            return "none"
+        tgt = _date.fromisoformat(target_iso)
+        nearest = min(abs((_date.fromisoformat(e) - tgt).days) for e in exps
+                      if _safe_iso(e)) if any(_safe_iso(e) for e in exps) else 10 ** 6
+        return "weekly" if nearest <= tol_days else "monthly"
+    except Exception:
+        return "none"
+
+
+def _safe_iso(e: str) -> bool:
+    try:
+        _date.fromisoformat(e)
+        return True
+    except Exception:
+        return False
+
+
 def load_puts_at(ticker: str, target_iso: str, tol_days: int | None = None) -> dict:
     """Lean single-expiry PUT chain for the CSP Scanner (yfinance).
 
@@ -180,7 +206,7 @@ def load_puts_at(ticker: str, target_iso: str, tol_days: int | None = None) -> d
         tk = yf.Ticker(ticker)
         exps = list(tk.options or [])
         if not exps:
-            return empty
+            return {**empty, "no_options": True}        # not optionable at all
         tgt = _date.fromisoformat(target_iso)
 
         def _dist(e: str) -> int:
@@ -213,6 +239,7 @@ def load_puts_at(ticker: str, target_iso: str, tol_days: int | None = None) -> d
                 puts.append({
                     "strike": strike, "premium": mid, "last": last,
                     "bid": bid, "ask": ask,
+                    "oi": _safe_float(r.get("openInterest")),
                     "iv": _safe_float(r.get("impliedVolatility")),
                 })
         dte = (_date.fromisoformat(exp) - _date.today()).days

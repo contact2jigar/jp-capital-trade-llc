@@ -183,7 +183,12 @@ def monitor_board(df: pd.DataFrame, ath_ira: float, ath_llc: float,
                  leapgap=0.02 * wsum - (I["leap"] + L["leap"]))
 
     today = _d.date.today()
-    monday = today - _d.timedelta(days=today.weekday())
+    # Weekly window Mon→today. Saturday still shows the finished week (for review); Sunday
+    # resets to the NEW week (monday = next Monday → nothing earned yet).
+    if today.weekday() == 6:                                # Sunday
+        monday = today + _d.timedelta(days=1)
+    else:                                                   # Mon–Sat
+        monday = today - _d.timedelta(days=today.weekday())
     first = today.replace(day=1)
     # Gate 9 personal benchmark — 1.5% of combined account ATH per month (weekly = /4.33).
     ath_sum = (I.get("ath") or 0) + (L.get("ath") or 0)

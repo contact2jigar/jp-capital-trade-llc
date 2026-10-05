@@ -43,6 +43,23 @@ def load_fidelity():
     return s.get("fidelity"), s.get("fidelity_meta")
 
 
+def save_stage1(df, meta) -> None:
+    """The FinViz tab's narrowed result (+ its meta) — kept so it survives navigation,
+    so you narrow once then tweak result filters without re-running the Yahoo step."""
+    s = hunt_store()
+    s["stage1"], s["stage1_meta"] = df, meta
+
+
+def load_stage1():
+    """(stage1_df, meta) — session first (same session), else the store. (None, None) if unrun."""
+    df = st.session_state.get("csp_s1")
+    meta = st.session_state.get("csp_s1_meta")
+    if df is None:
+        s = hunt_store()
+        df, meta = s.get("stage1"), s.get("stage1_meta")
+    return df, meta
+
+
 def save_hunt_inputs(inp: dict) -> None:
     """The last Candidate-Hunt scan inputs, so Decision Desk can re-run the hunt."""
     hunt_store()["inputs"] = inp

@@ -124,34 +124,53 @@ def day_losers(count: int = 100) -> list[str]:
 
 # FinViz quality + optionable screen: mid-cap+, current ratio >1, D/E <1, positive net margin,
 # 3-yr sales growth >10%, liquid (avg vol >1M, cur vol >300K), optionable, price >$30.
-_FINVIZ_FILTERS = ("cap_midover,fa_curratio_o1,fa_debteq_u1,fa_netmargin_pos,fa_sales3years_o10,"
-                   "sh_avgvol_o1000,sh_curvol_o300,sh_opt_option,sh_price_o30")
+_FINVIZ_FILTERS = ("cap_midover,fa_netmargin_pos,sh_avgvol_o1000,sh_opt_option,sh_price_o15")
+_FINVIZ_FT = 4   # FinViz filter-type toggle (matches the saved screen URL)
 
 
-def finviz_screen(count: int = 100, filters: str = _FINVIZ_FILTERS) -> list[str]:
-    """FinViz screener tickers for the given filter string. Scrapes the free screener page
-    (20 rows per page). [] if FinViz blocks or rate-limits the request."""
+def finviz_screen_rows(count: int = 100, filters: str = _FINVIZ_FILTERS) -> list[tuple]:
+    """FinViz screener rows as (ticker, sector) for the filter string — the sector comes
+    free from the screener page (its row carries data-boxover-ticker + a Sector cell), so
+    the Stage-1 sector filter costs zero Yahoo calls. [] if FinViz blocks / rate-limits.
+    Scrapes 20 rows/page, market-cap descending."""
     import re
     import certifi
     import requests
-    out: list[str] = []
+    out: list[tuple] = []
+    seen: set = set()
     start = 1
     while len(out) < count:
-        url = f"https://finviz.com/screener.ashx?v=111&f={filters}&ft=2&r={start}"
+        # o=-marketcap: biggest names first, so a capped pull surfaces the mega/quality names.
+        url = (f"https://finviz.com/screener.ashx?v=111&f={filters}"
+               f"&ft={_FINVIZ_FT}&o=-marketcap&r={start}")
         try:
             resp = requests.get(url, headers={"User-Agent": _UA},
                                 verify=certifi.where(), timeout=15)
             html = resp.text
         except Exception:
             break
-        page: list[str] = []
-        for t in re.findall(r'class="tab-link"[^>]*>([A-Z][A-Z.\-]{0,6})<', html):
-            if t not in out and t not in page:
-                page.append(t)
+        page = 0
+        for row in re.split(r'<tr class="styled-row', html)[1:]:
+            m = re.search(r'data-boxover-ticker="([A-Z][A-Z.\-]{0,6})"', row)
+            if not m:
+                continue
+            tkr = m.group(1)
+            if tkr in seen:
+                continue
+            # Row left-align cells: [Company, Sector, Industry, Country, …]; [1] = Sector.
+            cells = re.findall(r'<td[^>]*align="left"[^>]*>\s*<a[^>]*>\s*([^<]+?)\s*</a>\s*</td>', row)
+            seen.add(tkr)
+            out.append((tkr, cells[1] if len(cells) > 1 else ""))
+            page += 1
         if not page:
             break
-        out.extend(page)
-        if len(page) < 20:                                 # last page reached
+        if page < 20:                                      # last page reached
             break
         start += 20
     return out[:count]
+
+
+def finviz_screen(count: int = 100, filters: str = _FINVIZ_FILTERS) -> list[str]:
+    """FinViz screener tickers for the filter string (just the symbols; see
+    finviz_screen_rows for ticker+sector). [] on block / rate-limit."""
+    return [t for t, _ in finviz_screen_rows(count, filters)]
