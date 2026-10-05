@@ -192,79 +192,67 @@ _S1_DISPLAY = ["Ticker", "Sector", "Price", "Trend", "Chg%", "Off High",
                "RSI", "BB", "P/E", "Financials", "Cash"]
 
 
-def _stage1_html(view: pd.DataFrame, c: dict) -> str:
-    """Compact themed quality table for the shortlist (sticky header). Trend + Off High
-    come from Stage 1; P/E · Financials · Cash are filled by the 💎 Quality step (— until
-    then). Tradable is dropped from display — we already filtered to weekly-only."""
-    cols = _S1_DISPLAY
-    left = {"Ticker", "Sector", "BB", "Financials"}
-    head = "".join(
-        f"<th style='position:sticky;top:0;z-index:2;background:{c['raised']};color:{c['text']};"
-        f"border:1px solid {c['border']};box-shadow:0 1px 0 {c['border']};padding:6px 9px;"
-        f"text-align:{'left' if h in left else 'center'};font-weight:700;font-size:11px;"
-        f"white-space:nowrap;'>{h}</th>" for h in cols)
+def _stage1_dataframe(view: pd.DataFrame, c: dict) -> None:
+    """Native sortable grid — click ANY column header to sort. Numeric columns stay
+    numeric so the header-sort is numeric (not lexical); colors come from a pandas
+    Styler (Trend/Chg%/RSI/BB/P/E/Cash), formatting from Styler.format. Trend + Off
+    High come from Stage 1; P/E · Financials · Cash fill in on 💎 Quality detail."""
+    df = view.reindex(columns=_S1_DISPLAY).copy()
+    for col in ["Price", "Chg%", "Off High", "RSI", "P/E", "Cash"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    for col in ["Ticker", "Sector", "Trend", "BB", "Financials"]:
+        df[col] = df[col].astype("object").where(df[col].notna(), "—")
 
-    def _num(v):
-        try:
-            return float(str(v).replace("%", "").replace("$", "").replace("×", ""))
-        except (TypeError, ValueError):
-            return None
+    def _c_trend(v):
+        s = str(v)
+        tc = (c["pos"] if s.startswith("▲") else c["neg"] if s.startswith("▼")
+              else c["amber"] if s.startswith("◆") else c["muted"])
+        return f"color:{tc};font-weight:700"
 
-    body = ""
-    for _, r in view.iterrows():
-        tds = ""
-        for col in cols:
-            v = r.get(col)
-            align = "left" if col in left else "center"
-            style = (f"border:1px solid {c['border']};padding:5px 9px;color:{c['text']};"
-                     f"white-space:nowrap;font-size:12px;text-align:{align};")
-            disp, n = v, _num(v)
-            if col == "Ticker":
-                style += "font-weight:800;"
-            elif col == "Trend":
-                sv = str(v)
-                tc = (c["pos"] if sv.startswith("▲") else c["neg"] if sv.startswith("▼")
-                      else c["amber"] if sv.startswith("◆") else c["muted"])
-                style += f"color:{tc};font-weight:700;"
-                disp = sv if sv and sv != "None" else "—"
-            elif col == "Price":
-                disp = f"${n:.2f}" if n is not None else "—"
-            elif col == "Chg%":
-                disp = f"{n:+.1f}%" if n is not None else "—"
-                if n is not None:
-                    style += f"color:{c['pos'] if n > 0 else c['neg']};font-weight:700;"
-            elif col == "Off High":
-                disp = f"{n:.0f}%" if n is not None else "—"
-                style += f"color:{c['muted']};"
-            elif col == "RSI" and n is not None:
-                if n > 64:
-                    style += f"color:{c['neg']};font-weight:700;"
-                elif n <= 45:
-                    style += f"color:{c['pos']};font-weight:700;"
-            elif col == "BB":
-                low = str(v).lower()
-                if "lower" in low or "below" in low:
-                    style += f"color:{c['pos']};"
-                elif "upper" in low or "above" in low:
-                    style += f"color:{c['neg']};"
-            elif col == "P/E":
-                disp = f"{n:.1f}" if n is not None else "—"
-                if n is not None and (n <= 0 or n > 100):
-                    style += f"color:{c['amber']};font-weight:700;"   # Ryan #2: >100 or negative
-            elif col == "Financials":
-                disp = v if (v is not None and str(v) != "nan") else "—"
-                style += "font-size:11px;letter-spacing:-.2px;"
-            elif col == "Cash":
-                if n is not None:
-                    disp = f"+${n:.1f}B" if n >= 0 else f"−${abs(n):.1f}B"
-                    style += f"color:{c['pos'] if n >= 0 else c['neg']};font-weight:700;"
-                else:
-                    disp = "—"
-            tds += f"<td style='{style}'>{disp if disp is not None else '—'}</td>"
-        body += f"<tr>{tds}</tr>"
-    return (f"<div style='overflow:auto;max-height:560px;border:1px solid {c['border']};border-radius:8px;'>"
-            f"<table style='border-collapse:collapse;width:100%;'>"
-            f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>")
+    def _c_chg(v):
+        return "" if pd.isna(v) else f"color:{c['pos'] if v > 0 else c['neg']};font-weight:700"
+
+    def _c_rsi(v):
+        if pd.isna(v):
+            return ""
+        if v > 64:
+            return f"color:{c['neg']};font-weight:700"
+        if v <= 45:
+            return f"color:{c['pos']};font-weight:700"
+        return ""
+
+    def _c_bb(v):
+        low = str(v).lower()
+        if "lower" in low or "below" in low:
+            return f"color:{c['pos']}"
+        if "upper" in low or "above" in low:
+            return f"color:{c['neg']}"
+        return ""
+
+    def _c_pe(v):
+        return f"color:{c['amber']};font-weight:700" if (not pd.isna(v) and (v <= 0 or v > 100)) else ""
+
+    def _c_cash(v):
+        return "" if pd.isna(v) else f"color:{c['pos'] if v >= 0 else c['neg']};font-weight:700"
+
+    sty = df.style
+    _apply = sty.map if hasattr(sty, "map") else sty.applymap   # pandas ≥2.1 renamed applymap→map
+    _apply(lambda v: "font-weight:800", subset=["Ticker"])
+    _apply(_c_trend, subset=["Trend"])
+    _apply(_c_chg, subset=["Chg%"])
+    _apply(_c_rsi, subset=["RSI"])
+    _apply(_c_bb, subset=["BB"])
+    _apply(_c_pe, subset=["P/E"])
+    _apply(_c_cash, subset=["Cash"])
+    sty = sty.format({
+        "Price": lambda v: "—" if pd.isna(v) else f"${v:,.2f}",
+        "Chg%": lambda v: "—" if pd.isna(v) else f"{v:+.1f}%",
+        "Off High": lambda v: "—" if pd.isna(v) else f"{v:.0f}%",
+        "RSI": lambda v: "—" if pd.isna(v) else f"{v:.0f}",
+        "P/E": lambda v: "—" if pd.isna(v) else f"{v:.1f}",
+        "Cash": lambda v: "—" if pd.isna(v) else (f"+${v:.1f}B" if v >= 0 else f"−${abs(v):.1f}B"),
+    })
+    st.dataframe(sty, use_container_width=True, hide_index=True, height=600)
 
 
 def _safe_fund(t: str, key: str):
@@ -317,17 +305,12 @@ def _render_stage1(c: dict, s1: pd.DataFrame, meta: dict) -> None:
     # 💎 Quality — the heavy fundamentals pull (P/E · Financials · Cash), run ONLY on the
     # shortlist that's left after the filters above. Cached 6h per ticker, so it's a
     # one-time cost; re-filtering just re-maps from cache.
-    q1, q2, q3 = st.columns([1.6, 1.6, 1.1])
+    q1, _q2 = st.columns([1.6, 4.0])
     with q1:
         load_q = st.button(f"💎 Quality detail  ({len(view)})", type="primary",
                            use_container_width=True, disabled=view.empty, key="s1_loadq",
                            help="Pull P/E · Financials · Cash for the filtered names "
                                 "(Ryan #2 — business quality).")
-    with q2:
-        sort_col = st.selectbox("Sort by", ["Default", "Ticker", "Trend", "Off High", "RSI",
-                                            "P/E", "Cash", "Price", "Chg%"], key="s1_sort")
-    with q3:
-        sort_dir = st.selectbox("Order", ["High→Low", "Low→High"], key="s1_sortdir")
     if load_q:
         tickers = list(view["Ticker"])
         prog = st.progress(0, text="💎 Quality — fundamentals…")
@@ -341,20 +324,6 @@ def _render_stage1(c: dict, s1: pd.DataFrame, meta: dict) -> None:
         view["P/E"] = view["Ticker"].map(lambda t: _safe_fund(t, "P/E"))
         view["Financials"] = view["Ticker"].map(lambda t: _safe_fund(t, "Financials"))
         view["Cash"] = view["Ticker"].map(lambda t: _safe_fund(t, "Cash"))
-
-    # Sort the shortlist (keeps the styled table — a plain sortable grid would lose the colors).
-    if sort_col != "Default" and sort_col in view and not view.empty:
-        if sort_col == "Ticker":
-            key = view["Ticker"].astype(str).str.upper()
-        elif sort_col == "Trend":
-            rank = {"▲ Up": 3, "◆ Mixed": 2, "new": 1, "▼ Down": 0}
-            key = view["Trend"].astype(str).map(lambda v: rank.get(v, -1))
-        else:
-            key = pd.to_numeric(view[sort_col], errors="coerce")
-        view = (view.assign(_k=key)
-                    .sort_values("_k", ascending=(sort_dir == "Low→High"),
-                                 na_position="last", kind="stable")
-                    .drop(columns="_k"))
 
     chips = [(f"{n_total} scanned", c["muted"]), (f"{n_weekly} tradable", c["pos"]),
              (f"{n_monthly} monthly", c["amber"]) if n_monthly else None,
@@ -370,9 +339,10 @@ def _render_stage1(c: dict, s1: pd.DataFrame, meta: dict) -> None:
     row += "</div>"
     st.markdown(row, unsafe_allow_html=True)
 
-    st.caption("Filter → hit **💎 Quality detail** to score the shortlist → **add the quality names "
-               "to your WatchList sheet**. The Decision Desk works the WatchList.")
-    st.markdown(_stage1_html(view, c), unsafe_allow_html=True)
+    st.caption("**Click any column header to sort.** Filter → hit **💎 Quality detail** to score "
+               "the shortlist → **add the quality names to your WatchList sheet**. "
+               "The Decision Desk works the WatchList.")
+    _stage1_dataframe(view, c)
 
 
 def _sublabel(c: dict, text: str) -> None:
