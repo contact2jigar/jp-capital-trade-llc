@@ -97,15 +97,26 @@ BANDS = [
 ]
 
 
+# VIX bounds of each band (parallel to BANDS), for within-band interpolation.
+_BAND_BOUNDS = [(8, 13), (13, 15), (15, 20), (20, 25), (25, 30), (30, 100)]
+
+
 def band_index(vix: float) -> int:
     v = float(vix or 0)
     return 0 if v < 13 else 1 if v < 15 else 2 if v < 20 else 3 if v < 25 else 4 if v < 30 else 5
 
 
 def allocation(vix: float, trend: str) -> float:
-    """VIX Allocation % = midpoint of the active band's Up (or Dn) column."""
-    b = BANDS[band_index(vix)]
-    return (b[1] + b[2]) / 2 if str(trend) == "Uptrend" else (b[3] + b[4]) / 2
+    """VIX Allocation % — interpolated by WHERE VIX sits within its band, not the band
+    midpoint. Lower VIX → more cash (ammunition doctrine), so VIX at the band's low edge
+    maps to the band's MAX cash and the high edge to its MIN. Continuous across band edges
+    (e.g. VIX 15 gives the same value from either side); clamps outside the band range."""
+    i = band_index(vix)
+    cmin, cmax = (BANDS[i][1], BANDS[i][2]) if str(trend) == "Uptrend" else (BANDS[i][3], BANDS[i][4])
+    lo, hi = _BAND_BOUNDS[i]
+    frac = (float(vix or 0) - lo) / (hi - lo) if hi > lo else 0.0
+    frac = min(max(frac, 0.0), 1.0)
+    return cmax - frac * (cmax - cmin)
 
 
 def _openrows(df: pd.DataFrame) -> pd.DataFrame:

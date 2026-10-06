@@ -10,8 +10,10 @@ This is the in-progress replacement for the Cockpit; both run side by side for n
 
 from __future__ import annotations
 
+import datetime as _dt
 import math
 
+import pandas as pd
 import streamlit as st
 
 from logic import monitor as engine
@@ -466,7 +468,8 @@ def _matrix_grid(r: dict, P: dict) -> str:
             f"<div class='ck-fgrid'>{cells}</div></div>")
 
 
-_ITYPE_ORDER = ["01-Growth", "02-Alternate", "03-Speculation", "04-LEAP"]
+_ITYPE_ORDER = ["01-Growth", "02-Alternate", "03-Speculation",
+                "04-WatchList", "04-LEAP", "5-Others"]
 
 
 def _alloc_groups(df, acct_upper: str) -> list:
@@ -490,8 +493,14 @@ def _alloc_groups(df, acct_upper: str) -> list:
     for raw, k in [("Profit Loss", "_pl"), ("Cash Reserve", "_cash"),
                    ("Current Price", "_price"), ("Strike Price", "_strike"), ("Qty", "_qty")]:
         d[k] = d[raw].map(engine._money)
+    # Known types in canonical order, then ANY other real category found in the data
+    # (e.g. a newly added 04-WatchList / 5-Others), so a bucket never silently vanishes.
+    # Only the X-list cash bucket is excluded.
+    present = list(dict.fromkeys(d["_it"].tolist()))
+    extras = [it for it in present
+              if it and it not in _ITYPE_ORDER and not it.upper().startswith("X")]
     out = []
-    for it in _ITYPE_ORDER:
+    for it in [t for t in _ITYPE_ORDER if t in present] + extras:
         g = d[d["_it"] == it]
         if g.empty:
             continue
@@ -525,7 +534,7 @@ def _alloc_card(df, name: str, a: dict, P: dict) -> str:
         for s in stocks:
             p = (s["cash"] / base * 100) if base else 0
             cap = 7 if s["qty"] <= 1 else 5                 # 1-lot starter may run to 7%, else 5%
-            acol = P["red"] if p > cap else P["amber"] if p >= 4.5 else P["green"]  # amber = nearing cap
+            acol = P["red"] if p > cap else P["orange"] if p >= 4.5 else P["green"]  # orange = nearing cap
             gpl += s["pl"]; gcash += s["cash"]; gqty += s["qty"]
             body += (f"<div class='ck-fa'>{s['stock']}</div>"
                      f"<div class='ck-ac' style='color:{plcol(s['pl'])}'>{_m(s['pl'])}</div>"
@@ -585,6 +594,101 @@ def _assignment_card(df, c: dict) -> str:
     return (f"<div class='ck-card ck-fcard'>"
             f"{_btag('📒 ASSIGNMENT WATCH', 'ITM puts → assigned · ITM calls → called away', P)}"
             f"{body}</div>")
+
+
+def _week_expiry_card(df, c: dict) -> str:
+    """This week's expiries — open PUT/CALL positions rolling off in the current calendar
+    week (Mon–Sun). A quick bottom-of-Cockpit glance at what needs a decision by Friday.
+    Reuses command_center._tl_html so columns / logos / colours match the Trade Log."""
+    if df is None or getattr(df, "empty", True):
+        return ""
+    P = ck.LIGHT if ck._is_light(c.get("bg", "")) else ck.DARK
+    light = ck._is_light(c.get("bg", ""))
+    od = engine._openrows(df).copy()
+    if od.empty or "Exp Date" not in od.columns:
+        return ""
+    today = _dt.date.today()
+    wk_start = today - _dt.timedelta(days=today.weekday())        # Monday
+    wk_end = wk_start + _dt.timedelta(days=6)                      # Sunday
+    exp = pd.to_datetime(od["Exp Date"], errors="coerce").dt.date
+    not_cash = ~od["Stock"].astype(str).str.upper().isin(["CASH", "VAULT"])
+    sub = od[not_cash & exp.notna() & (exp >= wk_start) & (exp <= wk_end)].copy()
+    if sub.empty:
+        body = "<div class='ck-sub' style='margin-top:6px'>No positions expiring this week.</div>"
+    else:
+        if "DTE" in sub.columns:
+            sub = sub.assign(_d=sub["DTE"].map(engine._money)).sort_values("_d")
+        sub["Logo"] = sub["Stock"].astype(str).str.strip().apply(
+            lambda t: f"https://financialmodelingprep.com/image-stock/{t}.png" if t else "")
+        cols = ["Logo"] + [x for x in cc._TL_COLS if x in sub.columns]
+        body = cc._tl_html(sub[cols], cols, c, light)
+    return (f"<div class='ck-card ck-fcard'>"
+            f"{_btag('📅 EXPIRING THIS WEEK', f'open puts/calls rolling off by {wk_end:%b %-d}', P)}"
+            f"{body}</div>")
+
+
+def _expiry_summary_card(df, name: str, c: dict) -> str:
+    """Per-expiry rollup for ONE account — each expiry's Qty · P/L · Cash Reserve · % Ret ·
+    Cash Release summed across its open rows, with a grand total. Mirrors the sheet's expiry
+    pivot: a quick 'what each week (and the cash/LEAP buckets) is carrying' per account."""
+    if df is None or getattr(df, "empty", True):
+        return ""
+    P = ck.LIGHT if ck._is_light(c.get("bg", "")) else ck.DARK
+    tag = _btag(f"📆 {name} BY EXPIRY", "per-week P/L · reserve · % ret · release", P)
+    od = engine._openrows(df).copy()
+    need = ["Account", "Exp Date", "Profit Loss", "Cash Reserve", "Qty"]
+    if od.empty or any(cn not in od.columns for cn in need):
+        return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub' style='margin-top:6px'>No data.</div></div>"
+    d = od[od["Account"].astype(str).str.upper() == name.upper()].copy()
+    if d.empty:
+        return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub' style='margin-top:6px'>No open positions.</div></div>"
+    has_rel = "Cash Release" in d.columns
+    for raw, k in [("Profit Loss", "_pl"), ("Cash Reserve", "_res"), ("Qty", "_qty")]:
+        d[k] = d[raw].map(engine._money)
+    d["_rel"] = d["Cash Release"].map(engine._money) if has_rel else 0.0
+    d["_exp"] = pd.to_datetime(d["Exp Date"], errors="coerce")
+    rows = []
+    for exp, sg in d.groupby("Exp Date", dropna=False):
+        rows.append(dict(order=sg["_exp"].min(), raw=str(exp), pl=sg["_pl"].sum(),
+                         res=sg["_res"].sum(), rel=sg["_rel"].sum(), qty=sg["_qty"].sum()))
+    rows.sort(key=lambda x: (pd.isna(x["order"]), x["order"]))
+
+    base = f"border-bottom:1px solid {P['line']};padding:5px 7px;white-space:nowrap;"
+    rr = "text-align:right;"
+    cols = ["Expiry", "Qty", "P/L", "Reserve", "% Ret", "Release"]
+    th = "".join(f"<th style='{base}{'text-align:left' if h == 'Expiry' else rr}color:{P['mut']};"
+                 f"font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.03em'>{h}</th>"
+                 for h in cols)
+    body = ""
+    tpl = tres = trel = tqty = 0.0
+    for r in rows:
+        ret = (r["pl"] / r["res"] * 100) if r["res"] else 0.0
+        tpl += r["pl"]; tres += r["res"]; trel += r["rel"]; tqty += r["qty"]
+        plc = P["green"] if r["pl"] >= 0 else P["red"]
+        retc = P["green"] if ret >= 0 else P["red"]
+        lbl = r["order"].strftime("%-m/%-d/%y") if pd.notna(r["order"]) else r["raw"]
+        body += (f"<tr>"
+                 f"<td style='{base}color:{P['ink']};font-weight:700'>{lbl}</td>"
+                 f"<td style='{base}{rr}color:{P['mid']}'>{r['qty']:.0f}</td>"
+                 f"<td style='{base}{rr}color:{plc};font-weight:700'>{_m(r['pl'])}</td>"
+                 f"<td style='{base}{rr}color:{P['ink']}'>{_m(r['res'])}</td>"
+                 f"<td style='{base}{rr}color:{retc};font-weight:700'>{ret:.2f}%</td>"
+                 f"<td style='{base}{rr}color:{P['gold']}'>{_m(r['rel'])}</td></tr>")
+    tret = (tpl / tres * 100) if tres else 0.0
+    tplc = P["green"] if tpl >= 0 else P["red"]
+    tb = f"border-top:2px solid {P['line']};padding:6px 7px;font-weight:800;white-space:nowrap;"
+    total = (f"<tr style='background:{P['glow']}'>"
+             f"<td style='{tb}color:{P['ink']}'>Total</td>"
+             f"<td style='{tb}{rr}color:{P['ink']}'>{tqty:.0f}</td>"
+             f"<td style='{tb}{rr}color:{tplc}'>{_m(tpl)}</td>"
+             f"<td style='{tb}{rr}color:{P['ink']}'>{_m(tres)}</td>"
+             f"<td style='{tb}{rr}color:{P['ink']}'>{tret:.2f}%</td>"
+             f"<td style='{tb}{rr}color:{P['gold']}'>{_m(trel)}</td></tr>")
+    table = (f"<div style='overflow:auto;margin-top:6px'>"
+             f"<table style='border-collapse:collapse;width:100%;font-size:12px;"
+             f"font-variant-numeric:tabular-nums'>"
+             f"<thead><tr>{th}</tr></thead><tbody>{body}{total}</tbody></table></div>")
+    return f"<div class='ck-card ck-fcard'>{tag}{table}</div>"
 
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -989,9 +1093,9 @@ def render(c: dict) -> None:
         {fg_block}
         <div class="ck-meter">{ck._vix_meter(vix, band, up)}</div>
         <div class="ck-regime">
-          <div class="ck-tl-row"><span class="ck-tl">Target</span>{trend_badge}</div>
-          <div class="ck-target">{dmin:.0f}–{dmax:.0f}%</div>
-          <div class="s">band {band_lbl} · now {r.get('alloc', 0) * 100:.0f}%</div>
+          <div class="ck-tl-row"><span class="ck-tl">Target</span>
+            <span class="ck-target">{dmin:.0f}–{dmax:.0f}%</span></div>
+          <div style="margin-top:4px">{trend_badge}</div>
         </div>
       </div>
       <div class="ck-brow">
@@ -1006,6 +1110,11 @@ def render(c: dict) -> None:
         {_alloc_card(tdf, 'LLC', r['llc'], P)}
       </div>
       {_assignment_card(tdf, c)}
+      {_week_expiry_card(tdf, c)}
+      <div class="ck-brow2">
+        {_expiry_summary_card(tdf, 'LLC', c)}
+        {_expiry_summary_card(tdf, 'IRA', c)}
+      </div>
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)

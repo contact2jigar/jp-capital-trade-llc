@@ -27,12 +27,14 @@ DARK = dict(
     ink="#e9eff5", mid="#aebac7", mut="#6f7d8c", subv="#9aa7b4", steel="#3a4757",
     hole1="#151d27", hole2="#0e141c", track="#0c131b", hi="rgba(255,255,255,.045)",
     gold="#e3b23c", blue="#58a6ff", purple="#a78bfa", green="#43c463", amber="#e3a63a", red="#f2555a",
+    orange="#f97316",
     shadow="0 22px 46px -28px rgba(0,0,0,.85)")
 LIGHT = dict(
     bg="#eef1f3", glow="#dce7f2", phi="#ffffff", plo="#f2f5f7", line="#c7ced3", lsoft="#dde2e6",
     ink="#16212c", mid="#38454f", mut="#66727d", subv="#5c6873", steel="#9aa7b4",
     hole1="#ffffff", hole2="#eef1f3", track="#e4e8eb", hi="rgba(255,255,255,.7)",
     gold="#b8860b", blue="#2f6fb0", purple="#6b3fa0", green="#2f7e25", amber="#8a6800", red="#b62027",
+    orange="#ea580c",
     shadow="0 18px 40px -26px rgba(23,33,44,.35)")
 
 
@@ -242,8 +244,10 @@ def _vix_meter(vix: float, band: int, up: bool) -> str:
         segs += (f"<div class='ck-seg{'' if k == i else ' ck-dim'}' style='background:{col}'>"
                  f"<span class='ck-sr'>{lbl}</span>"
                  f"<span class='ck-sd'>{lo * 100:.0f}–{hi * 100:.0f}%</span></div>")
+    alloc = engine.allocation(vix, "Uptrend" if up else "Downtrend")   # live interpolated cash %
     return (f"<div class='ck-segs'>{segs}</div>"
-            f"<div class='ck-needle' style='left:{left:.1f}%'></div>")
+            f"<div class='ck-needle' style='left:{left:.1f}%'></div>"
+            f"<div class='ck-npct' style='left:{left:.1f}%'>{alloc * 100:.0f}%</div>")
 
 
 def _month_earned() -> float | None:
@@ -338,6 +342,9 @@ def _css(P: dict) -> str:
   box-shadow:0 0 0 3px {P['bg']}}}
 .ck-needle::before{{content:"";position:absolute;top:-5px;left:50%;transform:translateX(-50%);
   border:5px solid transparent;border-top-color:{P['ink']}}}
+.ck-npct{{position:absolute;top:-19px;transform:translateX(-50%);
+  font-size:12px;font-weight:800;color:{P['ink']};background:{P['bg']};
+  padding:0 5px;border-radius:5px;white-space:nowrap;line-height:1.4;z-index:4}}
 .ck-regime{{text-align:right;white-space:nowrap}}
 .ck-tl-row{{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:1px}}
 .ck-trend{{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;

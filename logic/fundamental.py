@@ -19,10 +19,70 @@ Checks (per user_wheel_fundamental_card.md):
 from __future__ import annotations
 import math
 from dataclasses import dataclass, field, asdict
+from functools import lru_cache
 from typing import Optional
 
 import pandas as pd
 import yfinance as yf
+
+
+# Yahoo gives a broad `sector` (Technology) and a messy `industry`
+# (Semiconductors, Scientific & Technical Instruments…). This maps the industry
+# text to a short thematic bucket — the coarse pass. Curated per-ticker overrides
+# (Optical, Memory, Cooling, Cyber…) that Yahoo can't express come later.
+# First keyword that appears in the lowercased industry wins, so order specific→broad.
+_THEME_KEYWORDS = [
+    ("semiconductor equipment", "Semi-equip"),
+    ("semiconductor", "Chips"),
+    ("internet retail", "E-comm"),
+    ("auto manufacturer", "Autos"),
+    ("auto parts", "Auto parts"),
+    ("software", "Software"),
+    ("information technology services", "IT Svcs"),
+    ("computer hardware", "Hardware"),
+    ("consumer electronics", "Electronics"),
+    ("communication equipment", "Comms"),
+    ("scientific & technical", "Instruments"),
+    ("electronic components", "Components"),
+    ("aerospace", "Aerospace"),
+    ("bank", "Banks"),
+    ("capital markets", "Capital mkts"),
+    ("credit services", "Fintech"),
+    ("oil & gas", "Energy"),
+    ("entertainment", "Media"),
+    ("internet content", "Internet"),
+    ("retail", "Retail"),
+    ("airlines", "Airlines"),
+]
+
+
+def _theme_label(sector: str, industry: str) -> str:
+    """Short thematic bucket from Yahoo's industry text; falls back to the broad
+    sector, then the raw industry, then blank."""
+    ind = (industry or "").lower()
+    for kw, label in _THEME_KEYWORDS:
+        if kw in ind:
+            return label
+    return sector or industry or ""
+
+
+@lru_cache(maxsize=64)
+def _fx_to_usd(ccy: str) -> Optional[float]:
+    """Rate to multiply an amount in `ccy` to get USD (e.g. KRW→0.00074).
+    Foreign filers (ADRs) report cash/debt in their home currency while market
+    cap is already USD — mixing units. Returns None if the pair can't be found,
+    so the caller blanks the cell rather than showing an unconverted number."""
+    ccy = (ccy or "").upper()
+    if not ccy or ccy == "USD":
+        return 1.0
+    try:
+        hist = yf.Ticker(f"{ccy}USD=X").history(period="5d")
+        if hist is not None and not hist.empty:
+            rate = float(hist["Close"].dropna().iloc[-1])
+            return rate if rate > 0 else None
+    except Exception:
+        pass
+    return None
 
 
 ETF_TICKERS = {
@@ -62,6 +122,8 @@ class FundResult:
     op_margin_delta_bps: Optional[float] = None
     leverage_debt_over_ocf: Optional[float] = None
     net_cash_b: Optional[float] = None         # (total cash − total debt) in $B — "tons of cash / can pay debt"
+    equity_assets_pct: Optional[float] = None  # stockholders' equity ÷ total assets, % — solvency for FINANCIALS
+    is_financial: bool = False                 # bank/insurer/broker — net cash is meaningless, use equity/assets
     analyst_buy_pct: Optional[float] = None    # decimal, e.g. 0.79
     pt_upside: Optional[float] = None          # decimal
     latest_quarter: str = ""                   # most recent reported quarter in the data
@@ -115,6 +177,21 @@ def _yoy_pair(row, row2=None):
     return None, None, -1
 
 
+def _ttm_sum(row):
+    """Trailing-twelve-month sum: newest 4 clean quarters, else newest ×4, else
+    None. Cash-flow LEVEL (does the business generate cash?) is judged on this
+    window — a single quarter is lumpy (capex lands in one quarter, working-capital
+    swings, tax timing) and flags cash machines like GOOGL/AMZN as negative."""
+    if row is None:
+        return None
+    clean = row.dropna()
+    if len(clean) >= 4:
+        return float(clean.iloc[0:4].sum())
+    if len(clean) >= 1:
+        return float(clean.iloc[0]) * 4
+    return None
+
+
 def _yoy_guarded(latest, prior):
     """YoY with a junk-base guard: a % that explodes past ±500% carries no
     information (near-zero year-ago base) → treated as no-data."""
@@ -147,6 +224,13 @@ def score_ticker(ticker: str) -> FundResult:
         info = tk.info or {}
         out.sector = info.get("sector", "") or info.get("industry", "")
         out.industry = info.get("industry", "") or info.get("sector", "")
+        # Financials (banks/insurers/brokers) run on deposits & debt, so net cash is
+        # meaningless for them — flag so the Cash cell shows equity/assets instead.
+        _fin_txt = f"{out.sector} {out.industry}".lower()
+        out.is_financial = ("financial services" in _fin_txt
+                            or any(k in _fin_txt for k in
+                                   ("bank", "insurance", "insurers", "capital markets",
+                                    "credit services", "asset management", "brokerage")))
         mcap = info.get("marketCap")
         if mcap:
             out.market_cap_b = mcap / 1e9
@@ -155,7 +239,12 @@ def score_ticker(ticker: str) -> FundResult:
         tcash = info.get("totalCash")
         if tcash is not None:
             try:
-                out.net_cash_b = (float(tcash) - float(info.get("totalDebt") or 0)) / 1e9
+                net_native = float(tcash) - float(info.get("totalDebt") or 0)
+                # Cash/debt are in the FILING currency; market cap/price are USD.
+                # Convert to USD so the column is one unit. Blank it if no rate.
+                fin_ccy = info.get("financialCurrency") or info.get("currency") or "USD"
+                fx = _fx_to_usd(fin_ccy)
+                out.net_cash_b = None if fx is None else net_native * fx / 1e9
             except (TypeError, ValueError):
                 out.net_cash_b = None
 
@@ -251,20 +340,23 @@ def score_ticker(ticker: str) -> FundResult:
             if ocf_row is not None and capex_row is not None:
                 fcf_row = ocf_row + capex_row  # aligned by quarter; capex is negative
 
+        # LEVEL (does it generate cash?) judged on TTM — a single quarter is lumpy
+        # and flags cash machines as negative. GROWTH stays quarter vs year-ago quarter.
+        ocf_ttm = _ttm_sum(ocf_row)
+        if ocf_ttm is not None and ocf_ttm <= 0:
+            ocf_flag = False                   # cash engine negative = LEVEL fail
         ocf_l, ocf_p, _ = _yoy_pair(ocf_row)
-        if ocf_l is not None:
-            if ocf_l <= 0:
-                ocf_flag = False               # cash engine negative = LEVEL fail
-            elif ocf_p is not None and ocf_p > 0:
-                out.ocf_yoy = _yoy_guarded(ocf_l, ocf_p)
+        if ocf_l is not None and ocf_l > 0 and ocf_p is not None and ocf_p > 0:
+            out.ocf_yoy = _yoy_guarded(ocf_l, ocf_p)
 
-        fcf_l, fcf_p, _ = _yoy_pair(fcf_row)
-        if fcf_l is not None:
-            out.fcf_pos = fcf_l > 0            # tri-state FCF flag for the Financials row
-            if fcf_l <= 0:
+        fcf_ttm = _ttm_sum(fcf_row)
+        if fcf_ttm is not None:
+            out.fcf_pos = fcf_ttm > 0          # tri-state FCF flag for the Financials row
+            if fcf_ttm <= 0:
                 out.fcf_level_neg = True       # ⚠ warning only (AMZN AI-capex class)
-            elif fcf_p is not None and fcf_p > 0:
-                out.fcf_yoy = _yoy_guarded(fcf_l, fcf_p)
+        fcf_l, fcf_p, _ = _yoy_pair(fcf_row)
+        if fcf_l is not None and fcf_l > 0 and fcf_p is not None and fcf_p > 0:
+            out.fcf_yoy = _yoy_guarded(fcf_l, fcf_p)
 
         # ── Balance sheet — Debt / FCF ──
         qbs = tk.quarterly_balance_sheet
@@ -278,12 +370,7 @@ def score_ticker(ticker: str) -> FundResult:
                 # Annualized OCF: LTM sum of the newest 4 clean quarters, else newest ×4.
                 # OCF denominator (not FCF) so a deliberate capex cycle doesn't
                 # read as dangerous leverage.
-                ocf_ann = None
-                ocf_clean = ocf_row.dropna()
-                if len(ocf_clean) >= 4:
-                    ocf_ann = float(ocf_clean.iloc[0:4].sum())
-                elif len(ocf_clean) >= 1:
-                    ocf_ann = float(ocf_clean.iloc[0]) * 4
+                ocf_ann = _ttm_sum(ocf_row)
                 if ocf_ann is not None:
                     out.leverage_debt_over_ocf = _safe_div(debt, ocf_ann)
                     if float(debt) <= 0:
@@ -301,10 +388,9 @@ def score_ticker(ticker: str) -> FundResult:
             niv = ni_row.dropna()
             if len(niv):
                 out.income_pos = bool(float(niv.iloc[0]) > 0)
-        if ocf_row is not None:
-            ov = ocf_row.dropna()
-            if len(ov):
-                out.cf_pos = bool(float(ov.iloc[0]) > 0)
+        ocf_ttm_badge = _ttm_sum(ocf_row)
+        if ocf_ttm_badge is not None:
+            out.cf_pos = ocf_ttm_badge > 0     # CF badge on TTM, not one quarter
         if qbs is not None and not qbs.empty:
             assets = _find_row(qbs, ["Total Assets"])
             liab = _find_row(qbs, ["Total Liabilities Net Minority Interest",
@@ -313,6 +399,15 @@ def score_ticker(ticker: str) -> FundResult:
                 av, lv = assets.dropna(), liab.dropna()
                 if len(av) and len(lv):
                     out.assets_gt_liab = bool(float(av.iloc[0]) > float(lv.iloc[0]))
+            # Equity ÷ Assets (%) — shareholders' slice of the balance sheet, i.e.
+            # loss-absorption before insolvency. The right solvency read for financials.
+            eq_row = _find_row(qbs, ["Stockholders Equity", "Common Stock Equity",
+                                     "Total Stockholder Equity",
+                                     "Total Equity Gross Minority Interest"])
+            if assets is not None and eq_row is not None:
+                av, ev = assets.dropna(), eq_row.dropna()
+                if len(av) and len(ev) and float(av.iloc[0]) > 0:
+                    out.equity_assets_pct = float(ev.iloc[0]) / float(av.iloc[0]) * 100
 
     except Exception as e:
         out.error = f"{type(e).__name__}: {e}"
@@ -422,8 +517,11 @@ def _row_from_result(r: FundResult) -> dict:
         "Avg Vol": None if r.avg_volume is None else int(r.avg_volume),
         "Sector": r.sector,
         "Industry": r.industry,
+        "Theme": _theme_label(r.sector, r.industry),
         "MCap $B": None if r.market_cap_b is None else round(r.market_cap_b, 1),
         "Cash": None if r.net_cash_b is None else round(r.net_cash_b, 2),
+        "EqAssets": None if r.equity_assets_pct is None else round(r.equity_assets_pct, 1),
+        "IsFinancial": r.is_financial,
         "Rev YoY %": pct(r.rev_yoy),
         "EPS YoY %": growth_cell(r.eps_yoy, r.pass_flags.get("eps_yoy")),
         "OCF YoY %": growth_cell(r.ocf_yoy, r.pass_flags.get("ocf_yoy")),

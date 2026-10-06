@@ -348,22 +348,32 @@ def _decisions_csv(rows) -> str:
 
 def _apply_decision_filters(rows):
     """Apply the Decision Desk result-criteria widgets (Setup · Min AOR · Max RSI ·
-    Fin all · Avoid earnings) to the ranked rows."""
+    Max Δ · BB zone · Financials must-pass · Avoid earnings) to the ranked rows."""
     pick = st.session_state.get("dd_f_setup", []) or []
     min_aor = st.session_state.get("dd_f_aor", 0)
     max_rsi = st.session_state.get("dd_f_rsi", 100)
-    fin_all = st.session_state.get("dd_f_finall", False)
+    max_dlt = st.session_state.get("dd_f_delta", 0.0)
+    bb_sel = st.session_state.get("dd_f_bb", []) or []
+    fin_sel = st.session_state.get("dd_f_finsel", []) or []
     no_earn = st.session_state.get("dd_f_noearn", False)
     out = []
     for x in rows:
         if pick and not any(p.lower() in str(x.get("setup", "")).lower() for p in pick):
             continue
-        if fin_all and str(x.get("fin", "")).count("✅") < 5:   # all five financials ticked (incl FCF)
+        if fin_sel:                                            # tokens space-separated → FCF ≠ CF
+            toks = set(str(x.get("fin", "")).split())
+            if not all(f"{chk}✅" in toks for chk in fin_sel):
+                continue
+        if bb_sel and str(x.get("bb", "")) not in bb_sel:
             continue
         if no_earn and not x.get("earn_ok", True):             # hide earnings-in-window names
             continue
         if min_aor > 0 and (x.get("aor") or -1) < min_aor:
             continue
+        if max_dlt > 0:
+            dv = x.get("delta")
+            if dv is not None and abs(dv) > max_dlt:           # cap |Δ| ≤ Max Δ
+                continue
         if max_rsi < 100:
             try:
                 rv = float(x.get("rsi"))
@@ -388,7 +398,6 @@ def render(c: dict) -> None:
     trend = mkt.get("trend") or ext.get("trend") or "Uptrend"
     ath_ira, ath_llc = ext.get("ath_ira", 0), ext.get("ath_llc", 0)
 
-    board = mb.monitor_board(df, ath_ira, ath_llc, vix, vix_chg, trend)
     fid, fid_meta = state.load_fidelity()
     gtc_saved = state.load_gtc_placed()
     aqres = aq.build(df, fid, gtc_placed=(set(gtc_saved) if gtc_saved is not None else None))
@@ -402,11 +411,7 @@ def render(c: dict) -> None:
         expiry = str(meta[3]) if len(meta) > 3 and meta[3] else ""
         r = hunt.size(cands, df, ath_ira, ath_llc, vix, vix_chg, trend, dte, min_aor, expiry)
 
-    # ── Part 1 — the five answers ──
-    st.markdown(_answer_cards(c, board, aqres, (r["best"] if r else None), aqres["has_fidelity"]),
-                unsafe_allow_html=True)
-
-    # ── Part 2 — Ranked New CSP Decisions · always run against the WatchList ──
+    # ── Ranked New CSP Decisions · always run against the WatchList ──
     st.write("")
     from ui.pages import csp_scanner
     _cnt = (f"  <span style='font-size:12px;color:{c['muted']};'>Sorted by AOR · "
@@ -428,20 +433,31 @@ def render(c: dict) -> None:
                                        "≥21d — the daily CSP run.")
     with right:
         if r is not None and r["rows"]:
-            x1, x2, x3, x4, x5 = st.columns([1.7, 0.95, 0.95, 0.9, 1.1])
-            with x1:
+            bb_opts = sorted({str(x.get("bb", "")) for x in r["rows"] if x.get("bb")})
+            # Row 1 — Setup · Min AOR · Max RSI · Max Δ
+            a1, a2, a3, a4 = st.columns([1.7, 0.95, 0.95, 0.95])
+            with a1:
                 st.multiselect("Setup", ["Reversal", "Deep Value", "IV Drop", "Mid-Band",
                                          "50SMA Reclaim"], key="dd_f_setup",
                                label_visibility="collapsed", placeholder="Setup")
-            with x2:
+            with a2:
                 st.number_input("Min AOR", 0, 200, 0, step=5, key="dd_f_aor")
-            with x3:
+            with a3:
                 st.number_input("Max RSI", 0, 100, 100, step=5, key="dd_f_rsi")
-            with x4:
-                st.write("")
-                st.checkbox("Fin ✅", value=False, key="dd_f_finall",
-                            help="Only names where Rev · Inc · CF · FCF · A>L are all ✅.")
-            with x5:
+            with a4:
+                st.number_input("Max Δ", 0.0, 1.0, 0.0, step=0.05, key="dd_f_delta",
+                                help="Cap |Δ| ≤ this (0 = no filter).")
+            # Row 2 — BB zone · Financials must-pass · No earnings
+            b1, b2, b3 = st.columns([1.6, 1.9, 1.0])
+            with b1:
+                st.multiselect("BB", bb_opts, key="dd_f_bb",
+                               label_visibility="collapsed", placeholder="BB zone")
+            with b2:
+                st.multiselect("Fin", ["Rev", "Inc", "CF", "FCF", "A>L"], key="dd_f_finsel",
+                               label_visibility="collapsed", placeholder="Financials must pass",
+                               help="Keep names whose selected checks are ✅ — Rev up · Net income >0 · "
+                                    "Op cash flow >0 · Free cash flow >0 · Assets > Liabilities.")
+            with b3:
                 st.write("")
                 st.checkbox("No earnings", value=False, key="dd_f_noearn",
                             help="Hide names with earnings on/before the expiry (the earnings veto).")
