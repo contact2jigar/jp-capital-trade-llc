@@ -239,6 +239,9 @@ def size(candidates: pd.DataFrame, tl_df: pd.DataFrame, ath_ira: float, ath_llc:
 
         row.update(expiry=expiry, rsi=(f"{rsi:.0f}" if rsi is not None else "—"),
                    bb=(d.get("BB") or "—"), earn=(earn or "—"), fin=(d.get("Financials") or "—"),
+                   off4=_num(d.get("Off4mo")),
+                   cush=_num(str(d.get("Cushion") or "").replace("%", "")),
+                   name=(d.get("Name") or "—"),
                    aor_ok=aor_ok, rsi_ok=rsi_ok, bb_ok=bb_ok, earn_ok=earn_ok,
                    delta_ok=delta_ok, room_ok=room_ok, veto_ok=veto_ok,
                    go=go, decision=("GO" if go else "NO"), why=why)

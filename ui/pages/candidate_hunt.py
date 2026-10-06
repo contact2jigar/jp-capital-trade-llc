@@ -212,12 +212,12 @@ def _cap_cell(c, acct_res):
 
 
 def _decisions_table(c, rows):
-    cols = ["Ticker", "Setup", "Current", "%Chg", "Strike", "Expiry", "Δ", "Prem", "AOR",
-            "IV", "RSI", "BB", "Earnings", "Financials", "Cash", "IRA", "LLC", "Decision",
-            "Industry", "GTC", "Why"]
-    aligns = {"Current": "right", "%Chg": "right", "Strike": "right", "Δ": "center",
-              "Prem": "right", "AOR": "center", "IV": "center", "RSI": "center", "Cash": "right",
-              "GTC": "right", "IRA": "center", "LLC": "center", "Decision": "center"}
+    cols = ["Ticker", "Setup", "Current", "%Chg", "4mo ↓", "Strike", "Strike ↓", "Expiry", "Δ",
+            "Prem", "AOR", "IV", "RSI", "BB", "Earnings", "Financials", "Cash", "IRA", "LLC",
+            "Decision", "Industry", "Why", "Company"]
+    aligns = {"Current": "right", "%Chg": "right", "4mo ↓": "right", "Strike": "right",
+              "Strike ↓": "right", "Δ": "center", "Prem": "right", "AOR": "center", "IV": "center",
+              "RSI": "center", "Cash": "right", "IRA": "center", "LLC": "center", "Decision": "center"}
     # Freeze panes: header row sticks on vertical scroll; the first column sticks on
     # horizontal scroll; the first-column header (corner) sticks for both.
     head = ""
@@ -249,6 +249,20 @@ def _decisions_table(c, rows):
             chg_col = c["pos"] if chgv > 0 else c["neg"] if chgv < 0 else c["muted"]
             chg_td = (f"<td style='{base}text-align:right;font-weight:700;color:{chg_col};'>"
                       f"{chgv:+.1f}%</td>")
+        # 4mo ↓ = % down from the 4-month high; ≥20% = meaningful pullback (Quality Pullback zone).
+        o4 = r.get("off4")
+        if o4 is None:
+            off4_td = f"<td style='{base}text-align:right;color:{c['muted']};'>—</td>"
+        else:
+            o4col, o4w = (c["pos"], "700") if o4 >= 20 else (c["text"], "400")
+            off4_td = f"<td style='{base}text-align:right;font-weight:{o4w};color:{o4col};'>{o4:.1f}%</td>"
+        # Strike ↓ = how far the strike sits BELOW current price (the cushion the lower strike gives).
+        cu = r.get("cush")
+        if cu is None:
+            cush_td = f"<td style='{base}text-align:right;color:{c['muted']};'>—</td>"
+        else:
+            cucol, cuw = (c["pos"], "700") if cu >= 10 else (c["text"], "400")
+            cush_td = f"<td style='{base}text-align:right;font-weight:{cuw};color:{cucol};'>{cu:.1f}%</td>"
         dlt = f"{r['delta']:.2f}" if r.get("delta") is not None else "—"
         prem = f"${r['prem']:.2f}" if r.get("prem") is not None else "—"
         aor = f"{r['aor']:.0f}%" if r.get("aor") is not None else "—"
@@ -293,7 +307,9 @@ def _decisions_table(c, rows):
             f"<td style='{base}font-size:11px;padding-left:6px;padding-right:6px;'>{icon} {r['setup']}</td>"
             f"<td style='{base}text-align:right;'>{cur}</td>"
             f"{chg_td}"
+            f"{off4_td}"
             f"<td style='{base}text-align:right;'>${r['strike']:.0f}</td>"
+            f"{cush_td}"
             f"<td style='{base}'>{r.get('expiry') or '—'}</td>"
             f"<td style='{base}text-align:center;'>{dlt}</td>"
             f"<td style='{base}text-align:right;'>{prem}</td>"
@@ -307,8 +323,8 @@ def _decisions_table(c, rows):
             f"{cap(r['ira'])}{cap(r['llc'])}"
             f"<td style='{base}text-align:center;'>{dchip}</td>"
             f"<td style='{base}font-size:11.5px;color:{c['muted']};'>{r.get('industry') or '—'}</td>"
-            f"<td style='{base}text-align:right;'>{('$%.2f' % r['gtc']) if r['gtc'] is not None else '—'}</td>"
-            f"<td style='{base}color:{c['muted']};font-size:11.5px;'>{r['why']}</td>")
+            f"<td style='{base}color:{c['muted']};font-size:11.5px;'>{r['why']}</td>"
+            f"<td style='{base}font-size:11.5px;color:{c['muted']};'>{r.get('name') or '—'}</td>")
         body += f"<tr>{tds}</tr>"
     return (f"<div style='overflow:auto;max-height:560px;border:1px solid {c['border']};border-radius:10px;'>"
             f"<table style='border-collapse:collapse;font-size:12.5px;width:100%;'>"
@@ -398,11 +414,7 @@ def render(c: dict) -> None:
     trend = mkt.get("trend") or ext.get("trend") or "Uptrend"
     ath_ira, ath_llc = ext.get("ath_ira", 0), ext.get("ath_llc", 0)
 
-    fid, fid_meta = state.load_fidelity()
-    gtc_saved = state.load_gtc_placed()
-    aqres = aq.build(df, fid, gtc_placed=(set(gtc_saved) if gtc_saved is not None else None))
-
-    # The hunt (Q3 + Part 3) is optional — the rest of the desk works without it.
+    # The hunt is optional — the rest of the desk works without it.
     cands, meta = state.load_hunt()
     r = None
     if cands is not None and meta is not None:
@@ -418,59 +430,58 @@ def render(c: dict) -> None:
             f"{r['n_tradable']} GO · {r['n_blocked']} NO</span>") if r else ""
     st.markdown(f"#### 🎯 Ranked New CSP Decisions{_cnt}", unsafe_allow_html=True)
 
-    # Left = input (WatchList types + ▶ Run) · Right = result filters.
-    left, right = st.columns([1.5, 3.4])
-    with left:
-        lt, lrun = st.columns([2.3, 1.0])
-        with lt:
-            all_types = csp_scanner.watchlist_types()
-            dflt = [t for t in csp_scanner._DEFAULT_TYPES if t in all_types] or all_types
-            picks = st.multiselect("WatchList types", all_types, default=dflt, key="dd_types",
-                                   label_visibility="collapsed", placeholder="WatchList types")
-        with lrun:
-            run_click = st.button("▶ Run", type="primary", use_container_width=True, key="dd_run",
-                                  help="Price the selected WatchList buckets at the first expiry "
-                                       "≥21d — the daily CSP run.")
-    with right:
-        if r is not None and r["rows"]:
-            bb_opts = sorted({str(x.get("bb", "")) for x in r["rows"] if x.get("bb")})
-            # Row 1 — Setup · Min AOR · Max RSI · Max Δ
-            a1, a2, a3, a4 = st.columns([1.7, 0.95, 0.95, 0.95])
-            with a1:
-                st.multiselect("Setup", ["Reversal", "Deep Value", "IV Drop", "Mid-Band",
-                                         "50SMA Reclaim"], key="dd_f_setup",
-                               label_visibility="collapsed", placeholder="Setup")
-            with a2:
-                st.number_input("Min AOR", 0, 200, 0, step=5, key="dd_f_aor")
-            with a3:
-                st.number_input("Max RSI", 0, 100, 100, step=5, key="dd_f_rsi")
-            with a4:
-                st.number_input("Max Δ", 0.0, 1.0, 0.0, step=0.05, key="dd_f_delta",
-                                help="Cap |Δ| ≤ this (0 = no filter).")
-            # Row 2 — BB zone · Financials must-pass · No earnings
-            b1, b2, b3 = st.columns([1.6, 1.9, 1.0])
-            with b1:
-                st.multiselect("BB", bb_opts, key="dd_f_bb",
-                               label_visibility="collapsed", placeholder="BB zone")
-            with b2:
-                st.multiselect("Fin", ["Rev", "Inc", "CF", "FCF", "A>L"], key="dd_f_finsel",
-                               label_visibility="collapsed", placeholder="Financials must pass",
-                               help="Keep names whose selected checks are ✅ — Rev up · Net income >0 · "
-                                    "Op cash flow >0 · Free cash flow >0 · Assets > Liabilities.")
-            with b3:
-                st.write("")
-                st.checkbox("No earnings", value=False, key="dd_f_noearn",
-                            help="Hide names with earnings on/before the expiry (the earnings veto).")
+    # Line 1 — INPUT: WatchList types (wide) + Min DTE + ▶ Run (all aligned via top labels).
+    lt, ldte, lrun = st.columns([4.7, 1.0, 1.1])
+    with lt:
+        all_types = csp_scanner.watchlist_types()
+        dflt = [t for t in csp_scanner._DEFAULT_TYPES if t in all_types] or all_types
+        picks = st.multiselect("WatchList types", all_types, default=dflt, key="dd_types",
+                               placeholder="types to scan")
+    with ldte:
+        min_dte = st.number_input("Min DTE", 1, 90, 22, step=1, key="dd_min_dte",
+                                  help="Price the first weekly expiry ≥ this many days out. "
+                                       "Takes effect on ▶ Run.")
+    with lrun:
+        st.markdown("<div style='font-size:0.875rem;margin-bottom:0.25rem'>&nbsp;</div>",
+                    unsafe_allow_html=True)
+        run_click = st.button("▶ Run", type="primary", use_container_width=True, key="dd_run",
+                              help="Price the selected WatchList buckets at your Min DTE expiry "
+                                   "— the daily CSP run.")
+
+    # Line 2 — RESULT FILTERS (one row, only once a run exists).
+    if r is not None and r["rows"]:
+        bb_opts = sorted({str(x.get("bb", "")) for x in r["rows"] if x.get("bb")})
+        g1, g2, g3, g4, g5, g6, g7 = st.columns([1.5, 0.85, 0.85, 0.85, 1.25, 1.65, 0.95])
+        with g1:
+            st.multiselect("Setup", ["Reversal", "Deep Value", "IV Drop", "Mid-Band",
+                                     "50SMA Reclaim"], key="dd_f_setup", placeholder="Any")
+        with g2:
+            st.number_input("Min AOR", 0, 200, 0, step=5, key="dd_f_aor")
+        with g3:
+            st.number_input("Max RSI", 0, 100, 100, step=5, key="dd_f_rsi")
+        with g4:
+            st.number_input("Max Δ", 0.0, 1.0, 0.0, step=0.05, key="dd_f_delta",
+                            help="Cap |Δ| ≤ this (0 = no filter).")
+        with g5:
+            st.multiselect("BB zone", bb_opts, key="dd_f_bb", placeholder="Any")
+        with g6:
+            st.multiselect("Financials", ["Rev", "Inc", "CF", "FCF", "A>L"], key="dd_f_finsel",
+                           placeholder="must pass ✅",
+                           help="Keep names whose selected checks are ✅ — Rev up · Net income >0 · "
+                                "Op cash flow >0 · Free cash flow >0 · Assets > Liabilities.")
+        with g7:
+            st.markdown("<div style='font-size:0.875rem;margin-bottom:0.25rem'>&nbsp;</div>",
+                        unsafe_allow_html=True)
+            st.checkbox("No earnings", value=False, key="dd_f_noearn",
+                        help="Hide names with earnings on/before the expiry (the earnings veto).")
 
     if run_click:
-        with st.spinner("Running the WatchList…"):
-            run_inp = csp_scanner.default_hunt_inputs(types=picks or None)
-            if run_inp:
-                csp_scanner.run_hunt(run_inp)
-            else:
-                st.error("Couldn't build the run — the WatchList looks empty.")
+        run_inp = csp_scanner.default_hunt_inputs(types=picks or None, min_dte=int(min_dte))
         if run_inp:
+            csp_scanner.run_hunt(run_inp, c=c)       # results stream in live during the scan
             st.rerun()
+        else:
+            st.error("Couldn't build the run — the WatchList looks empty.")
 
     if r is None:
         st.info("Hit **▶ Run** to price your WatchList and rank the CSP decisions. "
@@ -478,93 +489,20 @@ def render(c: dict) -> None:
     elif not r["rows"]:
         st.info("The last run found no setup-fired names.")
     else:
-        flt = st.radio("View", ["All", "GO", "NO", "IRA", "LLC"],
-                       horizontal=True, label_visibility="collapsed", key="dd_filter")
-        rows = r["rows"]
-        if flt == "GO":
-            rows = [x for x in rows if x["go"]]
-        elif flt == "NO":
-            rows = [x for x in rows if not x["go"]]
-        elif flt == "IRA":
-            rows = [x for x in rows if x["ira"] and x["ira"]["n"] > 0]
-        elif flt == "LLC":
-            rows = [x for x in rows if x["llc"] and x["llc"]["n"] > 0]
-        rows = _apply_decision_filters(rows)
+        rows = _apply_decision_filters(r["rows"])
         st.markdown(_decisions_table(c, rows), unsafe_allow_html=True)
         st.download_button(
             "⬇︎ Download CSV", data=_decisions_csv(rows),
-            file_name=f"csp_decisions_{meta[3]}_{flt.lower()}.csv", mime="text/csv",
+            file_name=f"csp_decisions_{meta[3]}.csv", mime="text/csv",
             key="dd_csv", help="The rows currently shown (respects every filter above).")
         st.caption(f"Hunt priced at **{meta[0]}** (Δ ≤ {meta[2]:.2f}, ≥{min_aor:.0f}% AOR) · sized against "
                    f"5% name cap · Layer 2.5% · CSP room · CC Breaker · IV ≥ 45% = roster-grade premium. "
                    f"**Never places an order.**")
 
-    # ── Part 3 — Portfolio Action Queue · moved to the bottom ──
-    st.write("")
-    src = (f"{fid_meta['name']} · Last uploaded: {fid_meta['time']}" if fid_meta
-           else "TradeLog only — upload a Fidelity CSV on Reconcile for stuck & CC flags")
-    st.markdown(f"#### 🧾 Portfolio Action Queue  <span style='font-size:11px;color:{c['muted']};'>"
-                f"{src}</span>", unsafe_allow_html=True)
-
-    # ── GTC coverage (Fidelity can't export open orders — maintain a small CSV) ──
-    put_rows = [x for x in aqres["rows"] if x["type"] == "PUT"]
-    with st.expander("🎯 GTC coverage — which puts have a live order at the broker", expanded=False):
-        st.caption("Fidelity can't export open orders. Download the template, fill a **GTC Price** "
-                   "for each put you've actually placed (from Fidelity → Activity & Orders → Pending), "
-                   "and re-upload. Blank = **MISSING**.")
-        dl, up = st.columns([1, 2])
-        with dl:
-            st.download_button("⬇︎ Template", data=gtco.template_csv(put_rows),
-                               file_name="gtc_orders.csv", mime="text/csv",
-                               disabled=not put_rows, use_container_width=True)
-        with up:
-            f = st.file_uploader("Upload filled GTC CSV", type=["csv"], key="gtc_csv",
-                                 label_visibility="collapsed")
-        if f is not None:
-            try:
-                keys = gtco.parse_gtc_csv(f)
-            except Exception as e:  # noqa: BLE001
-                st.error(f"Couldn't read that CSV: {e}")
-                keys = None
-            if keys is not None and not keys:
-                st.warning("No GTC prices found in that file. This uploader needs the **filled "
-                           "template** — not a Fidelity export. Click **⬇︎ Template** above, type a "
-                           "GTC Price next to each put you've placed, save, and upload that file.")
-            elif keys:
-                if set(gtc_saved or []) != keys:
-                    state.save_gtc_placed(list(keys))
-                    st.success(f"Loaded {len(keys)} placed GTC(s).")
-                    st.rerun()
-                st.caption(f"✓ {len(keys)} GTC(s) marked as placed.")
-        if gtc_saved is not None:
-            if st.button("Clear GTC data", key="gtc_clear"):
-                state.hunt_store().pop("gtc_placed", None)
-                st.rerun()
-
-    exps = sorted({x["expiry"] for x in aqres["rows"] if x["expiry"]})
-    fa, ft, fe, faction = st.columns([1, 1, 1.2, 1.4])
-    with fa:
-        acct_f = st.selectbox("Account", ["All", "IRA", "LLC"], key="aq_acct")
-    with ft:
-        type_f = st.selectbox("Opt Type", ["All", "PUT", "CALL", "SHARES"], key="aq_type")
-    with fe:
-        exp_f = st.selectbox("Expiry", ["All"] + exps, key="aq_exp")
-    with faction:
-        aqf = st.selectbox("Action", ["All", "Stuck", "Missing GTC", "Calls to Write"],
-                           key="aq_filter")
-    arows = aqres["rows"]
-    fmap = {"Stuck": "stuck", "Missing GTC": "gtc", "Calls to Write": "cc"}
-    if acct_f != "All":
-        arows = [x for x in arows if x["acct"] == acct_f]
-    if type_f != "All":
-        arows = [x for x in arows if x["type"] == type_f]
-    if exp_f != "All":
-        arows = [x for x in arows if x["expiry"] == exp_f]
-    if aqf in fmap:
-        arows = [x for x in arows if fmap[aqf] in x["flags"]]
-    arows = sorted(arows, key=lambda x: (0 if x["action_state"] == "bad" else 1 if x["action_state"] == "warn" else 2,
-                                         x["ticker"]))
-    if arows:
-        st.markdown(_aq_table(c, arows), unsafe_allow_html=True)
-    else:
-        st.success("Nothing in the queue for this filter — the book is clean here. ✅")
+    # ── Table 2 — the full scan result: every selected name, all columns ──
+    if cands is not None and not cands.empty:
+        st.write("")
+        st.markdown(f"#### 📋 All Scan Results  <span style='font-size:12px;color:{c['muted']}'>"
+                    f"{len(cands)} names priced</span>", unsafe_allow_html=True)
+        _exp = str(meta[3]) if (meta and len(meta) > 3 and meta[3]) else "—"
+        st.markdown(csp_scanner.scan_table_html(cands, c, _exp), unsafe_allow_html=True)

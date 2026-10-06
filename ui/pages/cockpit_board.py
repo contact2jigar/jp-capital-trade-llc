@@ -652,10 +652,12 @@ def _combined_alloc_card(df, r, P: dict) -> str:
             f"<div class='ck-caw'><div class='ck-ca-grid'>{head}{body}</div></div></div>")
 
 
-def _assignment_card(df, c: dict) -> str:
+def _assignment_card(df, c: dict, r: dict | None = None) -> str:
     """Assignment watch — the Trade Log, filtered to what's about to happen: ITM Puts (price
     below strike → will be ASSIGNED) and ITM Calls (price above strike → CALLED AWAY). Reuses
-    command_center._tl_html so every column + the logos/colours match the Trade Log exactly."""
+    command_center._tl_html so every column + the logos/colours match the Trade Log exactly.
+    % Alloc = Cash Reserve as a share of that account's wheel capital — how much the position
+    weighs on the CC Breaker if it converts."""
     if df is None or getattr(df, "empty", True):
         return ""
     P = ck.LIGHT if ck._is_light(c.get("bg", "")) else ck.DARK
@@ -663,11 +665,18 @@ def _assignment_card(df, c: dict) -> str:
     od = engine._openrows(df).copy()
     if od.empty or "Opt Typ" not in od.columns:
         return ""
+    wmap = {"IRA": ((r or {}).get("ira", {}).get("wcap") or 0),
+            "LLC": ((r or {}).get("llc", {}).get("wcap") or 0)}
     cp = od["Current Price"].map(engine._money)
     k = od["Strike Price"].map(engine._money)
     typ = od["Opt Typ"].astype(str).str.upper()
     itm_put = (typ == "PUT") & (cp > 0) & (k > cp)          # price below strike → assigned
     itm_call = (typ == "CALL") & (cp > 0) & (cp > k)        # price above strike → called away
+
+    def _alloc(row):                                        # Cash Reserve ÷ account wheel cap
+        w = wmap.get(str(row.get("Account", "")).strip().upper(), 0)
+        cr = engine._money(row.get("Cash Reserve"))
+        return f"{cr / w * 100:.1f}%" if w else "—"
 
     def section(mask, title, color):
         sub = od[mask].copy()
@@ -677,7 +686,14 @@ def _assignment_card(df, c: dict) -> str:
             sub = sub.assign(_d=sub["DTE"].map(engine._money)).sort_values("_d")
         sub["Logo"] = sub["Stock"].astype(str).str.strip().apply(
             lambda t: f"https://financialmodelingprep.com/image-stock/{t}.png" if t else "")
-        cols = ["Logo"] + [x for x in cc._TL_COLS if x in sub.columns]
+        sub["% Alloc"] = sub.apply(_alloc, axis=1)
+        cols = []                                           # insert % Alloc right after Qty
+        for col in ["Logo"] + [x for x in cc._TL_COLS if x in sub.columns]:
+            cols.append(col)
+            if col == "Qty":
+                cols.append("% Alloc")
+        if "% Alloc" not in cols:                           # fallback when Qty is absent
+            cols.append("% Alloc")
         hdr = (f"<div style='background:{color}1f;color:{color};font-weight:800;font-size:13px;"
                f"padding:7px 11px;border-radius:7px;margin:12px 0 6px;letter-spacing:.04em;"
                f"display:inline-block'>{title} · {int(mask.sum())}</div>")
@@ -1244,7 +1260,7 @@ def render(c: dict) -> None:
         {_alloc_card(tdf, 'LLC', r['llc'], P)}
         {_combined_alloc_card(tdf, r, P)}
       </div>
-      {_assignment_card(tdf, c)}
+      {_assignment_card(tdf, c, r)}
       {_week_expiry_card(tdf, c)}
       <div class="ck-brow2">
         {_expiry_summary_card(tdf, 'LLC', c)}

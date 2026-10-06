@@ -101,6 +101,7 @@ class FundResult:
     market_cap_b: Optional[float] = None
     sector: str = ""
     industry: str = ""
+    name: str = ""
     # market snapshot (captured from the same info call — Wheel Scanner columns)
     price: Optional[float] = None
     chg_1d: Optional[float] = None             # 1-day % change
@@ -224,6 +225,7 @@ def score_ticker(ticker: str) -> FundResult:
         info = tk.info or {}
         out.sector = info.get("sector", "") or info.get("industry", "")
         out.industry = info.get("industry", "") or info.get("sector", "")
+        out.name = info.get("longName") or info.get("shortName") or ""
         # Financials (banks/insurers/brokers) run on deposits & debt, so net cash is
         # meaningless for them — flag so the Cash cell shows equity/assets instead.
         _fin_txt = f"{out.sector} {out.industry}".lower()
@@ -517,6 +519,7 @@ def _row_from_result(r: FundResult) -> dict:
         "Avg Vol": None if r.avg_volume is None else int(r.avg_volume),
         "Sector": r.sector,
         "Industry": r.industry,
+        "Name": r.name,
         "Theme": _theme_label(r.sector, r.industry),
         "MCap $B": None if r.market_cap_b is None else round(r.market_cap_b, 1),
         "Cash": None if r.net_cash_b is None else round(r.net_cash_b, 2),

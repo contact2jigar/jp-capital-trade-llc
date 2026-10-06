@@ -480,7 +480,7 @@ def _tl_styler(vv, cols, light=False):
 
 
 _RIGHT = {"Current Price", "Strike Price", "Init Prem", "Return", "Qty", "Profit Loss",
-          "Cash Reserve", "Cash Release", "Current Prem", "GTC", "% Captured", "DTE"}
+          "Cash Reserve", "Cash Release", "Current Prem", "GTC", "% Captured", "DTE", "% Alloc"}
 _F2SET = {"Current Price", "Strike Price", "Init Prem", "Current Prem"}
 
 

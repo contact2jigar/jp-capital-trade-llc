@@ -346,8 +346,8 @@ def _css(P: dict) -> str:
 .ck-sr{{font-size:12.5px;font-weight:700;white-space:nowrap}}
 .ck-sd{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;opacity:.82;white-space:nowrap}}
 .ck-seg:not(.ck-dim) .ck-sd{{opacity:1}}
-.ck-needle{{position:absolute;top:-7px;bottom:-7px;width:2px;background:{P['ink']};border-radius:2px;
-  box-shadow:0 0 0 3px {P['bg']}}}
+.ck-needle{{position:absolute;top:-7px;bottom:-7px;width:2.5px;background:{P['ink']};border-radius:2px;
+  box-shadow:0 0 0 1px {P['bg']}}}
 .ck-needle::before{{content:"";position:absolute;top:-5px;left:50%;transform:translateX(-50%);
   border:5px solid transparent;border-top-color:{P['ink']}}}
 .ck-npct{{position:absolute;top:-19px;transform:translateX(-50%);

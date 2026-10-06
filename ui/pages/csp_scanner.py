@@ -40,8 +40,9 @@ _VETO_DTE = 30
 # Column order (Jigar's layout): identity → pricing → signal → context.
 # Price(current) → Strike → Cushion(% below current) → 3mo↓(% below 3-month high).
 _COLS = ["Ticker", "Type", "Setup", "Price", "Strike", "Cushion", "3mo ↓", "Δ",
-         "Prem", "AOR", "IV", "IV/RV", "RSI", "BB", "MACD", "Chg%", "% off High",
-         "Quality", "HM", "Earnings", "Pos", "Financials", "Cash", "Industry", "Note"]
+         "Prem", "AOR", "IV", "IV/RV", "RSI", "BB", "MACD", "Chg%", "% off High", "Off4mo",
+         "Quality", "HM", "Earnings", "Pos", "Financials", "Cash", "Trend", "P/E", "Industry",
+         "Name", "Note"]
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -696,17 +697,18 @@ def watchlist_types() -> list:
     return [t for t in types if t != "All"]
 
 
-def default_hunt_inputs(types: list | None = None) -> dict | None:
+def default_hunt_inputs(types: list | None = None, min_dte: int = 22) -> dict | None:
     """WatchList hunt inputs for the Decision Desk's ▶ Run — the Decision Desk always runs
     the WatchList (never a Scanner result). `types` picks the buckets (default Growth/Alt/
-    Spec). First expiry ≥21 DTE, AOR 30, Δ 0.30. None if the WatchList/expiry list is empty."""
+    Spec). Prices the first weekly expiry ≥ `min_dte` DTE, AOR 30, Δ 0.30. None if the
+    WatchList/expiry list is empty."""
     _, by_type = gsheet.watchlist_by_type()
     cat_map = {tk: t for t, ts in by_type.items() if t != "All" for tk in ts}
     want = types if types else _DEFAULT_TYPES
     chosen = [t for t in want if t in by_type] or [t for t in by_type if t != "All"][:1]
     stocks = sorted({tk for t in chosen for tk in by_type.get(t, [])})
     today = date.today()
-    exps = csp_pricing.expiry_choices(today, 21)
+    exps = csp_pricing.expiry_choices(today, int(min_dte))
     if not stocks or not exps:
         return None
     exp = exps[1] if len(exps) > 1 else exps[0]        # matches the scanner's default (index=1)
@@ -715,14 +717,15 @@ def default_hunt_inputs(types: list | None = None) -> dict | None:
             "vix": _current_vix(), "dte": (exp - today).days}
 
 
-def run_hunt(inp: dict, to_desk: bool = True) -> None:
+def run_hunt(inp: dict, to_desk: bool = True, c: dict | None = None) -> None:
     """Run the scan for `inp` and stash the result.
 
     to_desk=True (the Decision Desk's ▶ Run) stores it in the shared hunt store that the
     Decision Desk reads. to_desk=False (the Candidate Scanner's own exploration) keeps it
     in a SEPARATE scanner slot, so discovery never overwrites the daily WatchList run —
     the two tools are fully independent."""
-    scan_df = _scan(inp["stocks"], inp["cat_map"], inp["exp_iso"], inp["aor"], inp["delta"], inp["vix"])
+    scan_df = _scan(inp["stocks"], inp["cat_map"], inp["exp_iso"], inp["aor"], inp["delta"],
+                    inp["vix"], c=c)
     meta = (inp["label"], inp["aor"], inp["delta"], inp["exp_iso"], inp["dte"])
     if to_desk:
         st.session_state["csp_scan"] = scan_df
@@ -735,88 +738,205 @@ def run_hunt(inp: dict, to_desk: bool = True) -> None:
 
 
 def _scan(stocks: list, cat_map: dict, target_iso: str, aor_floor: float,
-          target_delta: float, vix: float | None = None) -> pd.DataFrame:
+          target_delta: float, vix: float | None = None, c: dict | None = None) -> pd.DataFrame:
+    """Price the WatchList. PARALLEL (bounded thread pool — the work is network-bound, so
+    threads cut the run 3-5×) and LIVE: when a theme `c` is passed, the result table grows
+    in place as each name completes, so you watch results stream in instead of waiting.
+    Streamlit's script context is attached to the workers so st.cache_data stays correct
+    on Streamlit Cloud."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    try:                                               # attach ctx so cache works in threads
+        from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
+        _ctx = get_script_run_ctx()
+    except Exception:
+        add_script_run_ctx, _ctx = None, None
     iv_map, pos_map = _sheet_maps()
-    rows = []
-    prog = st.progress(0, text="Scanning…")
-    n = len(stocks)
     today = date.today()
-    for i, t in enumerate(stocks):
-        prog.progress(i / max(n, 1), text=f"[{i+1}/{n}] {t}")
-        hist = yahoo.get_history(t, period="2y", interval="1d")
-        if hist.empty or "Close" not in hist.columns or len(hist) < 30:
-            rows.append({"Ticker": t, "Type": cat_map.get(t, ""), "Setup": "—",
-                         "Quality": "—", "Note": "no price data"})
-            continue
-        lr = leap_setup.evaluate(hist)
-        # Price the ~target-delta put FIRST — its own IV (at the strike/expiry we trade)
-        # is the IV we show and the IV that feeds the IV Drop trigger. Fall back to the
-        # ATM-chain IV only if the target-expiry put chain is unavailable.
-        leg = _price_leg(t, target_iso, target_delta)
-        if leg.get("excluded"):
-            # Not tradeable as a weekly CSP — no options at all, or monthly-only (the
-            # target Friday's chain doesn't exist). Exclude rather than price a
-            # fictional / different expiry (roster rule = weeklies required).
-            rows.append({"Ticker": t, "Type": cat_map.get(t, ""),
-                         "Setup": "—", "Quality": "—", "Industry": "—",
-                         "Note": leg["excluded"]})
-            continue
-        iv_pct = leg.get("iv") or yahoo.get_atm_iv(t, lr.get("price"))
-        # Realized vol (annualised, ~21 trading days) vs IV. IV ≫ RV means the option
-        # is pricing an EVENT (merger / litigation / FDA / earnings), not normal vol —
-        # KVUE paid like 52% IV on 29% realized. Flag these; don't let them rank.
-        rv = None
+
+    def _one(t):
         try:
-            rets = hist["Close"].pct_change().dropna().tail(21)
-            if len(rets) >= 10:
-                rv = float(rets.std() * (252 ** 0.5) * 100)
-        except Exception:
+            hist = yahoo.get_history(t, period="2y", interval="1d")
+            if hist.empty or "Close" not in hist.columns or len(hist) < 30:
+                return {"Ticker": t, "Type": cat_map.get(t, ""), "Setup": "—",
+                        "Quality": "—", "Note": "no price data"}
+            lr = leap_setup.evaluate(hist)
+            # Price the ~target-delta put FIRST — its own IV (at the strike/expiry we trade)
+            # is the IV we show and that feeds the IV Drop trigger; ATM-chain IV is fallback.
+            leg = _price_leg(t, target_iso, target_delta)
+            if leg.get("excluded"):
+                return {"Ticker": t, "Type": cat_map.get(t, ""), "Setup": "—",
+                        "Quality": "—", "Industry": "—", "Note": leg["excluded"]}
+            iv_pct = leg.get("iv") or yahoo.get_atm_iv(t, lr.get("price"))
+            # Realized vol (annualised, ~21d) vs IV. IV ≫ RV = the option is pricing an EVENT.
             rv = None
-        iv_rv = (iv_pct / rv) if (iv_pct and rv) else None
-        chg = lr.get("chg_pct")
-        earn = yahoo.get_earnings_date(t)
-        edays = (earn - today).days if earn else None
-        cs = csp_setup.evaluate(lr, iv_pct, chg, earnings_days=edays, vix=vix)
-        hv = hm.latest_signal(hm.analyze(hist.rename(columns=str.lower)))
-        fin = _fund_row(t)
-        r14 = lr.get("rsi14")
-        # 3-month discount: how far the strike sits below the 3-month high (~63 trading days).
-        disc3 = None
-        try:
-            hi3m = float(hist["Close"].tail(63).max())
-            sk = float(str(leg["Strike"]).replace("$", "").replace(",", ""))
-            if hi3m > 0 and sk > 0:
-                disc3 = (hi3m - sk) / hi3m * 100
-        except (TypeError, ValueError):
-            disc3 = None
-        vetoed = bool(cs.get("earnings_veto"))
-        rows.append({
-            "Ticker": t,
-            "Type": cat_map.get(t, ""),
-            "Industry": fin.get("Industry", "") or "—",
-            "Setup": (f"✓ {' · '.join(cs['setups'])}" if cs.get("setup_ok") else "—"),
-            "Quality": "✓" if cs.get("quality_ok") else "—",
-            "RSI": f"{r14:.0f}" if r14 is not None else "—",
-            "BB": lr.get("bb_pos", "—"),
-            "Chg%": round(chg, 2) if chg is not None else None,
-            "IV": f"{iv_pct:.0f}%" if iv_pct else "—",
-            "Strike": leg["Strike"],
-            "Cushion": leg["Cushion"],
-            "3mo ↓": f"{disc3:.1f}%" if disc3 is not None else "—",
-            "Δ": leg["Δ"],
-            "Prem": leg["Prem"],
-            "AOR": leg["AOR"],
-            "IV/RV": round(iv_rv, 2) if iv_rv is not None else None,
-            "HM": hv.get("signal", "—"),
-            "MACD": lr.get("macd_dir", "—"),
-            "Price": round(lr["price"], 2) if lr.get("price") is not None else None,
-            "% off High": round(lr["off_high_pct"], 1) if lr.get("off_high_pct") is not None else None,
-            "Earnings": (("⛔ " if vetoed else "") + f"{earn:%m/%d} ({edays}d)") if earn else "unknown",
-            "Pos": pos_map.get(t, ""),
-            "Financials": fin.get("Financials", ""),
-            "Cash": fin.get("Cash"),
-            "Note": "",
-        })
-    prog.empty()   # hide the bar once done to save space
+            try:
+                rets = hist["Close"].pct_change().dropna().tail(21)
+                if len(rets) >= 10:
+                    rv = float(rets.std() * (252 ** 0.5) * 100)
+            except Exception:
+                rv = None
+            iv_rv = (iv_pct / rv) if (iv_pct and rv) else None
+            chg = lr.get("chg_pct")
+            earn = yahoo.get_earnings_date(t)
+            edays = (earn - today).days if earn else None
+            cs = csp_setup.evaluate(lr, iv_pct, chg, earnings_days=edays, vix=vix)
+            hv = hm.latest_signal(hm.analyze(hist.rename(columns=str.lower)))
+            fin = _fund_row(t)
+            r14 = lr.get("rsi14")
+            disc3 = None                               # strike vs 3-month high (~63 trading days)
+            try:
+                hi3m = float(hist["Close"].tail(63).max())
+                sk = float(str(leg["Strike"]).replace("$", "").replace(",", ""))
+                if hi3m > 0 and sk > 0:
+                    disc3 = (hi3m - sk) / hi3m * 100
+            except (TypeError, ValueError):
+                disc3 = None
+            off4 = None                                # current price vs 4-month high (~84 bars)
+            try:
+                hcol = "High" if "High" in hist.columns else "Close"
+                hi4 = float(hist[hcol].tail(84).max())
+                curp = float(lr.get("price") or hist["Close"].iloc[-1])
+                if hi4 > 0:
+                    off4 = (hi4 - curp) / hi4 * 100
+            except (TypeError, ValueError):
+                off4 = None
+            vetoed = bool(cs.get("earnings_veto"))
+            return {
+                "Ticker": t, "Type": cat_map.get(t, ""),
+                "Industry": fin.get("Industry", "") or "—",
+                "Setup": (f"✓ {' · '.join(cs['setups'])}" if cs.get("setup_ok") else "—"),
+                "Quality": "✓" if cs.get("quality_ok") else "—",
+                "RSI": f"{r14:.0f}" if r14 is not None else "—",
+                "BB": lr.get("bb_pos", "—"),
+                "Chg%": round(chg, 2) if chg is not None else None,
+                "IV": f"{iv_pct:.0f}%" if iv_pct else "—",
+                "Strike": leg["Strike"], "Cushion": leg["Cushion"],
+                "3mo ↓": f"{disc3:.1f}%" if disc3 is not None else "—",
+                "Δ": leg["Δ"], "Prem": leg["Prem"], "AOR": leg["AOR"],
+                "IV/RV": round(iv_rv, 2) if iv_rv is not None else None,
+                "HM": hv.get("signal", "—"), "MACD": lr.get("macd_dir", "—"),
+                "Price": round(lr["price"], 2) if lr.get("price") is not None else None,
+                "% off High": round(lr["off_high_pct"], 1) if lr.get("off_high_pct") is not None else None,
+                "Off4mo": round(off4, 1) if off4 is not None else None,
+                "Earnings": (("⛔ " if vetoed else "") + f"{earn:%m/%d} ({edays}d)") if earn else "unknown",
+                "Pos": pos_map.get(t, ""), "Financials": fin.get("Financials", ""),
+                "Cash": fin.get("Cash"), "Trend": _trend_15y(hist),
+                "P/E": fin.get("P/E"), "Name": fin.get("Name", ""), "Note": "",
+            }
+        except Exception as e:                         # one bad name never kills the run
+            return {"Ticker": t, "Type": cat_map.get(t, ""), "Setup": "—",
+                    "Quality": "—", "Note": f"error: {type(e).__name__}"}
+
+    n = len(stocks)
+    prog = st.progress(0, text="Scanning…")
+    live = st.empty() if c is not None else None
+    rows = []
+    _init = (lambda: add_script_run_ctx(threading.current_thread(), _ctx)) \
+        if (add_script_run_ctx and _ctx) else None
+    with ThreadPoolExecutor(max_workers=6, initializer=_init) as ex:   # bounded: no rate-limit
+        futs = [ex.submit(_one, t) for t in stocks]
+        for i, fut in enumerate(as_completed(futs)):
+            rows.append(fut.result())
+            done = i + 1
+            prog.progress(done / max(n, 1), text=f"Scanning… {done}/{n}")
+            if live is not None and (done % 3 == 0 or done == n):   # grow the table live
+                dfl = pd.DataFrame(rows, columns=_COLS).sort_values(
+                    "AOR", key=lambda s: pd.to_numeric(s, errors="coerce"),
+                    ascending=False, na_position="last")
+                live.markdown(scan_table_html(dfl, c, target_iso, scanning=f"{done}/{n}"),
+                              unsafe_allow_html=True)
+    prog.empty()
+    if live is not None:
+        live.empty()
     return pd.DataFrame(rows, columns=_COLS)
+
+
+# (display label, source column in the scan df) — "__exp__" is filled with the hunt expiry.
+_SCAN_VIEW = [("Ticker", "Ticker"), ("Setup", "Setup"), ("Price", "Price"), ("Chg%", "Chg%"),
+              ("Strike", "Strike"), ("Disc%", "Cushion"), ("Off High", "% off High"),
+              ("4mo↓", "Off4mo"), ("RSI", "RSI"), ("BB", "BB"), ("MACD", "MACD"),
+              ("Earnings", "Earnings"), ("Δ", "Δ"), ("Prem", "Prem"), ("AOR", "AOR"),
+              ("Expiry", "__exp__"), ("Trend", "Trend"), ("HM", "HM"), ("Financials", "Financials"),
+              ("P/E", "P/E"), ("IV", "IV"), ("Type", "Type"), ("Industry", "Industry"),
+              ("Company", "Name")]
+_SCAN_RIGHT = {"Price", "Chg%", "Strike", "Disc%", "Off High", "4mo↓", "Δ", "Prem", "AOR", "P/E", "IV"}
+_SCAN_CENTER = {"RSI", "MACD", "Trend"}
+
+
+def scan_table_html(df, c: dict, expiry: str = "—", scanning: str | None = None) -> str:
+    """Table 2 — the full scan result: every scanned name, all columns, themed. Plain
+    st.markdown HTML (no JS) so it can grow live during the scan without iframe flicker."""
+    import html as _h
+    if df is None or getattr(df, "empty", True):
+        return ""
+
+    def _n(v):
+        try:
+            return float(str(v).replace("%", "").replace("$", "").replace(",", ""))
+        except (TypeError, ValueError):
+            return None
+
+    def _cell(label, src, row):
+        v = expiry if src == "__exp__" else row.get(src)
+        if v is None or (isinstance(v, float) and pd.isna(v)) or str(v).strip() in ("", "nan", "None"):
+            return "—", f"color:{c['muted']}"
+        s = str(v)
+        if label == "Ticker":   return s, f"font-weight:800;color:{c['text']}"
+        if label == "Price":    x = _n(v); return (f"${x:,.2f}" if x is not None else s), ""
+        if label == "Chg%":
+            x = _n(v)
+            return (f"{x:+.1f}%" if x is not None else s), \
+                (f"color:{c['pos'] if x>0 else c['neg'] if x<0 else c['muted']};font-weight:700" if x is not None else "")
+        if label == "Off High": x = _n(v); return (f"{x:.0f}%" if x is not None else s), ""
+        if label == "4mo↓":
+            x = _n(v)
+            return (f"{x:.1f}%" if x is not None else s), (f"color:{c['pos']};font-weight:700" if (x is not None and x >= 20) else "")
+        if label == "AOR":
+            x = _n(v)
+            if x is None:
+                return s, ""
+            col = c["pos"] if x >= 50 else c["amber"] if x >= 45 else c["text"]
+            return f"{x:.0f}%", f"color:{col};font-weight:{'800' if col != c['text'] else '600'}"
+        if label == "IV":
+            x = _n(v); return (f"{x:.0f}%" if x is not None else s), (f"color:{c['pos']};font-weight:700" if (x is not None and x >= 45) else "")
+        if label == "P/E":
+            x = _n(v); return (f"{x:.1f}" if x is not None else s), (f"color:{c['amber']};font-weight:700" if (x is not None and (x <= 0 or x > 100)) else "")
+        if label == "RSI":
+            x = _n(v)
+            return (f"{x:.0f}" if x is not None else s), \
+                ((f"color:{c['neg']};font-weight:700" if x > 64 else f"color:{c['pos']};font-weight:700" if x < 45 else "") if x is not None else "")
+        if label == "BB":
+            low = s.lower()
+            col = c["pos"] if ("lower" in low or "below" in low) else c["neg"] if ("upper" in low or "above" in low) else ""
+            return s, (f"color:{col};font-weight:700" if col else "")
+        if label == "Trend":
+            col = c["pos"] if s.startswith("▲") else c["neg"] if s.startswith("▼") else c["amber"] if s.startswith("◆") else c["muted"]
+            return s, f"color:{col};font-weight:700"
+        if label == "Earnings": return s, (f"color:{c['neg']};font-weight:700" if "⛔" in s else "")
+        if label in ("Type", "Industry"): return s, f"color:{c['muted']}"
+        return s, ""
+
+    def _al(label):
+        return "center" if label in _SCAN_CENTER else ("right" if label in _SCAN_RIGHT else "left")
+
+    head = "".join(
+        f"<th style='position:sticky;top:0;z-index:2;background:{c['raised']};color:{c['text']};"
+        f"border:1px solid {c['border']};padding:6px 8px;text-align:{_al(l)};font-size:10.5px;"
+        f"font-weight:700;white-space:nowrap'>{_h.escape(l)}</th>" for l, _ in _SCAN_VIEW)
+    body = ""
+    for _, row in df.iterrows():
+        tds = ""
+        for l, src in _SCAN_VIEW:
+            disp, stl = _cell(l, src, row)
+            base = (f"border:1px solid {c['border']};padding:4px 8px;white-space:nowrap;"
+                    f"color:{c['text']};font-size:11px;text-align:{_al(l)};")
+            stick = f"position:sticky;left:0;z-index:1;background:{c['panel']};" if l == "Ticker" else ""
+            tds += f"<td style='{base}{stick}{stl}'>{_h.escape(disp)}</td>"
+        body += f"<tr>{tds}</tr>"
+    note = (f"<div style='font-size:11px;color:{c['muted']};padding:3px 2px'>⏳ Scanning… {scanning}</div>"
+            if scanning else "")
+    return (note + f"<div style='overflow:auto;max-height:620px;border:1px solid {c['border']};border-radius:8px'>"
+            f"<table style='border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums'>"
+            f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>")
 
