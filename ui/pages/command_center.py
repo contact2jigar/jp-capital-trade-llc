@@ -188,7 +188,8 @@ def board_data() -> dict | None:
     vix_chg = vc if vc is not None else (ext.get("vix_chg") or 0.0)
     trend = mkt.get("trend") or ext.get("trend") or "Uptrend"
     r = engine.monitor_board(df, ext.get("ath_ira", 0), ext.get("ath_llc", 0), vix, vix_chg, trend)
-    return {"r": r, "df": df, "vix": vix, "vix_chg": vix_chg, "trend": trend, "live": bool(mkt.get("vix"))}
+    return {"r": r, "df": df, "vix": vix, "vix_chg": vix_chg, "trend": trend,
+            "ext": ext, "live": bool(mkt.get("vix"))}
 
 
 def _monitor_board(c: dict) -> None:

@@ -130,12 +130,18 @@ def allocation() -> pd.DataFrame:
 
 @cached(TTL["gsheet"])
 def monitor_externals() -> dict:
-    """The few Monitor-Board inputs that CAN'T come from a TradeLog snapshot:
-      • ATH ratchet — Z4 (IRA) / Z5 (LLC), the auto high-water marks.
-      • VIX / change / trend — the sheet's live GOOGLEFINANCE cells (AD3/AD4/AD8),
-        used only as a fallback when the live Yahoo pull fails.
-    Everything else on the board is computed from the TradeLog."""
-    out = {"ath_ira": 0.0, "ath_llc": 0.0, "vix": None, "vix_chg": None, "trend": None}
+    """The few Monitor-Board inputs that CAN'T come from a TradeLog snapshot. These live in a
+    KEY→VALUE block: column Z = key (label), column AA = value, so new inputs can be added by
+    typing a row — no hardcoded cell positions. Keys are matched case/space-insensitively:
+      • 'ATH IRA' / 'ATH LLC'              — the auto high-water marks (ratchet).
+      • 'YTD Start IRA' / 'YTD Start LLC'  — each account's start-of-year balance (for YTD gain).
+    VIX / change / trend still come from the live GOOGLEFINANCE cells (AD3/AD4/AD8), a fallback
+    for when the Yahoo pull fails. Everything else on the board is computed from the TradeLog."""
+    out = {"ath_ira": 0.0, "ath_llc": 0.0,
+           "ytd_ira": 0.0, "ytd_llc": 0.0, "ytd_rollover": 0.0, "ytd_roth": 0.0,
+           "cur_rollover": 0.0, "cur_roth": 0.0, "park_llc": 0.0,
+           "ytd_start_total": 0.0, "cur_total": 0.0,
+           "vix": None, "vix_chg": None, "trend": None}
     grid = read_grid(_sheet.gid("monitorboard"))
     if grid.empty:
         return out
@@ -152,8 +158,36 @@ def monitor_externals() -> dict:
             return float(s)
         except ValueError:
             return None
-    out["ath_ira"] = num(cell(3, 25)) or 0.0      # Z4
-    out["ath_llc"] = num(cell(4, 25)) or 0.0      # Z5
+
+    # Z (col 25) = key, AA (col 26) = value — read the whole block into a normalized dict.
+    kv = {}
+    for rr in range(grid.shape[0]):
+        key = " ".join(cell(rr, 25).lower().split())   # lower + collapse any extra spaces
+        if key:
+            kv[key] = cell(rr, 26)
+
+    def kv_num(*keys):
+        for k in keys:
+            v = num(kv.get(k, ""))
+            if v is not None:
+                return v
+        return None
+
+    # Key-value first; fall back to the legacy fixed cells (Z4/Z5) so ATH keeps working
+    # until the sheet is migrated to the Z=key / AA=value layout.
+    out["ath_ira"] = kv_num("ath ira") or num(cell(3, 25)) or 0.0      # else legacy Z4
+    out["ath_llc"] = kv_num("ath llc") or num(cell(4, 25)) or 0.0      # else legacy Z5
+    out["ytd_ira"] = kv_num("ytd start ira", "ytd ira", "start ira") or 0.0
+    out["ytd_llc"] = kv_num("ytd start llc", "ytd llc", "start llc") or 0.0
+    out["ytd_rollover"] = kv_num("ytd start rollover", "ytd rollover") or 0.0
+    out["ytd_roth"] = kv_num("ytd start roth", "ytd roth") or 0.0
+    out["cur_rollover"] = kv_num("current rollover", "rollover current", "cur rollover") or 0.0
+    out["cur_roth"] = kv_num("current roth", "roth current", "cur roth") or 0.0
+    out["park_llc"] = kv_num("ytd park llc", "park llc", "llc park") or 0.0   # LLC cash parked elsewhere
+    # Optional whole-portfolio totals — if set, the Grand Total uses these (true all-accounts
+    # figures) instead of the sum of the tracked accounts, which are estimates.
+    out["ytd_start_total"] = kv_num("ytd start total", "total jan 1", "start total", "ytd total") or 0.0
+    out["cur_total"] = kv_num("current total", "total now", "cur total", "all accounts") or 0.0
     out["vix"] = num(cell(2, 29))                 # AD3
     out["vix_chg"] = num(cell(3, 29))             # AD4
     trend = cell(7, 29)                            # AD8

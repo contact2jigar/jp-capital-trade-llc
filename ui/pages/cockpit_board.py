@@ -393,6 +393,85 @@ def _money_card(r: dict, P: dict) -> str:
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
 
+def _ytd_card(r: dict, ext: dict, P: dict) -> str:
+    """📅 THIS YEAR — overall YTD gain across ALL accounts. IRA/LLC current come from the
+    board (TradeLog); Rollover/Roth current + every account's Jan-1 start come from the Z/AA
+    config block. Gain = current − Jan-1 (the 401k is folded into Rollover Start, so the
+    rollover nets out). Only accounts with a start value set are counted."""
+    ext = ext or {}
+    tag = _btag("📅 THIS YEAR", "YTD gain · Start → now · Wheel + Retirement", P)
+    llc_cur = (r["llc"].get("cap") or 0) + (ext.get("park_llc") or 0)   # + parked LLC cash
+    groups = [("Wheel", [("IRA", (r["ira"].get("cap") or 0), ext.get("ytd_ira") or 0),
+                         ("LLC", llc_cur, ext.get("ytd_llc") or 0)]),
+              ("Retirement", [("Rollover", ext.get("cur_rollover") or 0, ext.get("ytd_rollover") or 0),
+                              ("Roth", ext.get("cur_roth") or 0, ext.get("ytd_roth") or 0)])]
+    mono = 'font-family:"IBM Plex Mono",ui-monospace,monospace;'   # DOUBLE quotes inside style=''
+    GT = "grid-template-columns:1fr 92px 138px;"          # label · Start · YTD Gain (fixed → aligns)
+    accents = {"Wheel": P["blue"], "Retirement": P["purple"]}
+
+    def cell(label, start, gain, accent, kind=""):        # kind: "" (account) | "sub" (group total)
+        pc = (gain / start * 100) if start else 0.0
+        col = P["green"] if gain >= 0 else P["red"]
+        bg = f"background:{accent}22;" if kind == "sub" else ""     # tinted subtotal row
+        lw = "800" if kind == "sub" else "600"
+        return (f"<div style='display:grid;{GT}align-items:center;gap:10px;"
+                f"border-left:3px solid {accent};{bg}padding:3px 11px;border-radius:6px;margin-bottom:3px'>"
+                f"<div style='font-weight:{lw};color:{P['ink']};font-size:13px'>{label}</div>"
+                f"<div style='{mono}text-align:right;color:{P['mut']};font-size:12px'>{_m(start)}</div>"
+                f"<div style='{mono}text-align:right;color:{col};font-weight:700;font-size:13px'>"
+                f"{_m(gain)} <span style='font-size:10px;color:{P['mut']}'>({pc:+.1f}%)</span></div></div>")
+
+    hd = f"font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;"
+    header = (f"<div style='display:grid;{GT}gap:10px;padding:0 11px 2px'>"
+              f"<div style='{hd}'>Account</div><div style='{hd}text-align:right'>Start</div>"
+              f"<div style='{hd}text-align:right'>YTD Gain</div></div>")
+
+    cols_html, all_live = [], []
+    for gname, members in groups:
+        live = [(n, cur, s) for n, cur, s in members if s > 0]
+        if not live:
+            continue
+        all_live += live
+        acc = accents.get(gname, P["blue"])
+        body = header + "".join(cell(n, s, cur - s, acc) for n, cur, s in live)
+        gstart = sum(s for _, _, s in live)
+        body += cell(f"{gname} Total", gstart, sum(cur - s for _, cur, s in live), acc, kind="sub")
+        cols_html.append(f"<div>{body}</div>")
+    if not all_live:
+        return (f"<div class='ck-card ck-bcard'>{tag}<div class='ck-sub' style='margin-top:6px'>"
+                f"Fill the <b>YTD Start</b> values in the sheet's Z/AA config to light this up.</div></div>")
+    # Grand Total: prefer the TRUE all-accounts start from the config (per-account starts are
+    # only estimates that won't sum to the real Jan-1); current = the live sum.
+    sum_start = sum(s for _, _, s in all_live)
+    sum_cur = sum(cur for _, cur, _ in all_live)
+    gstart_all = ext.get("ytd_start_total") or 0.0
+    gcur_all = ext.get("cur_total") or 0.0        # optional manual override; else use live sum
+    if gstart_all > 0:
+        tstart = gstart_all
+        tcur = gcur_all if gcur_all > 0 else sum_cur
+        glabel = "Grand Total · all accounts"
+    else:
+        tstart, tcur = sum_start, sum_cur
+        glabel = "Grand Total"
+    tgain = tcur - tstart
+    tpct = (tgain / tstart * 100) if tstart else 0.0
+    gc = P["green"] if tgain >= 0 else P["red"]
+    head = (f"<div style='display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:2px 0 6px'>"
+            f"<span style='font-size:24px;font-weight:800;color:{gc}'>{_m(tgain)}</span>"
+            f"<span style='font-size:15px;font-weight:700;color:{gc}'>{tpct:+.1f}%</span>"
+            f"<span style='font-size:12px;color:{P['mut']}'>· {_m(tstart)} → {_m(tcur)}</span></div>")
+    cols = (f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:16px'>"
+            f"{''.join(cols_html)}</div>")
+    ggain = "#4ade80" if tgain >= 0 else "#f87171"     # bright on the dark bar
+    grand = (f"<div style='display:grid;{GT}align-items:center;gap:10px;background:#141b2b;"
+             f"padding:6px 11px;border-radius:7px;margin-top:5px'>"
+             f"<div style='font-weight:800;color:#fff;font-size:13px'>{glabel}</div>"
+             f"<div style='{mono}text-align:right;color:#cbd5e1;font-size:12px'>{_m(tstart)}</div>"
+             f"<div style='{mono}text-align:right;color:{ggain};font-weight:800;font-size:14px'>"
+             f"{_m(tgain)} <span style='font-size:10px;color:#94a3b8'>({tpct:+.1f}%)</span></div></div>")
+    return f"<div class='ck-card ck-bcard'>{tag}{head}{cols}{grand}</div>"
+
+
 def _ccotm(df) -> dict:
     """Per-account $ of covered calls that are OUT of the money (open CALL, strike > current)."""
     od = engine._openrows(df)
@@ -1255,6 +1334,7 @@ def render(c: dict) -> None:
       </div>
       {_summary_grid(r, P)}
       {_perf}
+      {_ytd_card(r, data.get("ext"), P)}
       <div class="ck-brow3">
         {_alloc_card(tdf, 'IRA', r['ira'], P)}
         {_alloc_card(tdf, 'LLC', r['llc'], P)}
