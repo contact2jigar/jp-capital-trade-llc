@@ -268,7 +268,7 @@ def _goalmeter_card(pd: dict, P: dict) -> str:
                 f"<div class='ck-gz'>{_m(earned)} <span>/ {_m(goal)}</span></div>"
                 f"<div style='font-size:9.5px;font-weight:700;color:{pcol};margin-top:1px;'>"
                 f"pace {_m(pace_t)} · {tag}</div></div>")
-    return (f"<div class='ck-card ck-brkcard ck-gm'>{_btag('🎯 PREMIUM GOALS', '47% AOR · 1.51% of ATH', P)}"
+    return (f"<div class='ck-card ck-brkcard ck-gm'>{_btag('🎯 GOALS', '47% AOR · 1.5% ATH', P)}"
             f"<div class='ck-bgrow2'>{one('wk', 'WEEKLY')}{one('mo', 'MONTHLY')}</div></div>")
 
 
@@ -328,7 +328,7 @@ def _goalbar_card(pd: dict, P: dict) -> str:
 
     mg, me = pd.get("mo_goal", 0) or 1, pd.get("mo_earned", 0) or 0
     wg, we = pd.get("wk_goal", 0) or 1, pd.get("wk_earned", 0) or 0
-    return (f"<div class='ck-card ck-brkcard'>{_btag('🎯 PREMIUM GOALS', '47% AOR · 1.51% of ATH', P)}"
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🎯 GOALS', '47% AOR · 1.5% ATH', P)}"
             f"{bar('MONTHLY', me, mg, mo_frac)}"
             f"<div style='border-top:1px solid {P['lsoft']};margin:2px 8px'></div>"
             f"{bar('WEEKLY', we, wg, wk_frac)}</div>")
@@ -338,20 +338,25 @@ def _breaker_card(r: dict, P: dict) -> str:
     """CC Breaker — all three gauges (IRA · LLC · Total), the exact Cockpit semicircle."""
     def one(name, a):
         brk = (a.get("ccbrk") or 0) * 100
+        over = brk > 45                                     # breached the cap
         zc = P["green"] if brk < 30 else P["amber"] if brk < 45 else P["red"]
-        gap = a.get("brkgap", 0)                            # $ headroom to the 45% cap
+        gap = a.get("brkgap", 0)                            # $ headroom to the 45% cap (neg = over)
+        gv = (f"<div class='ck-gv' style='color:{P['red']}'>{brk:.1f}% "
+              f"<span style='font-size:9px;font-weight:900;letter-spacing:.04em;color:#fff;"
+              f"background:{P['red']};border-radius:4px;padding:1px 5px;vertical-align:2px;'>OVER CAP</span></div>"
+              if over else f"<div class='ck-gv'>{brk:.1f}%</div>")
         return (f"<div class='ck-bg'><div class='ck-bglabel'>{name}</div>"
-                f"{ck._gauge(brk, P, 'b' + name)}"
-                f"<div class='ck-gv'>{brk:.1f}%</div>"
+                f"{ck._gauge(brk, P, 'b' + name)}{gv}"
                 f"<div class='ck-gz' style='color:{zc}'>{_m(gap)} <span>gap</span></div></div>")
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
-    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CIRCUIT BREAKER · YIELD', 'Target 15-20% · Cap 45%', P)}"
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CIRCUIT BREAKER', 'Cap 45%', P)}"
             f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div></div>")
 
 
 def _money_card(r: dict, P: dict) -> str:
     """Money — Capital · All Time High · Cash Vault (30% ATH), IRA/LLC with $ and %."""
-    _T = {k: (r["ira"].get(k) or 0) + (r["llc"].get(k) or 0) for k in ("cap", "ath", "ath0", "vault")}
+    _T = {k: (r["ira"].get(k) or 0) + (r["llc"].get(k) or 0)
+          for k in ("cap", "ath", "ath0", "vault", "cih", "csp")}
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", _T)]
     rows_def = [("All Time High", "ath"), ("Capital", "cap"), ("Cash Vault", "vault")]
     cells = ("<div class='ck-mh ck-mhl'>Money</div>"
@@ -370,17 +375,20 @@ def _money_card(r: dict, P: dict) -> str:
                 cells += f"<div class='ck-mv'><span class='ck-athup'>({comp})</span> {val}</div>"
             else:
                 cells += f"<div class='ck-mv'>{val}</div>"
+    # Cash In Hand row — free cash (not tied in CSP collateral = cih + vault) as a % of each
+    # account's own capital; the Total reads the "CASH %" that used to sit in the subtitle.
+    cells += "<div class='ck-ml'>Cash In Hand</div>"
+    for _, a in accts:
+        cap_a = a.get("cap") or 0
+        free_a = (a.get("cih") or 0) + (a.get("vault") or 0)
+        cells += f"<div class='ck-mv'>{(free_a / cap_a * 100) if cap_a else 0:.0f}%</div>"
     # Money-market cash (CSP collateral + cash in hand + vault) as a share of TOTAL capital.
     _cash = sum((a.get("csp") or 0) + (a.get("cih") or 0) + (a.get("vault") or 0)
                 for a in (r["ira"], r["llc"]))
     _cap = sum((a.get("cap") or 0) for a in (r["ira"], r["llc"]))
     _cashp = (_cash / _cap * 100) if _cap else 0
-    _csp = sum((a.get("csp") or 0) for a in (r["ira"], r["llc"]))
-    _cspp = (_csp / _cap * 100) if _cap else 0
-    _freep = _cashp - _cspp                          # cash not tied in CSP collateral (cih + vault)
     _ck = f"${_cash / 1e6:.1f}M" if _cash >= 1e6 else f"${_cash / 1e3:.0f}K"
-    msub = (f"{_cashp:.0f}% ({_ck}) earning ~{_MMF_YIELD:.1f}% · "
-            f"Vault 30% of ATH · CASH {_freep:.0f}%")
+    msub = f"{_cashp:.0f}% ({_ck}) @ ~{_MMF_YIELD:.1f}% · Vault 30%"
     return (f"<div class='ck-card ck-bcard'>{_btag('🏦 MONEY', msub, P)}"
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
@@ -493,6 +501,10 @@ def _alloc_groups(df, acct_upper: str) -> list:
     for raw, k in [("Profit Loss", "_pl"), ("Cash Reserve", "_cash"),
                    ("Current Price", "_price"), ("Strike Price", "_strike"), ("Qty", "_qty")]:
         d[k] = d[raw].map(engine._money)
+    # Return column = AOR (annualized) per position; _money doesn't strip '%', so do it here.
+    has_ret = "Return" in d.columns
+    d["_aor"] = (d["Return"].map(lambda v: engine._money(str(v).replace("%", "")))
+                 if has_ret else 0.0)
     # Known types in canonical order, then ANY other real category found in the data
     # (e.g. a newly added 04-WatchList / 5-Others), so a bucket never silently vanishes.
     # Only the X-list cash bucket is excluded.
@@ -506,9 +518,11 @@ def _alloc_groups(df, acct_upper: str) -> list:
             continue
         stocks = []
         for stk, sg in g.groupby("_stock"):
-            stocks.append(dict(stock=stk, pl=sg["_pl"].sum(), cash=sg["_cash"].sum(),
+            csum = sg["_cash"].sum()
+            waor = float((sg["_aor"] * sg["_cash"]).sum() / csum) if (has_ret and csum) else None
+            stocks.append(dict(stock=stk, pl=sg["_pl"].sum(), cash=csum,
                                qty=sg["_qty"].sum(), price=sg["_price"].mean(),
-                               strike=sg["_strike"].mean()))
+                               strike=sg["_strike"].mean(), aor=waor))
         stocks.sort(key=lambda x: x["stock"])
         out.append((it, stocks))
     return out
@@ -520,40 +534,122 @@ def _alloc_card(df, name: str, a: dict, P: dict) -> str:
     share of WHEEL capital (after the 30% vault); over the 5% cap shows red."""
     base = a.get("wcap") or 0
     groups = _alloc_groups(df, name.upper())
-    cols = ["Stock", "Profit Loss", "% Alloc", "Cash Reserved", "Current", "Qty", "Strike"]
+    cols = ["Stock", "Profit Loss", "% Alloc", "AOR", "Cash Reserved", "Current", "Qty", "Strike"]
     head = "".join(f"<div class='ck-fh{' ck-fhl' if i == 0 else ''}'>{c}</div>"
                    for i, c in enumerate(cols))
 
     def plcol(v):
         return P["green"] if v >= 0 else P["red"]
 
+    def aor_cell(aor, tot=False):                       # AOR: ≥45 green · <30 orange · else ink
+        extra = " ck-xtot" if tot else ""
+        if aor is None:
+            return f"<div class='ck-ac{extra}' style='color:{P['mut']}'>—</div>"
+        col = P["green"] if aor >= 45 else P["orange"] if aor < 30 else P["ink"]
+        return f"<div class='ck-ac{extra}' style='color:{col};font-weight:700'>{aor:.0f}%</div>"
+
     body = ""
     for it, stocks in groups:
         body += f"<div class='ck-xband'>{it}</div>"
         gpl = gcash = gqty = 0.0
+        gaor_num = gaor_den = 0.0
         for s in stocks:
             p = (s["cash"] / base * 100) if base else 0
             cap = 7 if s["qty"] <= 1 else 5                 # 1-lot starter may run to 7%, else 5%
             acol = P["red"] if p > cap else P["orange"] if p >= 4.5 else P["green"]  # orange = nearing cap
             gpl += s["pl"]; gcash += s["cash"]; gqty += s["qty"]
+            if s.get("aor") is not None:
+                gaor_num += s["aor"] * s["cash"]; gaor_den += s["cash"]
             body += (f"<div class='ck-fa'>{s['stock']}</div>"
                      f"<div class='ck-ac' style='color:{plcol(s['pl'])}'>{_m(s['pl'])}</div>"
                      f"<div class='ck-ac' style='color:{acol};font-weight:800'>{p:.1f}%</div>"
+                     f"{aor_cell(s.get('aor'))}"
                      f"<div class='ck-ac'>{_m(s['cash'])}</div>"
                      f"<div class='ck-ac'>{s['price']:.2f}</div>"
                      f"<div class='ck-ac'>{s['qty']:.0f}</div>"
                      f"<div class='ck-ac'>{s['strike']:.2f}</div>")
         gp = (gcash / base * 100) if base else 0
+        gaor = (gaor_num / gaor_den) if gaor_den else None
         body += (f"<div class='ck-fa ck-xtot'>{it.split('-')[-1]} Total</div>"
                  f"<div class='ck-ac ck-xtot' style='color:{plcol(gpl)}'>{_m(gpl)}</div>"
                  f"<div class='ck-ac ck-xtot' style='font-weight:800'>{gp:.1f}%</div>"
+                 f"{aor_cell(gaor, tot=True)}"
                  f"<div class='ck-ac ck-xtot'>{_m(gcash)}</div>"
                  f"<div class='ck-ac ck-xtot'></div><div class='ck-ac ck-xtot'>{gqty:.0f}</div>"
                  f"<div class='ck-ac ck-xtot'></div>")
     inner = (head + body) if groups else "<div class='ck-fa'>No open positions.</div>"
     return (f"<div class='ck-card ck-fcard'>"
-            f"{_btag(f'🧮 {name} ALLOCATION', '% wheel cap · cap 5% · 7% if 1 lot', P)}"
+            f"{_btag(f'🧮 {name} ALLOCATION', '5% Wheel cap · 7% 1 lot', P)}"
             f"<div class='ck-xgw'><div class='ck-xgrid'>{inner}</div></div></div>")
+
+
+def _combined_alloc_card(df, r, P: dict) -> str:
+    """Combined exposure per stock ACROSS both accounts — cash reserve summed over IRA+LLC
+    as a % of TOTAL wheel capital. The cap on the combined is a flat 5% (no 7% starter
+    exception), so any name over 5% combined shows BOLD red. Just Stock · % Alloc."""
+    tag = _btag("🔗 COMBINED BY STOCK", "5% Wheel cap · 7% 1 lot", P)
+    if df is None or getattr(df, "empty", True):
+        return ""
+    base = (r["ira"].get("wcap") or 0) + (r["llc"].get("wcap") or 0)
+    od = engine._openrows(df)
+    if od.empty or "Stock" not in od.columns or "Cash Reserve" not in od.columns or base <= 0:
+        return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub' style='margin-top:6px'>No data.</div></div>"
+    d = od.copy()
+    d["_stk"] = d["Stock"].astype(str).str.upper()
+    d = d[~d["_stk"].isin(["", "NAN", "CASH", "VAULT"])]
+    if d.empty:
+        return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub' style='margin-top:6px'>No open positions.</div></div>"
+    d["_cash"] = d["Cash Reserve"].map(engine._money)
+    d["_qty"] = d["Qty"].map(engine._money) if "Qty" in d.columns else 0
+    d["_pl"] = d["Profit Loss"].map(engine._money) if "Profit Loss" in d.columns else 0.0
+    has_ret = "Return" in d.columns
+    d["_aor"] = (d["Return"].map(lambda v: engine._money(str(v).replace("%", ""))) if has_ret else 0.0)
+    d["_awt"] = d["_aor"] * d["_cash"]                  # collateral-weighted AOR numerator
+    g = d.groupby("_stk").agg(_cash=("_cash", "sum"), _qty=("_qty", "sum"),
+                              _pl=("_pl", "sum"), _awt=("_awt", "sum")).reset_index()
+    g["pct"] = g["_cash"] / base * 100
+    g = g.sort_values("pct", ascending=False)
+
+    def aor_html(aor, tot=False):                       # ≥45 green · <30 orange · else ink
+        cls = "ck-ca-p ck-ca-tot" if tot else "ck-ca-p"
+        if aor is None or pd.isna(aor):
+            return f"<div class='{cls}' style='color:{P['mut']}'>—</div>"
+        col = P["green"] if aor >= 45 else P["orange"] if aor < 30 else P["ink"]
+        return f"<div class='{cls}' style='color:{col};font-weight:700'>{aor:.0f}%</div>"
+
+    head = ("<div class='ck-ca-s ck-ca-h'>Stock</div>"
+            "<div class='ck-ca-p ck-ca-h'>P/L</div>"
+            "<div class='ck-ca-p ck-ca-h'>Cash Res</div>"
+            "<div class='ck-ca-p ck-ca-h'>Qty</div>"
+            "<div class='ck-ca-p ck-ca-h'>% Alloc</div>"
+            "<div class='ck-ca-p ck-ca-h'>AOR</div>")
+    body = ""
+    for _, row in g.iterrows():
+        pc = row["pct"]
+        cap = 7 if row["_qty"] <= 1 else 5              # same as per-account: 7% 1-lot starter, else 5%
+        over = pc > cap
+        col = P["red"] if over else P["orange"] if pc >= 4.5 else P["green"]  # orange = nearing cap
+        w = "800" if over else "700"
+        plc = P["green"] if row["_pl"] >= 0 else P["red"]
+        waor = (row["_awt"] / row["_cash"]) if (has_ret and row["_cash"]) else None
+        body += (f"<div class='ck-ca-s'>{row['_stk']}</div>"
+                 f"<div class='ck-ca-p' style='color:{plc};font-weight:700'>{_m(row['_pl'])}</div>"
+                 f"<div class='ck-ca-p'>{_m(row['_cash'])}</div>"
+                 f"<div class='ck-ca-p ck-ca-mid'>{row['_qty']:.0f}</div>"
+                 f"<div class='ck-ca-p' style='color:{col};font-weight:{w}'>{pc:.1f}%</div>"
+                 f"{aor_html(waor)}")
+    tcash, tqty, tpl = g["_cash"].sum(), g["_qty"].sum(), g["_pl"].sum()
+    tot = tcash / base * 100
+    taor = (g["_awt"].sum() / tcash) if (has_ret and tcash) else None
+    tplc = P["green"] if tpl >= 0 else P["red"]
+    body += (f"<div class='ck-ca-s ck-ca-tot'>Total</div>"
+             f"<div class='ck-ca-p ck-ca-tot' style='color:{tplc}'>{_m(tpl)}</div>"
+             f"<div class='ck-ca-p ck-ca-tot'>{_m(tcash)}</div>"
+             f"<div class='ck-ca-p ck-ca-tot'>{tqty:.0f}</div>"
+             f"<div class='ck-ca-p ck-ca-tot'>{tot:.1f}%</div>"
+             f"{aor_html(taor, tot=True)}")
+    return (f"<div class='ck-card ck-fcard'>{tag}"
+            f"<div class='ck-caw'><div class='ck-ca-grid'>{head}{body}</div></div></div>")
 
 
 def _assignment_card(df, c: dict) -> str:
@@ -628,15 +724,16 @@ def _week_expiry_card(df, c: dict) -> str:
 
 
 def _expiry_summary_card(df, name: str, c: dict) -> str:
-    """Per-expiry rollup for ONE account — each expiry's Qty · P/L · Cash Reserve · % Ret ·
-    Cash Release summed across its open rows, with a grand total. Mirrors the sheet's expiry
-    pivot: a quick 'what each week (and the cash/LEAP buckets) is carrying' per account."""
+    """Per-expiry rollup for ONE account — each expiry's Qty · P/L · Reserve · % Ret ·
+    Release summed across its open rows, EXPANDABLE (native <details>, no JS) to the
+    per-stock breakdown under that expiry, with a grand total. Mirrors the sheet's pivot;
+    scrolls horizontally on narrow (iPhone) widths."""
     if df is None or getattr(df, "empty", True):
         return ""
     P = ck.LIGHT if ck._is_light(c.get("bg", "")) else ck.DARK
-    tag = _btag(f"📆 {name} BY EXPIRY", "per-week P/L · reserve · % ret · release", P)
+    tag = _btag(f"📆 {name} BY EXPIRY", "P/L · reserve · % ret · release · tap a row for stocks", P)
     od = engine._openrows(df).copy()
-    need = ["Account", "Exp Date", "Profit Loss", "Cash Reserve", "Qty"]
+    need = ["Account", "Exp Date", "Profit Loss", "Cash Reserve", "Qty", "Stock"]
     if od.empty or any(cn not in od.columns for cn in need):
         return f"<div class='ck-card ck-fcard'>{tag}<div class='ck-sub' style='margin-top:6px'>No data.</div></div>"
     d = od[od["Account"].astype(str).str.upper() == name.upper()].copy()
@@ -647,48 +744,53 @@ def _expiry_summary_card(df, name: str, c: dict) -> str:
         d[k] = d[raw].map(engine._money)
     d["_rel"] = d["Cash Release"].map(engine._money) if has_rel else 0.0
     d["_exp"] = pd.to_datetime(d["Exp Date"], errors="coerce")
-    rows = []
-    for exp, sg in d.groupby("Exp Date", dropna=False):
-        rows.append(dict(order=sg["_exp"].min(), raw=str(exp), pl=sg["_pl"].sum(),
-                         res=sg["_res"].sum(), rel=sg["_rel"].sum(), qty=sg["_qty"].sum()))
-    rows.sort(key=lambda x: (pd.isna(x["order"]), x["order"]))
+    d["_stk"] = d["Stock"].astype(str).str.upper()
 
-    base = f"border-bottom:1px solid {P['line']};padding:5px 7px;white-space:nowrap;"
-    rr = "text-align:right;"
-    cols = ["Expiry", "Qty", "P/L", "Reserve", "% Ret", "Release"]
-    th = "".join(f"<th style='{base}{'text-align:left' if h == 'Expiry' else rr}color:{P['mut']};"
-                 f"font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.03em'>{h}</th>"
-                 for h in cols)
+    def nums(qty, pl, res, rel):
+        ret = (pl / res * 100) if res else 0.0
+        plc = P["green"] if pl >= 0 else P["red"]
+        retc = P["green"] if ret >= 0 else P["red"]
+        return (f"<div class='ck-exn ck-exmid'>{qty:.0f}</div>"
+                f"<div class='ck-exn' style='color:{plc};font-weight:700'>{_m(pl)}</div>"
+                f"<div class='ck-exn'>{_m(res)}</div>"
+                f"<div class='ck-exn' style='color:{retc};font-weight:700'>{ret:.2f}%</div>"
+                f"<div class='ck-exn' style='color:{P['gold']}'>{_m(rel)}</div>")
+
+    groups = []
+    for exp, sg in d.groupby("Exp Date", dropna=False):
+        stocks = [dict(stk=stk, qty=ss["_qty"].sum(), pl=ss["_pl"].sum(),
+                       res=ss["_res"].sum(), rel=ss["_rel"].sum())
+                  for stk, ss in sg.groupby("_stk")]
+        stocks.sort(key=lambda x: -x["res"])
+        groups.append(dict(order=sg["_exp"].min(), raw=str(exp), qty=sg["_qty"].sum(),
+                           pl=sg["_pl"].sum(), res=sg["_res"].sum(), rel=sg["_rel"].sum(),
+                           stocks=stocks))
+    groups.sort(key=lambda x: (pd.isna(x["order"]), x["order"]))
+
+    head = ("<div class='ck-exr ck-exh'><div>Expiry</div><div class='ck-exn'>Qty</div>"
+            "<div class='ck-exn'>P/L</div><div class='ck-exn'>Reserve</div>"
+            "<div class='ck-exn'>% Ret</div><div class='ck-exn'>Release</div></div>")
     body = ""
     tpl = tres = trel = tqty = 0.0
-    for r in rows:
-        ret = (r["pl"] / r["res"] * 100) if r["res"] else 0.0
-        tpl += r["pl"]; tres += r["res"]; trel += r["rel"]; tqty += r["qty"]
-        plc = P["green"] if r["pl"] >= 0 else P["red"]
-        retc = P["green"] if ret >= 0 else P["red"]
-        lbl = r["order"].strftime("%-m/%-d/%y") if pd.notna(r["order"]) else r["raw"]
-        body += (f"<tr>"
-                 f"<td style='{base}color:{P['ink']};font-weight:700'>{lbl}</td>"
-                 f"<td style='{base}{rr}color:{P['mid']}'>{r['qty']:.0f}</td>"
-                 f"<td style='{base}{rr}color:{plc};font-weight:700'>{_m(r['pl'])}</td>"
-                 f"<td style='{base}{rr}color:{P['ink']}'>{_m(r['res'])}</td>"
-                 f"<td style='{base}{rr}color:{retc};font-weight:700'>{ret:.2f}%</td>"
-                 f"<td style='{base}{rr}color:{P['gold']}'>{_m(r['rel'])}</td></tr>")
+    for g in groups:
+        tpl += g["pl"]; tres += g["res"]; trel += g["rel"]; tqty += g["qty"]
+        lbl = g["order"].strftime("%-m/%-d/%y") if pd.notna(g["order"]) else g["raw"]
+        stk_rows = "".join(
+            f"<div class='ck-exr ck-exstk'><div class='ck-exlbl'>{s['stk']}</div>"
+            f"{nums(s['qty'], s['pl'], s['res'], s['rel'])}</div>" for s in g["stocks"])
+        body += (f"<details class='ck-exg'><summary class='ck-exr ck-exsum'>"
+                 f"<div class='ck-exlbl'>{lbl}</div>{nums(g['qty'], g['pl'], g['res'], g['rel'])}"
+                 f"</summary>{stk_rows}</details>")
     tret = (tpl / tres * 100) if tres else 0.0
     tplc = P["green"] if tpl >= 0 else P["red"]
-    tb = f"border-top:2px solid {P['line']};padding:6px 7px;font-weight:800;white-space:nowrap;"
-    total = (f"<tr style='background:{P['glow']}'>"
-             f"<td style='{tb}color:{P['ink']}'>Total</td>"
-             f"<td style='{tb}{rr}color:{P['ink']}'>{tqty:.0f}</td>"
-             f"<td style='{tb}{rr}color:{tplc}'>{_m(tpl)}</td>"
-             f"<td style='{tb}{rr}color:{P['ink']}'>{_m(tres)}</td>"
-             f"<td style='{tb}{rr}color:{P['ink']}'>{tret:.2f}%</td>"
-             f"<td style='{tb}{rr}color:{P['gold']}'>{_m(trel)}</td></tr>")
-    table = (f"<div style='overflow:auto;margin-top:6px'>"
-             f"<table style='border-collapse:collapse;width:100%;font-size:12px;"
-             f"font-variant-numeric:tabular-nums'>"
-             f"<thead><tr>{th}</tr></thead><tbody>{body}{total}</tbody></table></div>")
-    return f"<div class='ck-card ck-fcard'>{tag}{table}</div>"
+    total = (f"<div class='ck-exr ck-extot'><div class='ck-exlbl'>Total</div>"
+             f"<div class='ck-exn'>{tqty:.0f}</div>"
+             f"<div class='ck-exn' style='color:{tplc}'>{_m(tpl)}</div>"
+             f"<div class='ck-exn'>{_m(tres)}</div>"
+             f"<div class='ck-exn'>{tret:.2f}%</div>"
+             f"<div class='ck-exn' style='color:{P['gold']}'>{_m(trel)}</div></div>")
+    tbl = f"<div class='ck-exw'><div class='ck-ext'>{head}{body}{total}</div></div>"
+    return f"<div class='ck-card ck-fcard'>{tag}{tbl}</div>"
 
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -879,7 +981,7 @@ def _acct_card(name: str, a: dict, accent: str, P: dict) -> str:
 
 def _extra_css(P: dict) -> str:
     return f"""<style>
-.ck-temoji{{font-size:1.35em;line-height:1;vertical-align:-0.09em}}
+.ck-temoji{{font-size:1.18em;line-height:1;vertical-align:-0.06em}}
 .ck-idx{{display:flex;flex-direction:column;gap:3px;justify-content:center;padding-left:4px}}
 .ck-ichip{{display:flex;align-items:baseline;gap:6px;line-height:1}}
 .ck-il{{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:{P['mut']};font-weight:700;min-width:30px}}
@@ -947,23 +1049,55 @@ def _extra_css(P: dict) -> str:
 .ck-xgw{{overflow-x:auto;overflow-y:hidden;margin-top:8px;border:1px solid {P['line']};
   border-radius:8px;-webkit-overflow-scrolling:touch}}
 .ck-xgrid{{display:grid;gap:1px;background:{P['line']};min-width:100%;
-  grid-template-columns:minmax(40px,1fr) auto auto minmax(64px,1.4fr) auto auto auto}}
+  grid-template-columns:minmax(56px,auto) auto auto auto minmax(64px,1.4fr) auto auto auto}}
 .ck-xband{{grid-column:1/-1;background:{P['plo']};color:{P['mid']};font-weight:800;font-size:11px;
   letter-spacing:.06em;text-transform:uppercase;padding:5px 11px;line-height:1.1}}
 .ck-xtot{{background:{P['glow']}!important;font-weight:800!important}}
-.ck-xgrid .ck-fa{{padding:5px 8px;font-size:13.5px}}
-.ck-xgrid .ck-fh{{padding:5px 4px}}
+.ck-xgrid .ck-fa{{padding:5px 8px;font-size:13.5px;white-space:nowrap}}
+.ck-xgrid .ck-fh{{padding:5px 4px;white-space:nowrap}}
 .ck-xgrid.ck-itmgrid{{grid-template-columns:minmax(44px,1.1fr) 0.7fr 0.7fr 0.9fr 0.9fr 0.55fr 1.3fr 0.8fr 1fr 0.9fr}}
 .ck-mpct{{color:{P['mut']}!important;font-weight:600!important}}
+.ck-exw{{overflow-x:auto;overflow-y:hidden;margin-top:8px;border:1px solid {P['line']};
+  border-radius:8px;-webkit-overflow-scrolling:touch}}
+.ck-ext{{min-width:100%;font-size:12px;font-variant-numeric:tabular-nums}}
+.ck-exr{{display:grid;grid-template-columns:minmax(98px,1fr) 44px 82px 96px 64px 88px;
+  align-items:center;border-bottom:1px solid {P['line']}}}
+.ck-exr>div{{padding:5px 8px;white-space:nowrap}}
+.ck-exn{{text-align:right;color:{P['ink']}}}
+.ck-exmid{{color:{P['mid']}!important}}
+.ck-exh>div{{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:{P['mut']};font-weight:700}}
+.ck-exg{{border:0}}
+.ck-exsum{{cursor:pointer;list-style:none;background:{P['phi']}}}
+.ck-exsum::-webkit-details-marker{{display:none}}
+.ck-exsum .ck-exlbl{{font-weight:700;color:{P['ink']}}}
+.ck-exsum .ck-exlbl::before{{content:'▸';display:inline-block;width:11px;color:{P['mut']};font-size:9px;margin-right:3px}}
+details[open]>.ck-exsum .ck-exlbl::before{{content:'▾'}}
+.ck-exstk{{background:{P['plo']}}}
+.ck-exstk .ck-exlbl{{padding-left:24px;color:{P['mid']};font-size:11.5px}}
+.ck-extot{{background:{P['glow']};font-weight:800;border-bottom:0}}
+.ck-extot .ck-exlbl{{color:{P['ink']}}}
 .ck-bcard .ck-chead,.ck-brkcard .ck-chead{{margin-bottom:2px}}
 @media (max-width:820px){{.ck-brow2{{grid-template-columns:1fr}}}}
+.ck-brow3{{display:grid;grid-template-columns:1.15fr 1fr .9fr;gap:12px;margin-bottom:14px;align-items:start}}
+@media (max-width:820px){{.ck-brow3{{grid-template-columns:1fr}}}}
+.ck-caw{{overflow-x:auto;overflow-y:hidden;margin-top:8px;border:1px solid {P['line']};
+  border-radius:8px;-webkit-overflow-scrolling:touch}}
+.ck-ca-grid{{display:grid;grid-template-columns:minmax(52px,1fr) auto auto auto auto auto;gap:1px;
+  background:{P['line']};min-width:100%}}
+.ck-ca-s{{padding:4px 10px;background:{P['phi']};font-weight:700;font-size:13px;color:{P['ink']};white-space:nowrap}}
+.ck-ca-p{{padding:4px 10px;background:{P['phi']};font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-size:13px;text-align:right;white-space:nowrap}}
+.ck-ca-h{{font-size:10px!important;text-transform:uppercase;letter-spacing:.03em;
+  color:{P['mut']}!important;font-weight:700!important;font-family:inherit!important}}
+.ck-ca-mid{{color:{P['mid']}}}
+.ck-ca-tot{{background:{P['glow']}!important;font-weight:800!important;color:{P['ink']}}}
 .ck-brow{{display:grid;grid-template-columns:1.5fr 1.55fr 1.35fr;gap:11px;margin-bottom:14px;align-items:stretch}}
 .ck-bgrow2{{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:4px;align-items:end}}
 .ck-gm .ck-gz{{font-size:12px}}
 .ck-gm .ck-gz span{{font-size:11px!important;font-weight:600!important;color:{P['subv']}!important;font-family:'IBM Plex Sans',system-ui,sans-serif!important}}
 .ck-seg{{color:#0c1116!important}}
 .ck-sd{{opacity:1!important;color:#0c1116!important}}
-.ck-goalcard,.ck-brkcard{{padding:10px 14px 10px}}
+.ck-goalcard,.ck-brkcard{{padding:7px 14px 7px}}
 .ck-grow{{padding:9px 0 7px}}
 .ck-grow + .ck-grow{{border-top:1px solid {P['lsoft']}}}
 .ck-pcard2{{padding:11px 13px 12px;display:flex;flex-direction:column}}
@@ -988,15 +1122,15 @@ def _extra_css(P: dict) -> str:
 .ck-brkcard .ck-gz span{{color:{P['mut']};font-weight:600;font-size:8px;font-family:'IBM Plex Sans',system-ui,sans-serif}}
 .ck-brkcard .ck-bglabel{{line-height:1.1}}
 @media (max-width:820px){{.ck-brow{{grid-template-columns:1fr}}}}
-.ck-bcard{{padding:9px 14px 9px;margin-bottom:14px}}
+.ck-bcard{{padding:7px 14px 7px;margin-bottom:14px}}
 .ck-mgrid{{display:grid;grid-template-columns:auto 1fr 1fr 1fr;column-gap:14px;margin-top:6px}}
 .ck-mh{{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;
   line-height:1.1;text-align:right;padding:1px 0 4px;border-bottom:1px solid {P['line']}}}
 .ck-mhl{{text-align:left}}
-.ck-ml{{font-size:13.5px;font-weight:600;line-height:1.1;color:{P['ink']};padding:2.5px 0;
+.ck-ml{{font-size:13.5px;font-weight:600;line-height:1.1;color:{P['ink']};padding:1.5px 0;
   border-bottom:1px solid {P['lsoft']}}}
 .ck-mv{{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:14px;font-weight:500;line-height:1.1;
-  color:{P['ink']};text-align:right;padding:2.5px 0;border-bottom:1px solid {P['lsoft']}}}
+  color:{P['ink']};text-align:right;padding:1.5px 0;border-bottom:1px solid {P['lsoft']}}}
 .ck-mgrid > :nth-last-child(-n+4){{border-bottom:none}}
 .ck-athrow{{color:#37b24d!important;font-weight:700!important}}
 .ck-athup{{font-size:9px;font-weight:600;color:#37b24d;opacity:.85}}
@@ -1105,9 +1239,10 @@ def render(c: dict) -> None:
       </div>
       {_summary_grid(r, P)}
       {_perf}
-      <div class="ck-brow2">
+      <div class="ck-brow3">
         {_alloc_card(tdf, 'IRA', r['ira'], P)}
         {_alloc_card(tdf, 'LLC', r['llc'], P)}
+        {_combined_alloc_card(tdf, r, P)}
       </div>
       {_assignment_card(tdf, c)}
       {_week_expiry_card(tdf, c)}

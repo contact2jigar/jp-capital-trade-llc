@@ -87,21 +87,29 @@ def _gauge(v: float, P: dict, uid: str = "") -> str:
     # Zones against the 45% cap: green 0–20, yellow 20–30, orange 30–40, red 40–45.
     gz, yz, oz, rz = "#43c463", "#f2c436", "#f08a24", "#f2555a"
 
-    def lbl(val):                                   # band-start number just outside the arc
+    def lbl(val, col=None):                          # boundary number just outside the arc
         a = math.radians(180 - val / S * 180)
-        lx, ly = cx + (r + 8) * math.cos(a), cy - (r + 8) * math.sin(a)
-        return (f'<text x="{lx:.1f}" y="{ly:.1f}" font-size="7.5" fill="{P['ink']}" '
-                f'font-weight="700" text-anchor="middle" dominant-baseline="middle">{val}</text>')
-    ticks = lbl(20) + lbl(30) + lbl(40)
+        lx, ly = cx + (r + 9) * math.cos(a), cy - (r + 9) * math.sin(a)
+        return (f'<text x="{lx:.1f}" y="{ly:.1f}" font-size="9.5" fill="{col or P['ink']}" '
+                f'font-weight="800" text-anchor="middle" dominant-baseline="middle">{val}</text>')
+    # 0 (start) + band boundaries + 45 (the cap, in red — the line a crash crosses).
+    ticks = lbl(0) + lbl(20) + lbl(30) + lbl(40) + lbl(45, rz)
     by = cy - 8                                     # raised, shorter needle so it clears the % below
-    ang = math.radians(180 - min(v, S) / S * 180)   # needle stops short; arrowhead reaches the band
+    over = v > S                                     # breached the 45% cap (crash)
+    ndl = rz if over else P['ink']                   # needle goes red when over the cap
+    ang = math.radians(180 - min(v, S) / S * 180)    # needle stops short; arrowhead reaches the band
     nx, ny = cx + 46 * math.cos(ang), by - 46 * math.sin(ang)
     mid = f"ccbrktip{uid}"
+    # When breached, a red ">>" sits just past the 45 end — the needle is pinned, so this shows
+    # it has run OFF the scale.
+    ox, oy = pol(-9)
+    overmark = (f'<text x="{ox + 2:.1f}" y="{oy - 10:.1f}" font-size="12" fill="{rz}" '
+                f'font-weight="900" text-anchor="middle">»</text>') if over else ""
     return f"""<svg viewBox="0 0 180 94" width="100%" style="max-width:172px" aria-label="CC breaker {v:.1f}% of 45% cap">
-      <defs><marker id="{mid}" markerUnits="userSpaceOnUse" markerWidth="15" markerHeight="15" refX="3" refY="7.5" orient="auto"><path d="M0,0 L15,7.5 L0,15 Z" fill="{P['ink']}"/></marker></defs>
-      {arc(0, 19, gz)}{arc(20, 29, yz)}{arc(30, 39, oz)}{arc(40, 45, rz)}{ticks}
-      <line x1="{cx}" y1="{by}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{P['ink']}" stroke-width="2.5" stroke-linecap="round" marker-end="url(#{mid})"/>
-      <circle cx="{cx}" cy="{by}" r="4" fill="{P['ink']}"/>
+      <defs><marker id="{mid}" markerUnits="userSpaceOnUse" markerWidth="15" markerHeight="15" refX="3" refY="7.5" orient="auto"><path d="M0,0 L15,7.5 L0,15 Z" fill="{ndl}"/></marker></defs>
+      {arc(0, 19, gz)}{arc(20, 29, yz)}{arc(30, 39, oz)}{arc(40, 45, rz)}{ticks}{overmark}
+      <line x1="{cx}" y1="{by}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{ndl}" stroke-width="2.5" stroke-linecap="round" marker-end="url(#{mid})"/>
+      <circle cx="{cx}" cy="{by}" r="4" fill="{ndl}"/>
       <circle cx="{cx}" cy="{by}" r="7" fill="none" stroke="{P['line']}" stroke-width="1.5"/>
     </svg>"""
 
@@ -358,7 +366,7 @@ def _css(P: dict) -> str:
 .ck-card{{padding:20px}}
 .ck-chead{{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}}
 .ck-acct{{display:flex;align-items:center;gap:10px}}
-.ck-tag{{font-weight:700;font-size:13px;letter-spacing:.06em;padding:5px 11px;border-radius:7px}}
+.ck-tag{{font-weight:700;font-size:13px;letter-spacing:.06em;padding:3px 10px;border-radius:7px;white-space:nowrap}}
 .ck-sub{{font-size:13px;color:{P['mut']}}}
 .ck-ath{{font-size:13.5px;color:{P['mid']};margin-top:3px}}
 .ck-cap{{font-size:29px;font-weight:600;letter-spacing:-.02em}}
