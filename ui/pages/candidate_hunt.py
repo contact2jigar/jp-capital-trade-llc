@@ -213,11 +213,12 @@ def _cap_cell(c, acct_res):
 
 def _decisions_table(c, rows):
     cols = ["Ticker", "Setup", "Current", "%Chg", "4mo ↓", "Strike", "Strike ↓", "Expiry", "Δ",
-            "Prem", "AOR", "IV", "RSI", "BB", "Earnings", "Financials", "Cash", "IRA", "LLC",
+            "Prem", "AOR", "IV", "P/E", "RSI", "BB", "Earnings", "Financials", "Cash", "IRA", "LLC",
             "Decision", "Industry", "Why", "Company"]
     aligns = {"Current": "right", "%Chg": "right", "4mo ↓": "right", "Strike": "right",
               "Strike ↓": "right", "Δ": "center", "Prem": "right", "AOR": "center", "IV": "center",
-              "RSI": "center", "Cash": "right", "IRA": "center", "LLC": "center", "Decision": "center"}
+              "P/E": "center", "RSI": "center", "Cash": "right", "IRA": "center", "LLC": "center",
+              "Decision": "center"}
     # Freeze panes: header row sticks on vertical scroll; the first column sticks on
     # horizontal scroll; the first-column header (corner) sticks for both.
     head = ""
@@ -291,6 +292,14 @@ def _decisions_table(c, rows):
         rsi_col = (c["pos"] if (rsiv is not None and rsiv < 45)
                    else c["neg"] if (rsiv is not None and rsiv > 64) else c["text"])
         rsi_w = "700" if rsi_col != c["text"] else "400"
+        # P/E: amber when loss-making (≤0) or richly valued (>100), else regular. Blank = —
+        pev = r.get("pe")
+        if pev is None:
+            pe_td = f"<td style='{base}text-align:center;color:{c['muted']};'>—</td>"
+        else:
+            pe_col = c["amber"] if (pev <= 0 or pev > 100) else c["text"]
+            pe_w = "700" if pe_col != c["text"] else "400"
+            pe_td = f"<td style='{base}text-align:center;font-weight:{pe_w};color:{pe_col};'>{pev:.1f}</td>"
         # Earnings: red only if it lands ON/BEFORE expiry (a real veto), else regular
         earn_raw = str(r.get("earn", "")).replace("⛔", "").strip()
         earn_disp = "Clear" if (not earn_raw or earn_raw == "—") else earn_raw
@@ -315,6 +324,7 @@ def _decisions_table(c, rows):
             f"<td style='{base}text-align:right;'>{prem}</td>"
             f"<td style='{base}text-align:center;font-weight:{aor_w};color:{aor_col};'>{aor}</td>"
             f"<td style='{base}text-align:center;font-weight:{iv_w};color:{iv_col};'>{iv}</td>"
+            f"{pe_td}"
             f"<td style='{base}text-align:center;font-weight:{rsi_w};color:{rsi_col};'>{r['rsi']}</td>"
             f"<td style='{base}font-weight:700;color:{rg(r['bb_ok'])};'>{r['bb']}</td>"
             f"<td style='{base}font-weight:{earn_w};color:{earn_col};'>{earn_disp}</td>"
@@ -339,7 +349,7 @@ def _decisions_csv(rows) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Ticker", "Setup", "Current", "%Chg", "Strike", "Expiry", "Δ", "Prem",
-                "AOR%", "IV%", "RSI", "BB", "Earnings", "Financials", "Cash $B", "Industry",
+                "AOR%", "IV%", "P/E", "RSI", "BB", "Earnings", "Financials", "Cash $B", "Industry",
                 "GTC", "IRA Max", "IRA Held%", "LLC Max", "LLC Held%", "Decision", "Why"])
 
     def num(v, fmt):
@@ -351,7 +361,7 @@ def _decisions_csv(rows) -> str:
             r.get("ticker", ""), r.get("setup", ""),
             num(r.get("cur"), "%.2f"), num(r.get("chg"), "%+.1f"), num(r.get("strike"), "%.0f"),
             r.get("expiry", ""), num(r.get("delta"), "%.2f"), num(r.get("prem"), "%.2f"),
-            num(r.get("aor"), "%.0f"), num(r.get("iv"), "%.0f"),
+            num(r.get("aor"), "%.0f"), num(r.get("iv"), "%.0f"), num(r.get("pe"), "%.1f"),
             r.get("rsi", ""), r.get("bb", ""), r.get("earn", ""),
             r.get("fin", ""), num(r.get("cash"), "%.2f"), r.get("industry", ""),
             num(r.get("gtc"), "%.2f"),
@@ -399,6 +409,28 @@ def _apply_decision_filters(rows):
                 continue
         out.append(x)
     return out
+
+
+def _apply_scan_filters(cands):
+    """Filter Table 2 (All Scan Results) by its own RSI / BB / Earnings widgets. Mirrors the
+    Decision-box filters but runs on the full-scan DataFrame. No-RSI rows are kept."""
+    import pandas as pd
+    v = cands
+    min_aor = st.session_state.get("sr_aor", 0)
+    max_rsi = st.session_state.get("sr_rsi", 100)
+    bb_sel = st.session_state.get("sr_bb", []) or []
+    no_earn = st.session_state.get("sr_earn", False)
+    if min_aor > 0 and "AOR" in v.columns:
+        av = pd.to_numeric(v["AOR"].astype(str).str.replace("%", "", regex=False), errors="coerce")
+        v = v[av >= min_aor]                               # drops blanks (no priced option)
+    if max_rsi < 100 and "RSI" in v.columns:
+        rv = pd.to_numeric(v["RSI"], errors="coerce")
+        v = v[~(rv > max_rsi)]                              # keep ≤ max and blanks (NaN)
+    if bb_sel and "BB" in v.columns:
+        v = v[v["BB"].astype(str).isin(bb_sel)]
+    if no_earn and "Earnings" in v.columns:
+        v = v[~v["Earnings"].astype(str).str.contains("⛔", na=False)]   # drop the earnings veto
+    return v
 
 
 def render(c: dict) -> None:
@@ -502,7 +534,26 @@ def render(c: dict) -> None:
     # ── Table 2 — the full scan result: every selected name, all columns ──
     if cands is not None and not cands.empty:
         st.write("")
-        st.markdown(f"#### 📋 All Scan Results  <span style='font-size:12px;color:{c['muted']}'>"
-                    f"{len(cands)} names priced</span>", unsafe_allow_html=True)
+        st.markdown("#### 📋 All Scan Results", unsafe_allow_html=True)
+        # RESULT FILTERS for Table 2 — RSI · BB · Earnings (independent of the Decision-box filters).
+        bb_opts2 = sorted({str(x).strip() for x in cands.get("BB", [])
+                           if str(x).strip() and str(x).strip() not in ("nan", "None", "—")})
+        s0, s1, s2, s3, _sp = st.columns([0.85, 0.85, 1.6, 1.0, 3.7])
+        with s0:
+            st.number_input("Min AOR", 0, 200, 0, step=5, key="sr_aor")
+        with s1:
+            st.number_input("Max RSI", 0, 100, 100, step=5, key="sr_rsi")
+        with s2:
+            st.multiselect("BB zone", bb_opts2, key="sr_bb", placeholder="Any")
+        with s3:
+            st.markdown("<div style='font-size:0.875rem;margin-bottom:0.25rem'>&nbsp;</div>",
+                        unsafe_allow_html=True)
+            st.checkbox("No earnings", value=False, key="sr_earn",
+                        help="Hide names with an earnings veto (⛔ on/before expiry).")
+        shown = _apply_scan_filters(cands)
+        tail = (f"{len(shown)} of {len(cands)} names"
+                if len(shown) != len(cands) else f"{len(cands)} names priced")
+        st.markdown(f"<span style='font-size:12px;color:{c['muted']}'>{tail}</span>",
+                    unsafe_allow_html=True)
         _exp = str(meta[3]) if (meta and len(meta) > 3 and meta[3]) else "—"
-        st.markdown(csp_scanner.scan_table_html(cands, c, _exp), unsafe_allow_html=True)
+        st.markdown(csp_scanner.scan_table_html(shown, c, _exp), unsafe_allow_html=True)

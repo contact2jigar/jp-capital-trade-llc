@@ -239,7 +239,12 @@ def _card(name: str, cls_col: str, d: dict, P: dict) -> str:
     </div>"""
 
 
-def _vix_meter(vix: float, band: int, up: bool) -> str:
+def _vix_meter(vix: float, band: int, up: bool, cash_pct: float | None = None, P: dict | None = None) -> str:
+    """The VIX strip. The floating marker is the cash-to-HOLD target for the current VIX
+    (interpolated within the band). When cash_pct (actual cash in hand, % of capital) + P are
+    passed, the marker becomes a status badge: green if actual ≥ target (covered), gold if
+    within 5pts under, red if well under — so 'am I holding enough cash for this VIX?' reads
+    at a glance."""
     i = max(0, min(band, 5))
     frac = 0.5
     if EDGES[i + 1] > EDGES[i]:
@@ -252,10 +257,21 @@ def _vix_meter(vix: float, band: int, up: bool) -> str:
         segs += (f"<div class='ck-seg{'' if k == i else ' ck-dim'}' style='background:{col}'>"
                  f"<span class='ck-sr'>{lbl}</span>"
                  f"<span class='ck-sd'>{lo * 100:.0f}–{hi * 100:.0f}%</span></div>")
-    alloc = engine.allocation(vix, "Uptrend" if up else "Downtrend")   # live interpolated cash %
+    tgt = engine.allocation(vix, "Uptrend" if up else "Downtrend") * 100   # live interpolated cash % target
+    # Split the label across the needle (no pill): the colored % on the LEFT, 'CASH 💵' on the
+    # RIGHT. Only the % number carries the status color.
+    bcol = P["ink"] if P else None
+    if cash_pct is not None and P is not None:
+        bcol = (P["green"] if cash_pct >= tgt else P["gold"] if cash_pct >= tgt - 5 else P["red"])
+    numclr = f"color:{bcol};" if bcol else ""
+    base = "background:transparent;border:none;padding:0;"
+    num = (f"<div class='ck-npct' style='left:{left:.1f}%;{base}transform:translateX(calc(-100% - 7px))'>"
+           f"<span style='font-weight:800;{numclr}'>{tgt:.0f}%</span></div>")
+    lab = (f"<div class='ck-npct' style='left:{left:.1f}%;{base}transform:translateX(7px)'>"
+           f"<span style='font-size:8px;font-weight:700;letter-spacing:.03em;opacity:.6'>CASH</span> 💵</div>")
     return (f"<div class='ck-segs'>{segs}</div>"
             f"<div class='ck-needle' style='left:{left:.1f}%'></div>"
-            f"<div class='ck-npct' style='left:{left:.1f}%'>{alloc * 100:.0f}%</div>")
+            f"{num}{lab}")
 
 
 def _month_earned() -> float | None:

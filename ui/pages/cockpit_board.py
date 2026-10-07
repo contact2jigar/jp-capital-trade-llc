@@ -1332,6 +1332,10 @@ def render(c: dict) -> None:
     r, vix, vix_chg, trend = data["r"], data["vix"], data["vix_chg"], data["trend"]
     tdf = data.get("df")
     P = ck.LIGHT if ck._is_light(c.get("bg", "")) else ck.DARK
+    # Actual cash in hand (free cash + vault) as % of capital — for the VIX marker's status badge.
+    _capT = sum((a.get("cap") or 0) for a in (r["ira"], r["llc"]))
+    _freeT = sum((a.get("cih") or 0) + (a.get("vault") or 0) for a in (r["ira"], r["llc"]))
+    cash_pct = (_freeT / _capT * 100) if _capT else None
     try:
         mdf, _ = benchmark.monthly_df()
     except Exception:
@@ -1372,7 +1376,7 @@ def render(c: dict) -> None:
           {vix_chg * 100:+.1f}%</span></div>
         {idx_block}
         {fg_block}
-        <div class="ck-meter">{ck._vix_meter(vix, band, up)}</div>
+        <div class="ck-meter">{ck._vix_meter(vix, band, up, cash_pct, P)}</div>
         <div class="ck-regime">
           <div class="ck-tl-row"><span class="ck-tl">Target</span>
             <span class="ck-target">{dmin:.0f}–{dmax:.0f}%</span></div>

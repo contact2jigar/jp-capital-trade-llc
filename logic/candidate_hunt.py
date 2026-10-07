@@ -241,6 +241,7 @@ def size(candidates: pd.DataFrame, tl_df: pd.DataFrame, ath_ira: float, ath_llc:
                    bb=(d.get("BB") or "—"), earn=(earn or "—"), fin=(d.get("Financials") or "—"),
                    off4=_num(d.get("Off4mo")),
                    cush=_num(str(d.get("Cushion") or "").replace("%", "")),
+                   pe=_num(d.get("P/E")),
                    name=(d.get("Name") or "—"),
                    aor_ok=aor_ok, rsi_ok=rsi_ok, bb_ok=bb_ok, earn_ok=earn_ok,
                    delta_ok=delta_ok, room_ok=room_ok, veto_ok=veto_ok,
