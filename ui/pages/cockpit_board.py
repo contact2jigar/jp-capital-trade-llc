@@ -634,8 +634,13 @@ def _alloc_card(df, name: str, a: dict, P: dict) -> str:
         gaor_num = gaor_den = 0.0
         for s in stocks:
             p = (s["cash"] / base * 100) if base else 0
-            cap = 7 if s["qty"] <= 1 else 5                 # 1-lot starter may run to 7%, else 5%
-            acol = P["red"] if p > cap else P["orange"] if p >= 4.5 else P["green"]  # orange = nearing cap
+            # % Alloc color: <5% green · 5–7% with a single 1-lot amber (starter) · otherwise red
+            if p < 5:
+                acol = P["green"]
+            elif p <= 7 and s["qty"] <= 1:
+                acol = P["gold"]                         # yellow caution (amber reads coppery in Grey)
+            else:
+                acol = P["red"]
             gpl += s["pl"]; gcash += s["cash"]; gqty += s["qty"]
             if s.get("aor") is not None:
                 gaor_num += s["aor"] * s["cash"]; gaor_den += s["cash"]
@@ -705,10 +710,13 @@ def _combined_alloc_card(df, r, P: dict) -> str:
     body = ""
     for _, row in g.iterrows():
         pc = row["pct"]
-        cap = 7 if row["_qty"] <= 1 else 5              # same as per-account: 7% 1-lot starter, else 5%
-        over = pc > cap
-        col = P["red"] if over else P["orange"] if pc >= 4.5 else P["green"]  # orange = nearing cap
-        w = "800" if over else "700"
+        # % Alloc color: <5% green · 5–7% with a single 1-lot amber (starter) · otherwise red
+        if pc < 5:
+            col, w = P["green"], "700"
+        elif pc <= 7 and row["_qty"] <= 1:
+            col, w = P["gold"], "700"                     # yellow caution (amber reads coppery in Grey)
+        else:
+            col, w = P["red"], "800"
         plc = P["green"] if row["_pl"] >= 0 else P["red"]
         waor = (row["_awt"] / row["_cash"]) if (has_ret and row["_cash"]) else None
         body += (f"<div class='ck-ca-s'>{row['_stk']}</div>"
@@ -1272,6 +1280,50 @@ def _index_chips(P: dict) -> str:
     return f"<div class='ck-idx'>{chips}</div>" if chips else ""
 
 
+def _leap_alert(df, P: dict) -> str:
+    """Top-of-Cockpit alert when any open LEAP is in the GREEN. The flip doctrine exits a
+    LEAP at +10–15% (no time stop), so a profitable LEAP is a decision: ≥10% = exit zone,
+    0–10% = watch. % gain = P/L ÷ cost (Cash Reserve holds the LEAP debit). Only green LEAPs
+    show; if every LEAP is red the banner is hidden entirely."""
+    od = engine._openrows(df)
+    if od is None or getattr(od, "empty", True) or "Invest Type" not in od.columns:
+        return ""
+    if "Profit Loss" not in od.columns or "Cash Reserve" not in od.columns:
+        return ""
+    d = od[od["Invest Type"].astype(str).str.upper().str.contains("LEAP", na=False)].copy()
+    if d.empty:
+        return ""
+    d["_pl"] = d["Profit Loss"].map(engine._money)
+    d["_cost"] = d["Cash Reserve"].map(engine._money)
+    g = (d.groupby([d["Stock"].astype(str).str.upper(), d["Account"].astype(str).str.upper()])
+         .agg(pl=("_pl", "sum"), cost=("_cost", "sum")).reset_index())
+    g.columns = ["stock", "acct", "pl", "cost"]
+    g = g[g["pl"] >= 0]                                   # only LEAPs in the green
+    if g.empty:
+        return ""
+    g = g.sort_values("pl", ascending=False)
+    chips, exitzone = "", False
+    for _, row in g.iterrows():
+        pct = (row["pl"] / row["cost"] * 100) if row["cost"] else 0
+        hot = pct >= 10                                  # flip doctrine exit band +10–15%
+        exitzone = exitzone or hot
+        col = P["green"] if hot else P["amber"]
+        state = "EXIT ZONE" if hot else "watch"
+        chips += (f"<span style='display:inline-flex;align-items:center;gap:7px;background:{col}22;"
+                  f"border:1px solid {col}66;border-radius:7px;padding:3px 10px;margin:2px 7px 2px 0;"
+                  f"font-size:12px;font-weight:700;color:{P['ink']}'>"
+                  f"{row['stock']} <span style='color:{P['mut']};font-weight:600'>{row['acct']}</span> "
+                  f"<span style='color:{col}'>{_m(row['pl'])} (+{pct:.1f}%)</span>"
+                  f"<span style='color:{col};font-size:9px;text-transform:uppercase;letter-spacing:.04em'>"
+                  f"{state}</span></span>")
+    accent = P["green"] if exitzone else P["amber"]
+    msg = ("exit zone — flip doctrine sells +10–15%, GTC-walk the exit"
+           if exitzone else "green — watch for the +10–15% exit")
+    return (f"<div class='ck-card' style='border-left:4px solid {accent};padding:9px 14px;margin-bottom:10px'>"
+            f"<div style='font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};"
+            f"font-weight:800;margin-bottom:6px'>🚀 LEAP in profit · {msg}</div>{chips}</div>")
+
+
 def render(c: dict) -> None:
     data = cc.board_data()
     if data is None:
@@ -1327,6 +1379,7 @@ def render(c: dict) -> None:
           <div style="margin-top:4px">{trend_badge}</div>
         </div>
       </div>
+      {_leap_alert(tdf, P)}
       <div class="ck-brow">
         {_money_card(r, P)}
         {_breaker_card(r, P)}
@@ -1334,14 +1387,14 @@ def render(c: dict) -> None:
       </div>
       {_summary_grid(r, P)}
       {_perf}
+      {_assignment_card(tdf, c, r)}
+      {_week_expiry_card(tdf, c)}
       {_ytd_card(r, data.get("ext"), P)}
       <div class="ck-brow3">
         {_alloc_card(tdf, 'IRA', r['ira'], P)}
         {_alloc_card(tdf, 'LLC', r['llc'], P)}
         {_combined_alloc_card(tdf, r, P)}
       </div>
-      {_assignment_card(tdf, c, r)}
-      {_week_expiry_card(tdf, c)}
       <div class="ck-brow2">
         {_expiry_summary_card(tdf, 'LLC', c)}
         {_expiry_summary_card(tdf, 'IRA', c)}
