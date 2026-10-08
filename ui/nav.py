@@ -32,6 +32,7 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
     "REFERENCE": [
         ("Risk Gates", "🛡️", "Risk Gates"),
         ("Entry Setup", "📊", "Entry Setup"),
+        ("3-Tier & Deployment", "🪜", "3-Tier & Deployment"),
         ("Financials", "💵", "Financials"),
     ],
     "LEGACY": [   # classic views — phasing out
@@ -57,6 +58,7 @@ ROUTES: dict[str, str] = {
     "Report":            "ui.pages.report",
     "Entry Setup":       "ui.pages.entry_setup",
     "Risk Gates":        "ui.pages.risk_gates",
+    "3-Tier & Deployment": "ui.pages.ref_tier_deploy",
     "Financials":        "ui.pages.financials_ref",
 }
 

@@ -244,6 +244,22 @@ def _pace_fracs():
     return wk, mo
 
 
+def _year_frac() -> float:
+    """Fraction of the YEAR elapsed by trading (business) days — for the yearly goal's pace."""
+    import datetime as _d
+    t = _d.date.today()
+
+    def _bd(d1, d2):
+        n, d = 0, d1
+        while d <= d2:
+            if d.weekday() < 5:
+                n += 1
+            d += _d.timedelta(days=1)
+        return n
+    tot = _bd(_d.date(t.year, 1, 1), _d.date(t.year, 12, 31))
+    return (_bd(_d.date(t.year, 1, 1), t) / tot) if tot else 0.0
+
+
 def _goalmeter_card(pd: dict, P: dict) -> str:
     """Premium Goals — two meter dials (Weekly · Monthly). Needle = run-rate on a 0–100%
     dial where 100% = goal = the far-right end; over-goal pins full right and the % still
@@ -298,40 +314,58 @@ def _goalbar_card(pd: dict, P: dict) -> str:
     (green ahead · warm behind · grey not-started). Each bar also shows % complete and
     $ remaining."""
     wk_frac, mo_frac = _pace_fracs()
-    blue = P["blue"]
 
-    def bar(name, earned, goal, pf):
+    def _mix(h1, h2, t):                                   # blend h1→h2 by t (0..1)
+        a, b = h1.lstrip("#"), h2.lstrip("#")
+        r = [int(a[i:i + 2], 16) for i in (0, 2, 4)]
+        s = [int(b[i:i + 2], 16) for i in (0, 2, 4)]
+        return "#%02x%02x%02x" % tuple(round(r[i] + (s[i] - r[i]) * t) for i in range(3))
+    # Shade progression (week ⊂ month ⊂ year): deep → medium → light, so the fill depth reads
+    # as the zoom level without competing with the green/red of the ± number.
+    FILL_DEEP = _mix(P["blue"], "#000000", 0.30)
+    FILL_MED = P["blue"]
+    FILL_LIGHT = _mix(P["blue"], "#ffffff", 0.28)
+
+    def bar(name, earned, goal, pf, fill):
         goal = goal or 1
-        pcol, vs_label = _pace_status(earned, goal, pf, P)     # pace colour + '±$ vs pace'
-        started = pf >= _PACE_STARTED
-        vs = earned - goal * pf
+        # Left number = plain difference earned − goal (not vs pace). Sign + colour say ahead/behind;
+        # the marker tick still shows today's pace position on the bar.
+        diff = earned - goal
+        pcol = P["green"] if diff >= 0 else P["red"]
+        vs_short = f"{'+' if diff >= 0 else '−'}{_m(abs(diff))}"
         pct = earned / goal * 100
         fill_pct = max(0.0, min(100.0, pct))
         mark_pct = max(0.0, min(100.0, pf * 100))
-        badge = "AHEAD" if (started and vs >= 0) else ("BEHIND" if started else "—")
+        fill = P["green"] if pct >= 100 else fill        # beat the goal → fill goes green
         return (
-            f"<div style='margin:9px 8px 8px'>"
-            f"<div style='display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:5px'>"
-            f"<span style='font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:{P['mut']};"
-            f"font-weight:800'>{name}</span>"
+            f"<div style='margin:6px 8px 5px'>"
+            # stats line: ±$ vs pace (left) · earned / goal (centre) · % complete (right)
+            f"<div style='display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px'>"
+            f"<span style='font-size:10.5px;font-weight:700;color:{pcol};white-space:nowrap'>{vs_short}</span>"
             f"<span style='font-size:13px;font-weight:800;color:{P['ink']};white-space:nowrap'>{_m(earned)} "
             f"<span style='font-size:9.5px;color:{P['mid']};font-weight:600'>/ {_m(goal)}</span></span>"
-            f"<span style='font-size:7.5px;font-weight:900;letter-spacing:.04em;color:{pcol};background:{pcol}22;"
-            f"border:1px solid {pcol}55;border-radius:5px;padding:2px 6px;white-space:nowrap'>{badge}</span></div>"
-            f"<div style='position:relative;height:11px;background:{P['track']};border-radius:6px'>"
-            f"<div style='position:absolute;left:0;top:0;height:100%;width:{fill_pct:.1f}%;background:{blue};"
+            f"<span style='font-size:10.5px;color:{P['mut']};white-space:nowrap'>{pct:.0f}%</span></div>"
+            # label + bar on one line
+            f"<div style='display:flex;align-items:center;gap:9px'>"
+            f"<span style='font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:{P['mut']};"
+            f"font-weight:800;width:54px;flex:none'>{name}</span>"
+            f"<div style='position:relative;flex:1;height:11px;background:{P['track']};border-radius:6px'>"
+            f"<div style='position:absolute;left:0;top:0;height:100%;width:{fill_pct:.1f}%;background:{fill};"
             f"border-radius:6px'></div>"
-            f"<div style='position:absolute;top:-2px;bottom:-2px;left:{mark_pct:.1f}%;width:2px;background:{P['ink']}'></div></div>"
-            f"<div style='display:flex;justify-content:space-between;font-size:9.5px;margin-top:4px'>"
-            f"<span style='color:{pcol};font-weight:700'>{vs_label}</span>"
-            f"<span style='color:{P['mut']}'>{pct:.0f}% complete</span></div></div>")
+            f"<div style='position:absolute;top:-2px;bottom:-2px;left:{mark_pct:.1f}%;width:2px;background:{P['ink']}'></div>"
+            f"</div></div></div>")
 
     mg, me = pd.get("mo_goal", 0) or 1, pd.get("mo_earned", 0) or 0
     wg, we = pd.get("wk_goal", 0) or 1, pd.get("wk_earned", 0) or 0
+    yg, ye = pd.get("yr_goal", 0) or 1, pd.get("yr_earned", 0) or 0
+    yr_frac = _year_frac()
+    sep = f"<div style='border-top:1px solid {P['lsoft']};margin:2px 8px'></div>"
+    yearly = f"{bar('YEARLY', ye, yg, yr_frac, FILL_DEEP)}{sep}" if pd.get("yr_goal") else ""
     return (f"<div class='ck-card ck-brkcard'>{_btag('🎯 GOALS', '47% AOR · 1.5% ATH', P)}"
-            f"{bar('MONTHLY', me, mg, mo_frac)}"
-            f"<div style='border-top:1px solid {P['lsoft']};margin:2px 8px'></div>"
-            f"{bar('WEEKLY', we, wg, wk_frac)}</div>")
+            f"{yearly}"
+            f"{bar('MONTHLY', me, mg, mo_frac, FILL_MED)}"
+            f"{sep}"
+            f"{bar('WEEKLY', we, wg, wk_frac, FILL_LIGHT)}</div>")
 
 
 def _breaker_card(r: dict, P: dict) -> str:
@@ -393,20 +427,47 @@ def _money_card(r: dict, P: dict) -> str:
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
 
-def _ytd_card(r: dict, ext: dict, P: dict) -> str:
-    """📅 THIS YEAR — overall YTD gain across ALL accounts. IRA/LLC current come from the
-    board (TradeLog); Rollover/Roth current + every account's Jan-1 start come from the Z/AA
-    config block. Gain = current − Jan-1 (the 401k is folded into Rollover Start, so the
-    rollover nets out). Only accounts with a start value set are counted."""
+def _perf_ytd(mdf, year: int) -> dict:
+    """Per-account (Jan start, latest-month end) for `year` from the Performance tab — the
+    SAME point-to-point basis as the Performance grid's Total column, so the THIS YEAR card
+    and the Performance card always agree. Returns {'ira': (start, end), 'llc': (start, end)}."""
+    if mdf is None or getattr(mdf, "empty", True):
+        return {}
+    recs = {rr["date"].month: rr for rr in mdf.to_dict("records") if rr["date"].year == year}
+    if 1 not in recs:
+        return {}
+    lm = max(recs)
+    out = {}
+    for acct, endk, startk in (("ira", "IRA", "ira_start"), ("llc", "LLC", "llc_start")):
+        s, e = recs[1].get(startk), recs[lm].get(endk)
+        if s and e:
+            out[acct] = (float(s), float(e))
+    return out
+
+
+def _ytd_card(r: dict, ext: dict, P: dict, perf: dict | None = None) -> str:
+    """📅 THIS YEAR — overall YTD gain across ALL accounts. IRA/LLC come from the PERFORMANCE
+    tab (point-to-point Jan start → latest end, so they match the Performance card); the LLC
+    end adds the parked $30K. Rollover/Roth come from the Z/AA config. Gain = now − start; only
+    accounts with a start value show. Falls back to live capital − Z/AA start if Performance is
+    unavailable."""
     ext = ext or {}
-    tag = _btag("📅 THIS YEAR", "YTD gain · Start → now · Wheel + Retirement", P)
-    llc_cur = (r["llc"].get("cap") or 0) + (ext.get("park_llc") or 0)   # + parked LLC cash
-    groups = [("Wheel", [("IRA", (r["ira"].get("cap") or 0), ext.get("ytd_ira") or 0),
-                         ("LLC", llc_cur, ext.get("ytd_llc") or 0)]),
+    perf = perf or {}
+    tag = _btag("📅 THIS YEAR", "from Performance · + parked LLC · Wheel + Retirement", P)
+    park = ext.get("park_llc") or 0
+    if "ira" in perf and "llc" in perf:                  # Performance basis (preferred)
+        ira_s, ira_e = perf["ira"]
+        llc_s, llc_e = perf["llc"]
+        wheel = [("IRA", ira_e, ira_s), ("LLC", llc_e + park, llc_s)]
+    else:                                                 # fallback — live capital − Z/AA start
+        llc_cur = (r["llc"].get("cap") or 0) + park
+        wheel = [("IRA", (r["ira"].get("cap") or 0), ext.get("ytd_ira") or 0),
+                 ("LLC", llc_cur, ext.get("ytd_llc") or 0)]
+    groups = [("Wheel", wheel),
               ("Retirement", [("Rollover", ext.get("cur_rollover") or 0, ext.get("ytd_rollover") or 0),
                               ("Roth", ext.get("cur_roth") or 0, ext.get("ytd_roth") or 0)])]
     mono = 'font-family:"IBM Plex Mono",ui-monospace,monospace;'   # DOUBLE quotes inside style=''
-    GT = "grid-template-columns:1fr 92px 138px;"          # label · Start · YTD Gain (fixed → aligns)
+    GT = "grid-template-columns:1fr 86px 92px 128px;"     # label · Start · Now · YTD Gain (fixed → aligns)
     accents = {"Wheel": P["blue"], "Retirement": P["purple"]}
 
     def cell(label, start, gain, accent, kind=""):        # kind: "" (account) | "sub" (group total)
@@ -418,12 +479,14 @@ def _ytd_card(r: dict, ext: dict, P: dict) -> str:
                 f"border-left:3px solid {accent};{bg}padding:3px 11px;border-radius:6px;margin-bottom:3px'>"
                 f"<div style='font-weight:{lw};color:{P['ink']};font-size:13px'>{label}</div>"
                 f"<div style='{mono}text-align:right;color:{P['mut']};font-size:12px'>{_m(start)}</div>"
+                f"<div style='{mono}text-align:right;color:{P['ink']};font-size:12px'>{_m(start + gain)}</div>"
                 f"<div style='{mono}text-align:right;color:{col};font-weight:700;font-size:13px'>"
                 f"{_m(gain)} <span style='font-size:10px;color:{P['mut']}'>({pc:+.1f}%)</span></div></div>")
 
     hd = f"font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;"
     header = (f"<div style='display:grid;{GT}gap:10px;padding:0 11px 2px'>"
               f"<div style='{hd}'>Account</div><div style='{hd}text-align:right'>Start</div>"
+              f"<div style='{hd}text-align:right'>Now</div>"
               f"<div style='{hd}text-align:right'>YTD Gain</div></div>")
 
     cols_html, all_live = [], []
@@ -467,6 +530,7 @@ def _ytd_card(r: dict, ext: dict, P: dict) -> str:
              f"padding:6px 11px;border-radius:7px;margin-top:5px'>"
              f"<div style='font-weight:800;color:#fff;font-size:13px'>{glabel}</div>"
              f"<div style='{mono}text-align:right;color:#cbd5e1;font-size:12px'>{_m(tstart)}</div>"
+             f"<div style='{mono}text-align:right;color:#fff;font-size:12px'>{_m(tcur)}</div>"
              f"<div style='{mono}text-align:right;color:{ggain};font-weight:800;font-size:14px'>"
              f"{_m(tgain)} <span style='font-size:10px;color:#94a3b8'>({tpct:+.1f}%)</span></div></div>")
     return f"<div class='ck-card ck-bcard'>{tag}{head}{cols}{grand}</div>"
@@ -1343,6 +1407,15 @@ def render(c: dict) -> None:
     _pd = _prem_dict(r.get("premium", []), ck._month_earned())
     _yrs = sorted(set(mdf["date"].dt.year), reverse=True) if (mdf is not None and not getattr(mdf, "empty", True)) else []
     _perf = "".join(_perf_grid(mdf, P, y) for y in _yrs)
+    _perf_ytd_d = _perf_ytd(mdf, _dt.date.today().year)       # IRA/LLC YTD on the Performance basis
+    # YEARLY goal bar: GOAL = 1.5% of ATH per month → annual target; EARNED = actual YTD gain
+    # from the Performance tab (IRA+LLC, Jan → current month). Monthly/Weekly stay premium-based.
+    _ath_tot = (r["ira"].get("ath") or 0) + (r["llc"].get("ath") or 0)
+    if _ath_tot > 0 and _perf_ytd_d.get("ira") and _perf_ytd_d.get("llc"):
+        _pd["yr_goal"] = _ath_tot * 0.015 * 12
+        _park = (data.get("ext") or {}).get("park_llc") or 0        # match THIS YEAR Wheel Total (+ park)
+        _pd["yr_earned"] = ((_perf_ytd_d["ira"][1] + _perf_ytd_d["llc"][1])
+                            - (_perf_ytd_d["ira"][0] + _perf_ytd_d["llc"][0]) + _park)
 
     band = r.get("band", 2)
     bdef = engine.BANDS[band] if 0 <= band < len(engine.BANDS) else engine.BANDS[2]
@@ -1393,7 +1466,7 @@ def render(c: dict) -> None:
       {_perf}
       {_assignment_card(tdf, c, r)}
       {_week_expiry_card(tdf, c)}
-      {_ytd_card(r, data.get("ext"), P)}
+      {_ytd_card(r, data.get("ext"), P, _perf_ytd_d)}
       <div class="ck-brow3">
         {_alloc_card(tdf, 'IRA', r['ira'], P)}
         {_alloc_card(tdf, 'LLC', r['llc'], P)}
