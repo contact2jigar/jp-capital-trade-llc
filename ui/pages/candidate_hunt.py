@@ -352,7 +352,7 @@ def _decisions_table(c, rows):
             f"<td style='{base}color:{c['muted']};font-size:11.5px;'>{r['why']}</td>"
             f"<td style='{base}font-size:11.5px;color:{c['muted']};'>{r.get('name') or '—'}</td>")
         body += f"<tr>{tds}</tr>"
-    return (f"<div style='overflow:auto;max-height:560px;border:1px solid {c['border']};border-radius:10px;'>"
+    return (f"<div style='overflow:auto;max-height:1000px;border:1px solid {c['border']};border-radius:10px;'>"
             f"<table style='border-collapse:collapse;font-size:12.5px;width:100%;'>"
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>")
 

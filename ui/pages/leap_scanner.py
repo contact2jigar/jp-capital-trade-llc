@@ -27,7 +27,7 @@ from ui.pages import command_center as cc
 
 _DEFAULT_TYPES = ["01-Growth", "02-Alternate"]
 
-_COLS = ["Ticker", "Type", "Setup", "Price", "Chg%", "Strike", "Δ", "Est Cost",
+_COLS = ["Ticker", "Type", "Setup", "Price", "Chg%", "1wk %", "1mo %", "Strike", "Δ", "Est Cost",
          "RSI", "BB", "MACD", "% off High", "HM", "Earnings", "IRA", "LLC", "Decision"]
 _LEFT = {"Ticker", "Type", "Setup", "BB", "HM", "Earnings"}
 
@@ -168,6 +168,8 @@ def _scan(stocks, cat_map, target_delta, months, board, counts):
             "Setup": _setup_label(lr) if setup_ok else "—",
             "Price": round(price, 2) if price else None,
             "Chg%": round(lr["chg_pct"], 2) if lr.get("chg_pct") is not None else None,
+            "1wk %": round(lr["chg_1w_pct"], 1) if lr.get("chg_1w_pct") is not None else None,
+            "1mo %": round(lr["chg_1m_pct"], 1) if lr.get("chg_1m_pct") is not None else None,
             "Strike": f"${leg['strike']:.0f}" if leg else "—",
             "Δ": f"{leg['delta']:.2f}" if (leg and leg.get("delta") is not None) else "—",
             "Est Cost": f"${cost:,.0f}" if cost else "—",
@@ -201,6 +203,8 @@ def _scan_html(view: pd.DataFrame, c: dict) -> str:
             return f"${n:.2f}" if n is not None else str(v)
         if col == "Chg%":
             return f"{n:+.2f}%" if n is not None else str(v)
+        if col in ("1wk %", "1mo %"):
+            return f"{n:+.1f}%" if n is not None else str(v)
         if col == "% off High":
             return f"{n:.1f}%" if n is not None else str(v)
         return str(v)
@@ -245,7 +249,7 @@ def _scan_html(view: pd.DataFrame, c: dict) -> str:
                 return f"color:{amber};font-weight:700;"
             if s == "SELL":
                 return f"color:{neg};font-weight:700;"
-        if col == "Chg%" and n is not None:
+        if col in ("Chg%", "1wk %", "1mo %") and n is not None:
             return f"color:{pos if n >= 0 else neg};font-weight:700;"
         return ""
 

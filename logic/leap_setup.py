@@ -81,6 +81,8 @@ def evaluate(df: pd.DataFrame) -> dict:
     lo = float(low.iloc[-1])
     prev = float(close.iloc[-2])
     prev2 = float(close.iloc[-3]) if len(close) >= 3 else prev   # for the 2-day change (IV Drop 2-Day)
+    c1w = float(close.iloc[-6]) if len(close) >= 6 else None     # ~1 trading week ago
+    c1m = float(close.iloc[-22]) if len(close) >= 22 else None   # ~1 trading month ago
     r14 = None if pd.isna(rsi14.iloc[-1]) else float(rsi14.iloc[-1])
     lb = None if pd.isna(lower.iloc[-1]) else float(lower.iloc[-1])
     mb = None if pd.isna(mid.iloc[-1]) else float(mid.iloc[-1])
@@ -115,6 +117,8 @@ def evaluate(df: pd.DataFrame) -> dict:
         "price": c,
         "chg_pct": (c - prev) / prev * 100 if prev else None,
         "chg_2d_pct": (c - prev2) / prev2 * 100 if prev2 else None,   # 2-day cumulative change
+        "chg_1w_pct": (c - c1w) / c1w * 100 if c1w else None,         # ~1-week change
+        "chg_1m_pct": (c - c1m) / c1m * 100 if c1m else None,         # ~1-month change
         "rsi14": r14,
         "bb_pos": _bb_position(c, hi, lo, lb, mb, ub),
         "bb_pct": (lambda p: None if p is None else round(p * 100))(_pctb(c, lb, ub)),  # %B 0-100

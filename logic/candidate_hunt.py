@@ -4,11 +4,13 @@ The flagship decision engine. It NEVER places an order: it takes the candidates 
 Candidate-Hunt scan found (ticker · setup · strike · Δ · premium · AOR), sizes each
 against the live per-account gates, ranks by AOR, and names the binding gate.
 
-Gates (per account, from the Monitor Board math + current per-name exposure):
-  • 5% name cap  — no position over 5% of that account's Wheel Capital (STRICT).
-  • Layer 2.5%   — max 2.5% of Wheel Capital as a same-day entry per name.
-  • CSP room     — the account's Ready-to-deploy (VIX Target − Deployed).
-  • CC Breaker   — ≥45% freezes NEW CSPs in that account.
+Gates (from the Monitor Board math + current per-name exposure):
+  • 5% name cap  — no position over 5% of the COMBINED (IRA+LLC) Wheel Capital — a shared
+                   budget on total single-name exposure, not per-account (STRICT). 1-lot
+                   starter may tip to 7% of combined.
+  • Layer 2.5%   — max 2.5% of the account's Wheel Capital as a same-day entry per name.
+  • CSP room     — the account's Ready-to-deploy (VIX Target − Deployed) — per account.
+  • CC Breaker   — ≥45% freezes NEW CSPs in that account — per account.
 Contracts = floor(min(room) / (strike × 100)). The binding gate is the tightest one.
 """
 
@@ -22,7 +24,7 @@ import pandas as pd
 from logic import gtc_refresh
 from logic import monitor as mb
 
-NAME_CAP = 0.05      # 5% of Wheel Capital per name (STRICT, LOCKED 9/18)
+NAME_CAP = 0.05      # 5% of COMBINED (IRA+LLC) Wheel Capital per name (STRICT · combined basis Oct 8 2026)
 LAYER = 0.025        # 2.5% same-day entry per name (LOCKED 9/18)
 BREAKER = 0.45       # CC Breaker freeze threshold (v16)
 STARTER_CEIL = 0.07  # a 1-lot starter may tip over 5% only up to 7% of Wheel Cap (9/27)
@@ -55,58 +57,68 @@ def _size_one(cand: dict, accts: dict, od: pd.DataFrame, dte: int) -> dict:
     aor = _num(cand.get("AOR"))
     delta = _num(cand.get("Δ"))
     cash_pc = (strike or 0) * 100                       # collateral per contract
+
+    # ── 5% name cap is COMBINED (IRA + LLC): a shared budget on TOTAL single-name exposure,
+    # not a per-account check. A high-priced lot that won't fit either account's 5% alone still
+    # fits when it's under 5% of the WHOLE wheel (AMAT 4.1%). This is TIGHTER on total
+    # concentration than the old per-account rule, which allowed up to 10% across two accounts.
+    exp = {a: _name_exposure(od, a, tk) for a in accts}
+    tot_wcap = sum((d.get("wcap") or 0) for d in accts.values())
+    tot_exp = sum(exp.values())
+    cap_room = NAME_CAP * tot_wcap - tot_exp             # $ room under the combined 5% cap (HARD)
+    n_cap = int(cap_room // cash_pc) if cash_pc > 0 else 0
+    fresh = tot_exp <= 0
+    starter_ok = fresh and cash_pc <= STARTER_CEIL * tot_wcap   # 1-lot starter up to 7% of COMBINED
+    cap_eff = max(n_cap, 1) if starter_ok else n_cap
+    held_comb = (tot_exp / tot_wcap * 100) if tot_wcap else 0.0
+    lot_comb = (cash_pc / tot_wcap * 100) if tot_wcap else 0.0
+
+    # Per-account constraints that STAY per-account: CSP room (ready-to-deploy), layer, breaker.
     per = {}
     for a, d in accts.items():
-        wcap = d["wcap"]
-        exposure = _name_exposure(od, a, tk)
-        cap_room = NAME_CAP * wcap - exposure            # room under the 5% name cap (HARD)
-        csp_room = d["rtd"]                              # account Ready-to-deploy (HARD)
-        layer_room = LAYER * wcap                        # 2.5% same-day ceiling (soft — 1 ctr exempt)
+        wcap = d.get("wcap") or 0
         frozen = d["ccbrk"] >= BREAKER
-        n_cap = int(cap_room // cash_pc) if cash_pc > 0 else 0
-        n_csp = int(csp_room // cash_pc) if cash_pc > 0 else 0
-        n_layer = int(layer_room // cash_pc) if cash_pc > 0 else 0
-        # The 1-lot starter exception applies ONLY to a FRESH name (no existing
-        # position) whose single lot tips just over 5% — up to 7% of Wheel Cap. If the
-        # name is already held, we may only ADD what fits strictly under 5% (n_cap);
-        # topping up past the cap is never allowed. A name at/over 5% is a hard block.
-        fresh = exposure <= 0
-        starter_ok = fresh and cash_pc <= STARTER_CEIL * wcap
-        cap_eff = max(n_cap, 1) if starter_ok else n_cap
-        if frozen or n_csp <= 0 or cap_room <= 0 or cap_eff <= 0:
-            n = 0
-        else:
-            n = min(n_csp, cap_eff, max(n_layer, 1))
+        n_csp = int(d["rtd"] // cash_pc) if cash_pc > 0 else 0
+        n_layer = int((LAYER * wcap) // cash_pc) if cash_pc > 0 else 0
+        per[a] = dict(frozen=frozen, n_csp=n_csp, n_layer=n_layer, exposure=exp[a], wcap=wcap,
+                      n=0, binding="", cap_room=cap_room,
+                      held_pct=(exp[a] / wcap * 100 if wcap else 0.0),
+                      lot_pct=(cash_pc / wcap * 100 if wcap else 0.0), over_cap=False)
 
-        if frozen:
-            binding = "CC Breaker"
-        elif cap_room <= 0 or cap_eff <= 0:
-            binding = "5% name cap"
-        elif n_csp <= 0:
-            binding = "CSP room"
+    # Allocate the COMBINED cap budget across accounts (preferred = more CSP room first) so the
+    # per-account lots (IRA·x + LLC·y) never sum past the combined cap.
+    remaining = cap_eff if (cap_room > 0 and cap_eff > 0) else 0
+    for a in sorted(accts.keys(), key=lambda k: per[k]["n_csp"], reverse=True):
+        p = per[a]
+        if not (p["frozen"] or p["n_csp"] <= 0 or remaining <= 0):
+            p["n"] = min(p["n_csp"], max(p["n_layer"], 1), remaining)
+            remaining -= p["n"]
+        if p["frozen"]:
+            p["binding"] = "CC Breaker"
+        elif cap_eff <= 0:
+            p["binding"] = "5% name cap"
+        elif p["n_csp"] <= 0:
+            p["binding"] = "CSP room"
+        elif p["n"] == 0:                               # combined cap already used by the other acct
+            p["binding"] = "5% name cap"
         else:
-            opts = {"5% name cap": cap_eff, "Layer 2.5%": max(n_layer, 1), "CSP room": n_csp}
-            binding = min(opts, key=opts.get)
-        per[a] = dict(n=n, binding=binding, cap_room=cap_room, exposure=exposure,
-                      held_pct=(exposure / wcap * 100 if wcap else 0.0),
-                      lot_pct=(cash_pc / wcap * 100 if wcap else 0.0),
-                      over_cap=(n_cap <= 0 and n > 0))
+            opts = {"5% name cap": cap_eff, "Layer 2.5%": max(p["n_layer"], 1), "CSP room": p["n_csp"]}
+            p["binding"] = min(opts, key=opts.get)
+        p["over_cap"] = (n_cap <= 0 and p["n"] > 0)
 
     ira, llc = per["IRA"], per["LLC"]
     best, decision, why = None, "BLOCKED", ""
     if ira["n"] == 0 and llc["n"] == 0:
         b_ira, b_llc = ira["binding"], llc["binding"]
-        if "CC Breaker" in (b_ira, b_llc):
+        if "CC Breaker" in (b_ira, b_llc) and "5% name cap" not in (b_ira, b_llc):
             why = "CC Breaker frozen — new CSPs halted"
-        elif b_ira == "5% name cap" and b_llc == "5% name cap":
-            # Describe the account closest to fitting (the most cap room).
-            close = ira if ira["cap_room"] >= llc["cap_room"] else llc
-            if close["cap_room"] <= 0:
-                why = f"Already over the 5% cap (held {close['held_pct']:.1f}%)"
-            elif close["held_pct"] <= 0.05:      # fresh, but 1 lot too big
-                why = f"One lot is {close['lot_pct']:.1f}% — over the {STARTER_CEIL * 100:.0f}% cap ceiling"
-            else:                                # already held — adding would breach 5%
-                why = f"Adding one lot breaches the 5% cap (held {close['held_pct']:.1f}%)"
+        elif "5% name cap" in (b_ira, b_llc):
+            if cap_room <= 0:
+                why = f"Already over the 5% combined cap (held {held_comb:.1f}%)"
+            elif cap_eff <= 0:                          # fresh/under but 1 lot too big for 7% ceiling
+                why = f"One lot is {lot_comb:.1f}% — over the {STARTER_CEIL * 100:.0f}% combined cap ceiling"
+            else:
+                why = f"Adding one lot breaches the 5% combined cap (held {held_comb:.1f}%)"
         elif b_ira == "CSP room" and b_llc == "CSP room":
             why = "No CSP room left in either account"
         else:

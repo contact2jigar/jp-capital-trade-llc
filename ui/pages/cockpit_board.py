@@ -325,15 +325,22 @@ def _goalbar_card(pd: dict, P: dict) -> str:
         ahead = (earned >= pace_t) or (pct >= 100)
         fill = P["green"] if ahead else P["gold"]
         rem = goal - earned
-        rtxt = f"{ck._mk(rem)} to reach · {pct:.0f}%" if rem > 0 else f"goal met · {pct:.0f}% ✓"
+        rtxt = f"{_m(rem)} to reach · {pct:.0f}%" if rem > 0 else f"goal met · {pct:.0f}% ✓"
         fill_pct = max(0.0, min(100.0, pct))
         mark_pct = max(0.0, min(100.0, pf * 100))
+        # Weekly/Monthly only: show the ahead/behind-pace $ in the CENTRE of the same stats line
+        # (no extra line → card height unchanged). Yearly keeps just earned/goal + to-reach.
+        pace_span = ""
+        if name != "YEARLY" and earned > goal:              # only when OVER the goal: how much ahead
+            pace_span = (f"<span style='font-size:10.5px;font-weight:700;color:{P['green']};white-space:nowrap'>"
+                         f"+{_m(earned - goal)} ahead</span>")
         return (
             f"<div style='margin:6px 8px 5px'>"
-            # stats line: earned / goal (left) · remaining-to-reach + % (right)
+            # stats line: earned / goal (left) · ±pace (centre, wk/mo) · remaining-to-reach + % (right)
             f"<div style='display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px'>"
             f"<span style='font-size:13px;font-weight:800;color:{P['ink']};white-space:nowrap'>{_m(earned)} "
             f"<span style='font-size:9.5px;color:{P['mid']};font-weight:600'>/ {_m(goal)}</span></span>"
+            f"{pace_span}"
             f"<span style='font-size:10.5px;color:{P['mut']};white-space:nowrap'>{rtxt}</span></div>"
             # label + colourful (pace-coloured) bar on one line
             f"<div style='display:flex;align-items:center;gap:9px'>"
@@ -358,8 +365,66 @@ def _goalbar_card(pd: dict, P: dict) -> str:
             f"{bar('WEEKLY', we, wg, wk_frac)}</div>")
 
 
-def _breaker_card(r: dict, P: dict) -> str:
-    """CC Breaker — all three gauges (IRA · LLC · Total), the exact Cockpit semicircle."""
+def _breaker_detail(df, P: dict) -> str:
+    """Expandable breakdown of what FILLS the CC Breaker — every open covered CALL and every
+    ITM short PUT (strike > current price), with the Cash Reserve each contributes. Their sum
+    is exactly the breaker numerator (cc + itm). Compact, fixed-height scrollable so the card
+    never balloons; collapsed by default."""
+    if df is None or getattr(df, "empty", True):
+        return ""
+    od = engine._openrows(df)
+    need = ["Account", "Stock", "Opt Typ", "Strike Price", "Current Price", "Qty", "Cash Reserve"]
+    if od.empty or any(cn not in od.columns for cn in need):
+        return ""
+    items = []
+    for _, x in od.iterrows():
+        typ = str(x["Opt Typ"]).upper()
+        k, cur = engine._money(x["Strike Price"]), engine._money(x["Current Price"])
+        res, qty = engine._money(x["Cash Reserve"]), engine._money(x["Qty"])
+        if typ == "CALL":
+            kind = "CC"
+        elif typ == "PUT" and cur > 0 and k > cur:
+            kind = "ITM Put"
+        else:
+            continue
+        items.append((str(x["Account"]).upper(), str(x["Stock"]).upper(), kind, k, cur, qty, res))
+    if not items:
+        return (f"<details style='margin-top:6px'><summary style='cursor:pointer;font-size:10px;"
+                f"color:{P['mut']};font-weight:700'>▸ what's inside</summary>"
+                f"<div style='font-size:11px;color:{P['mut']};padding:4px 2px'>No CCs or ITM puts — "
+                f"the breaker is all on the cash side.</div></details>")
+    items.sort(key=lambda z: (z[0], z[2], -z[6]))
+    tot = sum(z[6] for z in items)
+    mono = 'font-family:"IBM Plex Mono",ui-monospace,monospace;'
+    hd = f"font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:{P['mut']};font-weight:700;"
+    head = (f"<tr><th style='{hd}text-align:left;padding:2px 6px'>Acct</th>"
+            f"<th style='{hd}text-align:left;padding:2px 6px'>Stock</th>"
+            f"<th style='{hd}text-align:left;padding:2px 6px'>Type</th>"
+            f"<th style='{hd}text-align:right;padding:2px 6px'>K</th>"
+            f"<th style='{hd}text-align:right;padding:2px 6px'>Cur</th>"
+            f"<th style='{hd}text-align:right;padding:2px 6px'>Qty</th>"
+            f"<th style='{hd}text-align:right;padding:2px 6px'>Reserve</th></tr>")
+    body = ""
+    for acct, stk, kind, k, cur, qty, res in items:
+        kc = P["amber"] if kind == "CC" else P["red"]
+        body += (f"<tr style='font-size:11px;color:{P['ink']}'>"
+                 f"<td style='padding:2px 6px'>{acct}</td>"
+                 f"<td style='padding:2px 6px;font-weight:700'>{stk}</td>"
+                 f"<td style='padding:2px 6px;color:{kc};font-weight:700'>{kind}</td>"
+                 f"<td style='{mono}text-align:right;padding:2px 6px'>{k:.0f}</td>"
+                 f"<td style='{mono}text-align:right;padding:2px 6px;color:{P['mut']}'>{cur:.0f}</td>"
+                 f"<td style='{mono}text-align:right;padding:2px 6px'>{qty:.0f}</td>"
+                 f"<td style='{mono}text-align:right;padding:2px 6px;font-weight:700'>{_m(res)}</td></tr>")
+    return (f"<details style='margin-top:6px'>"
+            f"<summary style='cursor:pointer;font-size:10px;color:{P['mut']};font-weight:700'>"
+            f"▸ what's inside — {len(items)} positions · {_m(tot)} in the breaker</summary>"
+            f"<div style='overflow:auto;max-height:170px;margin-top:4px'>"
+            f"<table style='border-collapse:collapse;width:100%'>{head}{body}</table></div></details>")
+
+
+def _breaker_card(r: dict, P: dict, df=None) -> str:
+    """CC Breaker — all three gauges (IRA · LLC · Total), the exact Cockpit semicircle, with an
+    expandable breakdown of the CCs + ITM CSPs that fill it."""
     def one(name, a):
         brk = (a.get("ccbrk") or 0) * 100
         over = brk > 45                                     # breached the cap
@@ -374,7 +439,8 @@ def _breaker_card(r: dict, P: dict) -> str:
                 f"<div class='ck-gz' style='color:{zc}'>{_m(gap)} <span>gap</span></div></div>")
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
     return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CIRCUIT BREAKER', 'Cap 45%', P)}"
-            f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div></div>")
+            f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div>"
+            f"{_breaker_detail(df, P)}</div>")
 
 
 def _money_card(r: dict, P: dict) -> str:
@@ -397,6 +463,11 @@ def _money_card(r: dict, P: dict) -> str:
             elif key == "cap" and at_ath and delta > 0.5:   # today's gain sits on the Capital row
                 comp = f"${delta / 1e6:.1f}M" if delta >= 1e6 else f"${delta / 1e3:.1f}K"
                 cells += f"<div class='ck-mv'><span class='ck-athup'>({comp})</span> {val}</div>"
+            elif key == "cap" and ath_v > 0 and cap_v < ath_v - 1:   # below ATH → show drawdown in red
+                dd = ath_v - cap_v
+                ddk = f"${dd / 1e6:.1f}M" if dd >= 1e6 else f"${dd / 1e3:.1f}K" if dd >= 1000 else f"${dd:.0f}"
+                cells += (f"<div class='ck-mv'><span style='color:{P['red']};font-size:10px;"
+                          f"font-weight:700'>↓{ddk} ({dd / ath_v * 100:.1f}%)</span> {val}</div>")
             else:
                 cells += f"<div class='ck-mv'>{val}</div>"
     # Cash In Hand row — free cash (not tied in CSP collateral = cih + vault) as a % of each
@@ -1455,7 +1526,7 @@ def render(c: dict) -> None:
       {_leap_alert(tdf, P)}
       <div class="ck-brow">
         {_money_card(r, P)}
-        {_breaker_card(r, P)}
+        {_breaker_card(r, P, tdf)}
         {_goalbar_card(_pd, P)}
       </div>
       {_summary_grid(r, P)}
