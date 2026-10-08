@@ -558,7 +558,7 @@ def render(c: dict) -> None:
         with s0:
             st.number_input("Min AOR", 0, 200, 25, step=5, key="sr_aor")
         with s1:
-            st.number_input("Max RSI", 0, 100, 70, step=5, key="sr_rsi")
+            st.number_input("Max RSI", 0, 100, 65, step=5, key="sr_rsi")
         with s2:
             st.multiselect("BB zone", bb_opts2, key="sr_bb", placeholder="Any")
         with s3:
