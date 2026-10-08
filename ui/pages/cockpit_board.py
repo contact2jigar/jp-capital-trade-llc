@@ -457,15 +457,22 @@ def _ytd_card(r: dict, ext: dict, P: dict, perf: dict | None = None) -> str:
               ("Retirement", [("Rollover", ext.get("cur_rollover") or 0, ext.get("ytd_rollover") or 0),
                               ("Roth", ext.get("cur_roth") or 0, ext.get("ytd_roth") or 0)])]
     mono = 'font-family:"IBM Plex Mono",ui-monospace,monospace;'   # DOUBLE quotes inside style=''
-    GT = "grid-template-columns:1fr 86px 92px 128px;"     # label · Start · Now · YTD Gain (fixed → aligns)
     accents = {"Wheel": P["blue"], "Retirement": P["purple"]}
+    # Grid columns live in a scoped stylesheet so a media query can stack the two groups and
+    # shrink the row on phones (inline styles can't carry media queries). .ytg = the two groups,
+    # .ytr = one row (label · Start · Now · YTD Gain).
+    css = ("<style>.ytg{display:grid;grid-template-columns:1fr 1fr;gap:16px}"
+           ".ytr{display:grid;grid-template-columns:1fr 86px 92px 128px}"
+           "@media(max-width:760px){.ytg{grid-template-columns:1fr;gap:4px}"
+           ".ytr{grid-template-columns:minmax(34px,1fr) auto auto auto;gap:6px}"
+           ".ytr>div{font-size:10.5px !important}.ytr>div>span{font-size:9px !important}}</style>")
 
     def cell(label, start, gain, accent, kind=""):        # kind: "" (account) | "sub" (group total)
         pc = (gain / start * 100) if start else 0.0
         col = P["green"] if gain >= 0 else P["red"]
         bg = f"background:{accent}22;" if kind == "sub" else ""     # tinted subtotal row
         lw = "800" if kind == "sub" else "600"
-        return (f"<div style='display:grid;{GT}align-items:center;gap:10px;"
+        return (f"<div class='ytr' style='align-items:center;gap:10px;"
                 f"border-left:3px solid {accent};{bg}padding:3px 11px;border-radius:6px;margin-bottom:3px'>"
                 f"<div style='font-weight:{lw};color:{P['ink']};font-size:13px'>{label}</div>"
                 f"<div style='{mono}text-align:right;color:{P['mut']};font-size:12px'>{_m(start)}</div>"
@@ -474,7 +481,7 @@ def _ytd_card(r: dict, ext: dict, P: dict, perf: dict | None = None) -> str:
                 f"{_m(gain)} <span style='font-size:10px;color:{P['mut']}'>({pc:+.1f}%)</span></div></div>")
 
     hd = f"font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;"
-    header = (f"<div style='display:grid;{GT}gap:10px;padding:0 11px 2px'>"
+    header = (f"<div class='ytr' style='gap:10px;padding:0 11px 2px'>"
               f"<div style='{hd}'>Account</div><div style='{hd}text-align:right'>Start</div>"
               f"<div style='{hd}text-align:right'>Now</div>"
               f"<div style='{hd}text-align:right'>YTD Gain</div></div>")
@@ -513,17 +520,16 @@ def _ytd_card(r: dict, ext: dict, P: dict, perf: dict | None = None) -> str:
             f"<span style='font-size:24px;font-weight:800;color:{gc}'>{_m(tgain)}</span>"
             f"<span style='font-size:15px;font-weight:700;color:{gc}'>{tpct:+.1f}%</span>"
             f"<span style='font-size:12px;color:{P['mut']}'>· {_m(tstart)} → {_m(tcur)}</span></div>")
-    cols = (f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:16px'>"
-            f"{''.join(cols_html)}</div>")
+    cols = f"<div class='ytg'>{''.join(cols_html)}</div>"
     ggain = "#4ade80" if tgain >= 0 else "#f87171"     # bright on the dark bar
-    grand = (f"<div style='display:grid;{GT}align-items:center;gap:10px;background:#141b2b;"
+    grand = (f"<div class='ytr' style='align-items:center;gap:10px;background:#141b2b;"
              f"padding:6px 11px;border-radius:7px;margin-top:5px'>"
              f"<div style='font-weight:800;color:#fff;font-size:13px'>{glabel}</div>"
              f"<div style='{mono}text-align:right;color:#cbd5e1;font-size:12px'>{_m(tstart)}</div>"
              f"<div style='{mono}text-align:right;color:#fff;font-size:12px'>{_m(tcur)}</div>"
              f"<div style='{mono}text-align:right;color:{ggain};font-weight:800;font-size:14px'>"
              f"{_m(tgain)} <span style='font-size:10px;color:#94a3b8'>({tpct:+.1f}%)</span></div></div>")
-    return f"<div class='ck-card ck-bcard'>{tag}{head}{cols}{grand}</div>"
+    return f"{css}<div class='ck-card ck-bcard'>{tag}{head}{cols}{grand}</div>"
 
 
 def _ccotm(df) -> dict:

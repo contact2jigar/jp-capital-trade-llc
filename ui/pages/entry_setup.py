@@ -34,10 +34,10 @@ def render(c: dict) -> None:
              "Beats ≥ 3 · ≥20% off high · RSI ≤ 65 · max once/week",
              "Strong name at a discount"),
             (_CORAL, "🎯", "Mid-Band",
-             "Red close · above mid BB · below the top quarter (%B < 0.75) · RSI ≤ 65",
-             "Controlled pullback"),
+             "Price at the Mid BB · RSI ≤ 65 · any VIX (last resort)",
+             "Calm / range premium"),
             (_MAGENTA, "📈", "50-SMA Reclaim",
-             "≥20% off 52w high · within −3%/+2% of SMA50 · MACD histogram positive and rising · RSI ≤ 65",
+             "≥20% off 52w high · within −3%/+2% of SMA50 · (MACD rising OR green candle) · RSI ≤ 65",
              "Secondary recovery setup"),
         ],
         checks=[

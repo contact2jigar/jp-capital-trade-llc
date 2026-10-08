@@ -19,15 +19,13 @@ name's IV% and today's Chg%, so it reuses the Reversal/Deep Value math verbatim.
 from __future__ import annotations
 
 
-_LOW_VIX = 17.0   # "Low VIX" cutoff for the Mid-Band Entry setup
-
-
 def evaluate(leap_result: dict, iv_pct: float | None, chg_pct: float | None,
              earnings_days: int | None = None, veto_dte: int = 30,
              vix: float | None = None) -> dict:
     """leap_result: output of logic.leap_setup.evaluate(). iv_pct/chg_pct in
-    percent (e.g. 25.0 and -2.37). earnings_days = days to next earnings. vix =
-    current VIX (for the Mid-Band Entry setup). Returns setups + quality + VETO.
+    percent (e.g. 25.0 and -2.37). earnings_days = days to next earnings. vix is
+    kept for signature compatibility (no longer used — the Mid-Band VIX cap was
+    removed Oct 8 2026). Returns setups + quality + VETO.
 
     VETO: earnings inside the CSP window (≤ veto_dte days) blocks the entry no
     matter how good the setup — "earnings = enemy of CSP" (a CSP is naked short
@@ -45,24 +43,32 @@ def evaluate(leap_result: dict, iv_pct: float | None, chg_pct: float | None,
         elif chg_pct <= -(iv_pct / 20.0):
             iv_tier = "orange"
 
-    # Mid-Band Entry — calm-market premium: Low VIX + just above Mid BB + RSI ≤65.
+    # Mid-Band Entry — range premium: price at the Mid BB + RSI ≤65. The VIX ≤17 cap was removed
+    # (Jigar, Oct 8 2026) so it also covers the normal-VIX, no-pullback gap (VIX ~17-22) where no
+    # dip setup fires. In higher VIX the dip setups already catch falling names, and Gate 1 (VIX
+    # allocation) + Gate 3 quality (RSI <64, not near the upper band) still bound it.
     # (The Δ≥0.20 / AOR≥24% guardrails are verified by the scanner's strike columns.)
-    low_vix = vix is not None and vix <= _LOW_VIX
-    mid_band = bool(low_vix and bb == "Mid Band" and rsi14 is not None and rsi14 <= 65)
+    mid_band = bool(bb == "Mid Band" and rsi14 is not None and rsi14 <= 65)
 
-    # 50 SMA Reclaim — a recovery reclaiming its 50-day line, turn confirmed by MACD.
-    #   ≥20% off the 52-week high (recovery, not a breakout) · price AT the 50 SMA
-    #   (-3%..+2%, not past it) · MACD histogram > 0 and rising · RSI ≤ 65.
+    # 50 SMA Reclaim — a recovery reclaiming its 50-day line, "turning up" confirmed by EITHER
+    # MACD or a green candle (Jigar, Oct 8 2026: MACD OR green candle).
+    #   ≥20% off the 52-week high (recovery, not a breakout) · price AT the 50 SMA (-3%..+2%,
+    #   not past it) · (MACD histogram > 0 and rising  OR  today green) · RSI ≤ 65.
+    # The OR keeps MACD's stronger confirmation and adds a lighter green-candle path; the direction
+    # check stays intact (near-SMA50 + off-high + RSI bound it, one up-signal required) so a name
+    # slicing DOWN through the 50 SMA still can't fire.
     price = leap_result.get("price")
     off_high = leap_result.get("off_high_pct")
     sma50 = leap_result.get("sma50")
     macd_hist = leap_result.get("macd_hist")
     macd_rising = leap_result.get("macd_rising")
     dist50 = ((price - sma50) / sma50 * 100) if (price and sma50) else None
+    turning_up = (macd_hist is not None and macd_hist > 0 and macd_rising) \
+        or (chg_pct is not None and chg_pct > 0)          # MACD rising OR green candle
     sma_reclaim = bool(
         off_high is not None and off_high >= 20
         and dist50 is not None and -3.0 <= dist50 <= 2.0
-        and macd_hist is not None and macd_hist > 0 and macd_rising
+        and turning_up
         and rsi14 is not None and rsi14 <= 65
     )
 
