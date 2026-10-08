@@ -72,6 +72,17 @@ def evaluate(leap_result: dict, iv_pct: float | None, chg_pct: float | None,
         and rsi14 is not None and rsi14 <= 65
     )
 
+    # Trend Continuation — VISIBILITY ONLY (Jigar, Oct 8 2026): a strong uptrend riding near its
+    # highs with no pullback. Ranked LAST and ALWAYS fails Gate 3 / Quality (near the upper band),
+    # so it can NEVER be a GO — it only surfaces the names the framework otherwise hides, as a NO
+    # row to eyeball and ignore (or override manually outside the tool).
+    trend_cont = bool(
+        off_high is not None and off_high <= 10        # within 10% of the 52-week high
+        and bb in ("Upper Half", "Above Upper")        # riding the upper band (strength)
+        and dist50 is not None and dist50 > 2.0         # clearly above the 50 SMA
+        and macd_hist is not None and macd_hist > 0     # momentum up
+    )
+
     names = []
     if reversal:
         names.append("Reversal")
@@ -85,6 +96,8 @@ def evaluate(leap_result: dict, iv_pct: float | None, chg_pct: float | None,
         names.append("Mid-Band")
     if sma_reclaim:
         names.append("50SMA Reclaim")
+    if trend_cont:
+        names.append("Trend")                          # last rank — visibility only, always NO
     setup_ok = bool(names)
 
     rsi_ok = rsi14 is not None and rsi14 < 64

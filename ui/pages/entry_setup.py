@@ -7,8 +7,8 @@ import streamlit as st
 from ui import components
 
 # Per-setup accent bars (read on both Dark and Grey themes).
-_BLUE, _GREEN, _TEAL, _INDIGO, _GOLD, _CORAL, _MAGENTA = (
-    "#58a6ff", "#43c463", "#3fd0c9", "#7c8cff", "#e3b23c", "#f2726f", "#c586e0")
+_BLUE, _GREEN, _TEAL, _INDIGO, _GOLD, _CORAL, _MAGENTA, _SLATE = (
+    "#58a6ff", "#43c463", "#3fd0c9", "#7c8cff", "#e3b23c", "#f2726f", "#c586e0", "#8aa0b2")
 
 
 def render(c: dict) -> None:
@@ -39,6 +39,9 @@ def render(c: dict) -> None:
             (_MAGENTA, "📈", "50-SMA Reclaim",
              "≥20% off 52w high · within −3%/+2% of SMA50 · (MACD rising OR green candle) · RSI ≤ 65",
              "Secondary recovery setup"),
+            (_SLATE, "🔼", "Trend (watch-only)",
+             "Within 10% of 52w high · upper band · &gt;2% above 50 SMA · MACD up",
+             "Visibility only — Gate 3 always blocks it, never a GO"),
         ],
         checks=[
             ("📅", "Earnings", "Outside the CSP expiry window"),
