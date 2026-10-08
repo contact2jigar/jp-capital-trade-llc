@@ -80,6 +80,7 @@ def evaluate(df: pd.DataFrame) -> dict:
     hi = float(high.iloc[-1])
     lo = float(low.iloc[-1])
     prev = float(close.iloc[-2])
+    prev2 = float(close.iloc[-3]) if len(close) >= 3 else prev   # for the 2-day change (IV Drop 2-Day)
     r14 = None if pd.isna(rsi14.iloc[-1]) else float(rsi14.iloc[-1])
     lb = None if pd.isna(lower.iloc[-1]) else float(lower.iloc[-1])
     mb = None if pd.isna(mid.iloc[-1]) else float(mid.iloc[-1])
@@ -113,8 +114,10 @@ def evaluate(df: pd.DataFrame) -> dict:
     return {
         "price": c,
         "chg_pct": (c - prev) / prev * 100 if prev else None,
+        "chg_2d_pct": (c - prev2) / prev2 * 100 if prev2 else None,   # 2-day cumulative change
         "rsi14": r14,
         "bb_pos": _bb_position(c, hi, lo, lb, mb, ub),
+        "bb_pct": (lambda p: None if p is None else round(p * 100))(_pctb(c, lb, ub)),  # %B 0-100
         "path": path, "setup_ok": setup_ok,
         "green": green, "touched": touched, "fully_below": fully_below,
         "high_52w": hi52, "off_high_pct": off_high,

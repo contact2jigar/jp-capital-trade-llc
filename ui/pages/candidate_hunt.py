@@ -212,13 +212,13 @@ def _cap_cell(c, acct_res):
 
 
 def _decisions_table(c, rows):
-    cols = ["Ticker", "Setup", "Current", "%Chg", "4mo ↓", "Strike", "Strike ↓", "Expiry", "Δ",
-            "Prem", "AOR", "IV", "P/E", "RSI", "BB", "Earnings", "Financials", "Cash", "IRA", "LLC",
-            "Decision", "Industry", "Why", "Company"]
-    aligns = {"Current": "right", "%Chg": "right", "4mo ↓": "right", "Strike": "right",
-              "Strike ↓": "right", "Δ": "center", "Prem": "right", "AOR": "center", "IV": "center",
-              "P/E": "center", "RSI": "center", "Cash": "right", "IRA": "center", "LLC": "center",
-              "Decision": "center"}
+    cols = ["Ticker", "Setup", "Type", "Current", "%Chg", "Off High", "4mo ↓", "Strike", "Strike ↓",
+            "Expiry", "Δ", "Prem", "AOR", "IV", "P/E", "RSI", "BB", "Earnings", "Financials", "Cash",
+            "IRA", "LLC", "Decision", "Industry", "Why", "Company"]
+    aligns = {"Current": "right", "%Chg": "right", "Off High": "right", "4mo ↓": "right",
+              "Strike": "right", "Strike ↓": "right", "Δ": "center", "Prem": "right", "AOR": "center",
+              "IV": "center", "P/E": "center", "RSI": "center", "Cash": "right", "IRA": "center",
+              "LLC": "center", "Decision": "center"}
     # Freeze panes: header row sticks on vertical scroll; the first column sticks on
     # horizontal scroll; the first-column header (corner) sticks for both.
     head = ""
@@ -257,6 +257,13 @@ def _decisions_table(c, rows):
         else:
             o4col, o4w = (c["pos"], "700") if o4 >= 20 else (c["text"], "400")
             off4_td = f"<td style='{base}text-align:right;font-weight:{o4w};color:{o4col};'>{o4:.1f}%</td>"
+        # Off High = % down from the 52-week high; ≥20% = the quality-veto discount threshold.
+        oh = r.get("offhigh")
+        if oh is None:
+            offhigh_td = f"<td style='{base}text-align:right;color:{c['muted']};'>—</td>"
+        else:
+            ohcol, ohw = (c["pos"], "700") if oh >= 20 else (c["text"], "400")
+            offhigh_td = f"<td style='{base}text-align:right;font-weight:{ohw};color:{ohcol};'>{oh:.1f}%</td>"
         # Strike ↓ = how far the strike sits BELOW current price (the cushion the lower strike gives).
         cu = r.get("cush")
         if cu is None:
@@ -306,6 +313,12 @@ def _decisions_table(c, rows):
         earn_col = c["neg"] if not r["earn_ok"] else c["text"]
         earn_w = "700" if not r["earn_ok"] else "400"
 
+        # BB %B (0-100): precise position in the band next to the coarse label.
+        bbp = r.get("bbpct")
+        bb_suffix = (f" <span style='color:{c['muted']};font-weight:400;font-size:10px'>{bbp:.0f}</span>"
+                     if bbp is not None else "")
+        type_td = f"<td style='{base}font-size:11px;color:{c['muted']};'>{r.get('stype') or '—'}</td>"
+
         def cap(a):
             return (_cap_cell(c, a) if a else
                     f"<td style='{base}text-align:center;color:{c['muted']};'>—</td>")
@@ -313,9 +326,12 @@ def _decisions_table(c, rows):
         tds = (
             f"<td style='{base}font-weight:800;position:sticky;left:0;z-index:1;"
             f"background:{c['raised']};box-shadow:1px 0 0 {c['border']};'>{r['ticker']}</td>"
-            f"<td style='{base}font-size:11px;padding-left:6px;padding-right:6px;'>{icon} {r['setup']}</td>"
+            f"<td style='{base}font-size:11px;padding-left:6px;padding-right:6px;'>"
+            f"{icon} {r.get('setup_full') or r['setup']}</td>"
+            f"{type_td}"
             f"<td style='{base}text-align:right;'>{cur}</td>"
             f"{chg_td}"
+            f"{offhigh_td}"
             f"{off4_td}"
             f"<td style='{base}text-align:right;'>${r['strike']:.0f}</td>"
             f"{cush_td}"
@@ -326,7 +342,7 @@ def _decisions_table(c, rows):
             f"<td style='{base}text-align:center;font-weight:{iv_w};color:{iv_col};'>{iv}</td>"
             f"{pe_td}"
             f"<td style='{base}text-align:center;font-weight:{rsi_w};color:{rsi_col};'>{r['rsi']}</td>"
-            f"<td style='{base}font-weight:700;color:{rg(r['bb_ok'])};'>{r['bb']}</td>"
+            f"<td style='{base}font-weight:700;color:{rg(r['bb_ok'])};'>{r['bb']}{bb_suffix}</td>"
             f"<td style='{base}font-weight:{earn_w};color:{earn_col};'>{earn_disp}</td>"
             f"<td style='{base}font-size:11.5px;'>{r.get('fin') or '—'}</td>"
             f"{cash_td}"
@@ -470,7 +486,7 @@ def render(c: dict) -> None:
         picks = st.multiselect("WatchList types", all_types, default=dflt, key="dd_types",
                                placeholder="types to scan")
     with ldte:
-        min_dte = st.number_input("Min DTE", 1, 90, 22, step=1, key="dd_min_dte",
+        min_dte = st.number_input("Min DTE", 1, 90, 23, step=1, key="dd_min_dte",
                                   help="Price the first weekly expiry ≥ this many days out. "
                                        "Takes effect on ▶ Run.")
     with lrun:
@@ -488,9 +504,9 @@ def render(c: dict) -> None:
             st.multiselect("Setup", ["Reversal", "Deep Value", "IV Drop", "Mid-Band",
                                      "50SMA Reclaim"], key="dd_f_setup", placeholder="Any")
         with g2:
-            st.number_input("Min AOR", 0, 200, 0, step=5, key="dd_f_aor")
+            st.number_input("Min AOR", 0, 200, 30, step=5, key="dd_f_aor")
         with g3:
-            st.number_input("Max RSI", 0, 100, 100, step=5, key="dd_f_rsi")
+            st.number_input("Max RSI", 0, 100, 65, step=5, key="dd_f_rsi")
         with g4:
             st.number_input("Max Δ", 0.0, 1.0, 0.0, step=0.05, key="dd_f_delta",
                             help="Cap |Δ| ≤ this (0 = no filter).")
@@ -504,7 +520,7 @@ def render(c: dict) -> None:
         with g7:
             st.markdown("<div style='font-size:0.875rem;margin-bottom:0.25rem'>&nbsp;</div>",
                         unsafe_allow_html=True)
-            st.checkbox("No earnings", value=False, key="dd_f_noearn",
+            st.checkbox("No earnings", value=True, key="dd_f_noearn",
                         help="Hide names with earnings on/before the expiry (the earnings veto).")
 
     if run_click:
@@ -540,9 +556,9 @@ def render(c: dict) -> None:
                            if str(x).strip() and str(x).strip() not in ("nan", "None", "—")})
         s0, s1, s2, s3, _sp = st.columns([0.85, 0.85, 1.6, 1.0, 3.7])
         with s0:
-            st.number_input("Min AOR", 0, 200, 0, step=5, key="sr_aor")
+            st.number_input("Min AOR", 0, 200, 25, step=5, key="sr_aor")
         with s1:
-            st.number_input("Max RSI", 0, 100, 100, step=5, key="sr_rsi")
+            st.number_input("Max RSI", 0, 100, 70, step=5, key="sr_rsi")
         with s2:
             st.multiselect("BB zone", bb_opts2, key="sr_bb", placeholder="Any")
         with s3:

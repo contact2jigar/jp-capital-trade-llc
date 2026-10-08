@@ -21,7 +21,7 @@ from __future__ import annotations
 
 def evaluate(leap_result: dict, iv_pct: float | None, chg_pct: float | None,
              earnings_days: int | None = None, veto_dte: int = 30,
-             vix: float | None = None) -> dict:
+             vix: float | None = None, fin_ok: bool | None = None) -> dict:
     """leap_result: output of logic.leap_setup.evaluate(). iv_pct/chg_pct in
     percent (e.g. 25.0 and -2.37). earnings_days = days to next earnings. vix is
     kept for signature compatibility (no longer used — the Mid-Band VIX cap was
@@ -42,6 +42,11 @@ def evaluate(leap_result: dict, iv_pct: float | None, chg_pct: float | None,
             iv_tier = "green"
         elif chg_pct <= -(iv_pct / 20.0):
             iv_tier = "orange"
+
+    # IV Drop 2-Day — a fast TWO-day selloff: 2-day cumulative change ≤ −(IV/15). (The reference's
+    # "IV higher than prior day" refinement is not implemented — the scanner has no historical IV.)
+    chg_2d = leap_result.get("chg_2d_pct")
+    iv_drop_2d = bool(iv_pct and chg_2d is not None and chg_2d <= -(iv_pct / 15.0))
 
     # Mid-Band Entry — range premium: price at the Mid BB + RSI ≤65. The VIX ≤17 cap was removed
     # (Jigar, Oct 8 2026) so it also covers the normal-VIX, no-pullback gap (VIX ~17-22) where no
@@ -83,6 +88,13 @@ def evaluate(leap_result: dict, iv_pct: float | None, chg_pct: float | None,
         and macd_hist is not None and macd_hist > 0     # momentum up
     )
 
+    # Quality Pullback — a strong name at a discount: ≥20% off the 52w high + RSI ≤65 + strong
+    # financials. The reference's "≥3 earnings beats" proxy is the Financials pass (Rev+Inc+FCF ✅),
+    # passed in as fin_ok by the scanner (no beat-vs-estimate data is computed). "max 1/week" is a
+    # sizing cap applied downstream, not a fire condition. Fires only when fin_ok is True.
+    quality_pb = bool(off_high is not None and off_high >= 20
+                      and rsi14 is not None and rsi14 <= 65 and fin_ok)
+
     names = []
     if reversal:
         names.append("Reversal")
@@ -92,6 +104,10 @@ def evaluate(leap_result: dict, iv_pct: float | None, chg_pct: float | None,
         names.append("IV🟢")
     elif iv_tier == "orange":
         names.append("IV🟠")
+    if iv_drop_2d:
+        names.append("IV Drop 2-Day")
+    if quality_pb:
+        names.append("Quality Pullback")
     if mid_band:
         names.append("Mid-Band")
     if sma_reclaim:

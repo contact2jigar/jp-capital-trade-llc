@@ -34,7 +34,7 @@ from services import gsheet, option_chain, screeners, yahoo
 from ui import state
 from ui.fundamentals_cache import fund_row as _fund_row
 
-_DEFAULT_TYPES = ["01-Growth", "02-Alternate", "03-Speculation"]
+_DEFAULT_TYPES = ["01-Growth", "01-Core", "02-Alternate", "03-Speculation", "04-Scanner"]
 _VETO_DTE = 30
 
 # Column order (Jigar's layout): identity → pricing → signal → context.
@@ -780,9 +780,11 @@ def _scan(stocks: list, cat_map: dict, target_iso: str, aor_floor: float,
             chg = lr.get("chg_pct")
             earn = yahoo.get_earnings_date(t)
             edays = (earn - today).days if earn else None
-            cs = csp_setup.evaluate(lr, iv_pct, chg, earnings_days=edays, vix=vix)
+            fin = _fund_row(t)                             # before evaluate — Quality Pullback needs it
+            _fstr = str(fin.get("Financials", ""))         # 'Rev✅ Inc✅ CF✅ FCF✅ A>L✅'
+            _fin_ok = ("Rev✅" in _fstr) and ("Inc✅" in _fstr) and ("FCF✅" in _fstr)
+            cs = csp_setup.evaluate(lr, iv_pct, chg, earnings_days=edays, vix=vix, fin_ok=_fin_ok)
             hv = hm.latest_signal(hm.analyze(hist.rename(columns=str.lower)))
-            fin = _fund_row(t)
             r14 = lr.get("rsi14")
             disc3 = None                               # strike vs 3-month high (~63 trading days)
             try:
@@ -809,6 +811,7 @@ def _scan(stocks: list, cat_map: dict, target_iso: str, aor_floor: float,
                 "Quality": "✓" if cs.get("quality_ok") else "—",
                 "RSI": f"{r14:.0f}" if r14 is not None else "—",
                 "BB": lr.get("bb_pos", "—"),
+                "%B": lr.get("bb_pct"),                 # 0-100 position in the band (precise vs the label)
                 "Chg%": round(chg, 2) if chg is not None else None,
                 "IV": f"{iv_pct:.0f}%" if iv_pct else "—",
                 "Strike": leg["Strike"], "Cushion": leg["Cushion"],
@@ -853,12 +856,12 @@ def _scan(stocks: list, cat_map: dict, target_iso: str, aor_floor: float,
 
 
 # (display label, source column in the scan df) — "__exp__" is filled with the hunt expiry.
-_SCAN_VIEW = [("Ticker", "Ticker"), ("Setup", "Setup"), ("Price", "Price"), ("Chg%", "Chg%"),
-              ("Strike", "Strike"), ("Disc%", "Cushion"), ("Off High", "% off High"),
+_SCAN_VIEW = [("Ticker", "Ticker"), ("Setup", "Setup"), ("Type", "Type"), ("Price", "Price"),
+              ("Chg%", "Chg%"), ("Strike", "Strike"), ("Disc%", "Cushion"), ("Off High", "% off High"),
               ("4mo↓", "Off4mo"), ("RSI", "RSI"), ("BB", "BB"), ("MACD", "MACD"),
               ("Earnings", "Earnings"), ("Δ", "Δ"), ("Prem", "Prem"), ("AOR", "AOR"),
               ("Expiry", "__exp__"), ("Trend", "Trend"), ("HM", "HM"), ("Financials", "Financials"),
-              ("P/E", "P/E"), ("IV", "IV"), ("Type", "Type"), ("Industry", "Industry"),
+              ("P/E", "P/E"), ("IV", "IV"), ("Industry", "Industry"),
               ("Company", "Name")]
 _SCAN_RIGHT = {"Price", "Chg%", "Strike", "Disc%", "Off High", "4mo↓", "Δ", "Prem", "AOR", "P/E", "IV"}
 _SCAN_CENTER = {"RSI", "MACD", "Trend"}
@@ -909,7 +912,9 @@ def scan_table_html(df, c: dict, expiry: str = "—", scanning: str | None = Non
         if label == "BB":
             low = s.lower()
             col = c["pos"] if ("lower" in low or "below" in low) else c["neg"] if ("upper" in low or "above" in low) else ""
-            return s, (f"color:{col};font-weight:700" if col else "")
+            pb = _n(row.get("%B"))                       # precise 0-100 position next to the label
+            disp = f"{s} {pb:.0f}" if pb is not None else s
+            return disp, (f"color:{col};font-weight:700" if col else "")
         if label == "Trend":
             col = c["pos"] if s.startswith("▲") else c["neg"] if s.startswith("▼") else c["amber"] if s.startswith("◆") else c["muted"]
             return s, f"color:{col};font-weight:700"

@@ -146,6 +146,12 @@ def _clean_setup(s) -> str:
     return s.split("·")[0].strip() if s and s != "—" else "—"
 
 
+def _all_setups(s) -> str:
+    """'✓ IV Drop · Reversal' → 'IV Drop · Reversal' — every trigger that fired, not just the first."""
+    s = str(s or "").replace("✓", "").strip()
+    return s if (s and s != "—") else "—"
+
+
 def _earn_days(earn: str) -> str:
     m = re.search(r"\((\d+)d\)", str(earn))
     return f"{m.group(1)}d" if m else ""
@@ -240,8 +246,12 @@ def size(candidates: pd.DataFrame, tl_df: pd.DataFrame, ath_ira: float, ath_llc:
         row.update(expiry=expiry, rsi=(f"{rsi:.0f}" if rsi is not None else "—"),
                    bb=(d.get("BB") or "—"), earn=(earn or "—"), fin=(d.get("Financials") or "—"),
                    off4=_num(d.get("Off4mo")),
+                   offhigh=_num(str(d.get("% off High") or "").replace("%", "")),
                    cush=_num(str(d.get("Cushion") or "").replace("%", "")),
                    pe=_num(d.get("P/E")),
+                   setup_full=_all_setups(d.get("Setup")),
+                   stype=(str(d.get("Type") or "—").strip() or "—"),
+                   bbpct=_num(d.get("%B")),
                    name=(d.get("Name") or "—"),
                    aor_ok=aor_ok, rsi_ok=rsi_ok, bb_ok=bb_ok, earn_ok=earn_ok,
                    delta_ok=delta_ok, room_ok=room_ok, veto_ok=veto_ok,

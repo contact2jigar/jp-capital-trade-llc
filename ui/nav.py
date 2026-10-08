@@ -30,6 +30,7 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("Report", "📄", "Report"),
     ],
     "REFERENCE": [
+        ("Framework 2.0", "🎯", "Framework 2.0"),
         ("Risk Gates", "🛡️", "Risk Gates"),
         ("Entry Setup", "📊", "Entry Setup"),
         ("3-Tier & Deployment", "🪜", "3-Tier & Deployment"),
@@ -58,6 +59,7 @@ ROUTES: dict[str, str] = {
     "Report":            "ui.pages.report",
     "Entry Setup":       "ui.pages.entry_setup",
     "Risk Gates":        "ui.pages.risk_gates",
+    "Framework 2.0":     "ui.pages.ref_framework2",
     "3-Tier & Deployment": "ui.pages.ref_tier_deploy",
     "Financials":        "ui.pages.financials_ref",
 }

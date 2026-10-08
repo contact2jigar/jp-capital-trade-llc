@@ -12,8 +12,9 @@ _BLUE, _GREEN, _TEAL, _INDIGO, _GOLD, _CORAL, _MAGENTA, _SLATE = (
 
 
 def render(c: dict) -> None:
-    st.caption("A ticker is a **GO** only when at least one setup fires *and* every "
-               "quality check passes.")
+    st.caption("**Setups only find the trigger — the Veto is the protection against a bad trade.** "
+               "A setup's job is just to surface a candidate; the Veto checks below reject anything "
+               "unsafe. A ticker is a **GO** only when a setup fires *and* every Veto check passes.")
 
     st.markdown(components.entry_setup_card(
         c,
@@ -28,10 +29,10 @@ def render(c: dict) -> None:
              "RSI(14) &lt; 35 · entire candle below lower BB",
              "Whole candle outside band"),
             (_INDIGO, "🕑", "IV Drop 2-Day",
-             "Two-day change ≤ −(IV ÷ 15) · IV higher than prior day",
+             "Two-day change ≤ −(IV ÷ 15)",
              "Fast two-day selloff"),
             (_GOLD, "🏅", "Quality Pullback",
-             "Beats ≥ 3 · ≥20% off high · RSI ≤ 65 · max once/week",
+             "≥20% off high · RSI ≤ 65 · Rev/Inc/FCF ✅ (max 1/wk, sized downstream)",
              "Strong name at a discount"),
             (_CORAL, "🎯", "Mid-Band",
              "Price at the Mid BB · RSI ≤ 65 · any VIX (last resort)",
@@ -45,10 +46,10 @@ def render(c: dict) -> None:
         ],
         checks=[
             ("📅", "Earnings", "Outside the CSP expiry window"),
-            ("🌡️", "RSI(14)", "≤ 65; not overbought"),
+            ("🌡️", "RSI(14)", "&lt; 64; not overbought"),
             ("💰", "AOR", "Meets the normal floor"),
             ("Δ", "Delta", "≤ 0.30"),
             ("⏳", "DTE", "21–30 preferred"),
-            ("📊", "BB Position", "Not in the band's top quarter (%B < 0.75)"),
+            ("📊", "BB Position", "Not near the upper band (not Upper Half / Above Upper)"),
         ],
     ), unsafe_allow_html=True)
