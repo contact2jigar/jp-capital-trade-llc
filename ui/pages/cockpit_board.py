@@ -315,37 +315,27 @@ def _goalbar_card(pd: dict, P: dict) -> str:
     $ remaining."""
     wk_frac, mo_frac = _pace_fracs()
 
-    def _mix(h1, h2, t):                                   # blend h1→h2 by t (0..1)
-        a, b = h1.lstrip("#"), h2.lstrip("#")
-        r = [int(a[i:i + 2], 16) for i in (0, 2, 4)]
-        s = [int(b[i:i + 2], 16) for i in (0, 2, 4)]
-        return "#%02x%02x%02x" % tuple(round(r[i] + (s[i] - r[i]) * t) for i in range(3))
-    # Shade progression (week ⊂ month ⊂ year): deep → medium → light, so the fill depth reads
-    # as the zoom level without competing with the green/red of the ± number.
-    FILL_DEEP = _mix(P["blue"], "#000000", 0.30)
-    FILL_MED = P["blue"]
-    FILL_LIGHT = _mix(P["blue"], "#ffffff", 0.28)
-
-    def bar(name, earned, goal, pf, fill):
+    def bar(name, earned, goal, pf):
         goal = goal or 1
-        # Left number = plain difference earned − goal (not vs pace). Sign + colour say ahead/behind;
-        # the marker tick still shows today's pace position on the bar.
-        diff = earned - goal
-        pcol = P["green"] if diff >= 0 else P["red"]
-        vs_short = f"{'+' if diff >= 0 else '−'}{_m(abs(diff))}"
+        # The BAR carries the status by colour (no pressure number): GREEN when you're ahead of
+        # where you should be TODAY (pace) or already past goal, GOLD when a little behind. The
+        # right caption says how much is left to reach the full goal.
+        pace_t = goal * pf
         pct = earned / goal * 100
+        ahead = (earned >= pace_t) or (pct >= 100)
+        fill = P["green"] if ahead else P["gold"]
+        rem = goal - earned
+        rtxt = f"{ck._mk(rem)} to reach · {pct:.0f}%" if rem > 0 else f"goal met · {pct:.0f}% ✓"
         fill_pct = max(0.0, min(100.0, pct))
         mark_pct = max(0.0, min(100.0, pf * 100))
-        fill = P["green"] if pct >= 100 else fill        # beat the goal → fill goes green
         return (
             f"<div style='margin:6px 8px 5px'>"
-            # stats line: ±$ vs pace (left) · earned / goal (centre) · % complete (right)
+            # stats line: earned / goal (left) · remaining-to-reach + % (right)
             f"<div style='display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px'>"
-            f"<span style='font-size:10.5px;font-weight:700;color:{pcol};white-space:nowrap'>{vs_short}</span>"
             f"<span style='font-size:13px;font-weight:800;color:{P['ink']};white-space:nowrap'>{_m(earned)} "
             f"<span style='font-size:9.5px;color:{P['mid']};font-weight:600'>/ {_m(goal)}</span></span>"
-            f"<span style='font-size:10.5px;color:{P['mut']};white-space:nowrap'>{pct:.0f}%</span></div>"
-            # label + bar on one line
+            f"<span style='font-size:10.5px;color:{P['mut']};white-space:nowrap'>{rtxt}</span></div>"
+            # label + colourful (pace-coloured) bar on one line
             f"<div style='display:flex;align-items:center;gap:9px'>"
             f"<span style='font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:{P['mut']};"
             f"font-weight:800;width:54px;flex:none'>{name}</span>"
@@ -360,12 +350,12 @@ def _goalbar_card(pd: dict, P: dict) -> str:
     yg, ye = pd.get("yr_goal", 0) or 1, pd.get("yr_earned", 0) or 0
     yr_frac = _year_frac()
     sep = f"<div style='border-top:1px solid {P['lsoft']};margin:2px 8px'></div>"
-    yearly = f"{bar('YEARLY', ye, yg, yr_frac, FILL_DEEP)}{sep}" if pd.get("yr_goal") else ""
+    yearly = f"{bar('YEARLY', ye, yg, yr_frac)}{sep}" if pd.get("yr_goal") else ""
     return (f"<div class='ck-card ck-brkcard'>{_btag('🎯 GOALS', '47% AOR · 1.5% ATH', P)}"
             f"{yearly}"
-            f"{bar('MONTHLY', me, mg, mo_frac, FILL_MED)}"
+            f"{bar('MONTHLY', me, mg, mo_frac)}"
             f"{sep}"
-            f"{bar('WEEKLY', we, wg, wk_frac, FILL_LIGHT)}</div>")
+            f"{bar('WEEKLY', we, wg, wk_frac)}</div>")
 
 
 def _breaker_card(r: dict, P: dict) -> str:
