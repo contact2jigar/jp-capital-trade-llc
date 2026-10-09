@@ -28,8 +28,8 @@ def render(c: dict) -> None:
              "MEGA ≥ 27% · PLTR > 40% · Rest > 47% · GOAL — 1.51% of ATH",
              "Requires enough premium to reach 1.5% of ATH with less deployment"),
             (_GOLD, "🚦", "CC Breaker",
-             "Max 45% of wheel capital (CC + ITM puts), LEAP excluded · "
-             "30% → STOP 5 days · 40% → STOP 3 days · 45% → LOCK",
+             "Max 40% of wheel capital (CC + ITM puts), LEAP excluded · 5 zones: &lt;25 normal · "
+             "25–30 caution · 30–35 elite (60%+ AOR) · 35–40 exceptional + alert · ≥40 ⛔ FREEZE (hard stop)",
              "Keeps capital out of share form — and opens the LEAP lane at the bottom"),
             (_CORAL, "⚓", "Name Cap",
              "< 5% per stock — CSP + LEAP + shares combined · 7% for a 1-lot starter only · "

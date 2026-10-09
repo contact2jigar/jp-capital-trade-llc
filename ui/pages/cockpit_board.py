@@ -102,7 +102,7 @@ def _matrix_table(r: dict, P: dict) -> str:
         rtd, ccb = a.get("rtd", 0), (a.get("ccbrk") or 0) * 100
         brkgap, itm = a.get("brkgap", 0), (a.get("cspitm") or 0) * 100
         lp, lg = (a.get("leappct") or 0) * 100, a.get("leapgap", 0)
-        bc = P["green"] if ccb < 30 else P["amber"] if ccb < 45 else P["red"]
+        bc = P["green"] if ccb < 25 else P["amber"] if ccb < 30 else P["orange"] if ccb < 35 else P["red"]
         lgc = P["green"] if lg >= 0 else P["red"]
         tot = "ck-mtot" if name == "Total" else ""
         body += (f"<tr class='{tot}'><td class='ck-btl'>{name}</td>"
@@ -427,18 +427,20 @@ def _breaker_card(r: dict, P: dict, df=None) -> str:
     expandable breakdown of the CCs + ITM CSPs that fill it."""
     def one(name, a):
         brk = (a.get("ccbrk") or 0) * 100
-        over = brk > 45                                     # breached the cap
-        zc = P["green"] if brk < 30 else P["amber"] if brk < 45 else P["red"]
-        gap = a.get("brkgap", 0)                            # $ headroom to the 45% cap (neg = over)
+        over = brk >= 40                                    # ≥40% = FREEZE (hard stop)
+        # 5-zone colour: <25 green · 25-30 yellow · 30-35 orange · 35-40 red · ≥40 freeze.
+        zc = (P["green"] if brk < 25 else P["amber"] if brk < 30
+              else P["orange"] if brk < 35 else P["red"])
+        gap = a.get("brkgap", 0)                            # $ headroom to the 40% cap (neg = over)
         gv = (f"<div class='ck-gv' style='color:{P['red']}'>{brk:.1f}% "
               f"<span style='font-size:9px;font-weight:900;letter-spacing:.04em;color:#fff;"
-              f"background:{P['red']};border-radius:4px;padding:1px 5px;vertical-align:2px;'>OVER CAP</span></div>"
-              if over else f"<div class='ck-gv'>{brk:.1f}%</div>")
+              f"background:{P['red']};border-radius:4px;padding:1px 5px;vertical-align:2px;'>⛔ FREEZE</span></div>"
+              if over else f"<div class='ck-gv' style='color:{zc}'>{brk:.1f}%</div>")
         return (f"<div class='ck-bg'><div class='ck-bglabel'>{name}</div>"
                 f"{ck._gauge(brk, P, 'b' + name)}{gv}"
                 f"<div class='ck-gz' style='color:{zc}'>{_m(gap)} <span>gap</span></div></div>")
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
-    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CIRCUIT BREAKER', 'Cap 45%', P)}"
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CIRCUIT BREAKER', 'Cap 40%', P)}"
             f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div>"
             f"{_breaker_detail(df, P)}</div>")
 
@@ -674,7 +676,7 @@ def _matrix_grid(r: dict, P: dict) -> str:
         rtd, ccb = a.get("rtd", 0), (a.get("ccbrk") or 0) * 100
         brkgap, itm = a.get("brkgap", 0), (a.get("cspitm") or 0) * 100
         lp, lg = (a.get("leappct") or 0) * 100, a.get("leapgap", 0)
-        bc = P["green"] if ccb < 30 else P["amber"] if ccb < 45 else P["red"]
+        bc = P["green"] if ccb < 25 else P["amber"] if ccb < 30 else P["orange"] if ccb < 35 else P["red"]
         cells += f"<div class='ck-fa'>{name}</div>"
         cells += f"<div class='ck-fg'>{_m(rtd)}</div>"
         cells += f"<div class='ck-fg' style='color:{bc}'>{ccb:.1f}%</div>"
@@ -1180,7 +1182,7 @@ def _acct_card(name: str, a: dict, accent: str, P: dict) -> str:
         return f"{(v or 0) / wcap * 100:.1f}%" if wcap else "—"
 
     ccb = (a.get("ccbrk") or 0) * 100
-    bc = g if ccb < 30 else P["amber"] if ccb < 45 else P["red"]
+    bc = g if ccb < 25 else P["amber"] if ccb < 30 else P["orange"] if ccb < 35 else P["red"]
     lg = a.get("leapgap", 0)
     rows = [
         ("Capital", _m(a.get("wcap")), ink, f"{wcap / cap * 100:.1f}%", mut),

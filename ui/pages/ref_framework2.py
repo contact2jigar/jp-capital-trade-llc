@@ -7,7 +7,7 @@ bad trade), PREMIUM ENGINE (the offense) — so fear-caution can't creep into th
 protection already has Feb covered.
 
 The one rule that makes it safe: "don't be ruled by fear" loosens the OFFENSE, never the LOCKS.
-The locks stay 30% / 5% / 45% with no exception; within them, take the well-qualified trade.
+The locks stay 30% / 5% / 40% with no exception; within them, take the well-qualified trade.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def render(c: dict) -> None:
     protection = _sec(c, blue, "Protection", "5 locks · structural · always on") + _rows(c, blue, [
         ("1", "Vault 30%", "never deployed, even in a crash"),
         ("2", "5% name cap", "7% for a 1-lot starter"),
-        ("3", "CC Breaker", "45% wheel cap, LEAP excluded"),
+        ("3", "CC Breaker", "40% cap · 5 zones to ≥40 FREEZE · LEAP excluded"),
         ("4", "1 contract / wk / acct", "no same expiry"),
         ("5", "VIX allocation", "total deployment by regime"),
     ])

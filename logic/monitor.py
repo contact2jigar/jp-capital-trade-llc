@@ -157,10 +157,10 @@ def _account_money(od: pd.DataFrame, acct: str, ath: float, alloc: float) -> dic
     leap = _sumres(od, account=acct, opt="LEAP")
     itm = _sumres(od, account=acct, itmput=True)               # ITM short-put reserve
     rtd = vtgt - dep                                           # Ready to deploy / CSP Gap
-    ccbrk = (cc + itm) / wcap if wcap else 0.0                 # CC Breaker (45% cap)
+    ccbrk = (cc + itm) / wcap if wcap else 0.0                 # CC Breaker (40% cap, Framework 2.0)
     return dict(cap=cap, ath=ath, ath0=ath0, vault=vault, wcap=wcap, vtgt=vtgt, cih=cih, dep=dep,
                 cc=cc, csp=csp, leap=leap, itm=itm, rtd=rtd, ccbrk=ccbrk,
-                brkgap=(0.45 - ccbrk) * wcap, cspitm=(itm / wcap if wcap else 0.0),
+                brkgap=(0.40 - ccbrk) * wcap, cspitm=(itm / wcap if wcap else 0.0),
                 leappct=(leap / wcap if wcap else 0.0), leapgap=0.02 * wcap - leap)
 
 

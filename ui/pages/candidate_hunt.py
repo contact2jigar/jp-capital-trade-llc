@@ -59,9 +59,9 @@ def _card(c, label, value, sub, vcolor=None, wide=False, accent=False):
 def _capacity_cards(c, board):
     I, L, T = board["ira"], board["llc"], board["total"]
     ccbrk = T["ccbrk"]
-    brk_col = c["pos"] if ccbrk < 0.30 else (c["amber"] if ccbrk < 0.45 else c["neg"])
+    brk_col = c["pos"] if ccbrk < 0.25 else (c["amber"] if ccbrk < 0.35 else c["neg"])
     brk_note = ("Below 30% caution level" if ccbrk < 0.30
-                else ("Watch band 30–45%" if ccbrk < 0.45 else "≥45% — CSPs frozen"))
+                else ("Caution 25–30%" if ccbrk < 0.30 else "Elite 30–35%" if ccbrk < 0.35 else "Exceptional 35–40%" if ccbrk < 0.40 else "⛔ ≥40% — CSPs frozen"))
     vault_pass = I["cih"] >= 0 and L["cih"] >= 0
     cards = [
         _card(c, "IRA CSP Room", _m0(I["rtd"]), f"{I['rtd'] / I['wcap'] * 100:.1f}% of IRA wheel capital",

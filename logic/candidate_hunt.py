@@ -10,7 +10,7 @@ Gates (from the Monitor Board math + current per-name exposure):
                    starter may tip to 7% of combined.
   • Layer 2.5%   — max 2.5% of the account's Wheel Capital as a same-day entry per name.
   • CSP room     — the account's Ready-to-deploy (VIX Target − Deployed) — per account.
-  • CC Breaker   — ≥45% freezes NEW CSPs in that account — per account.
+  • CC Breaker   — ≥40% freezes NEW CSPs in that account — per account (30-40% = elite only).
 Contracts = floor(min(room) / (strike × 100)). The binding gate is the tightest one.
 """
 
@@ -26,7 +26,7 @@ from logic import monitor as mb
 
 NAME_CAP = 0.05      # 5% of COMBINED (IRA+LLC) Wheel Capital per name (STRICT · combined basis Oct 8 2026)
 LAYER = 0.025        # 2.5% same-day entry per name (LOCKED 9/18)
-BREAKER = 0.45       # CC Breaker freeze threshold (v16)
+BREAKER = 0.40       # CC Breaker freeze threshold — Framework 2.0 (Oct 8 2026, was 45%)
 STARTER_CEIL = 0.07  # a 1-lot starter may tip over 5% only up to 7% of Wheel Cap (9/27)
 
 
