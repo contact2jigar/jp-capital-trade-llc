@@ -91,10 +91,10 @@ def _cc_suggest(stock: str, spot: float, target_delta: float, weeks: int) -> dic
 
 def render(c: dict) -> None:
     ca, cb, cc = st.columns([1, 1, 1])
-    dsel = ca.radio("Target Δ", ["25Δ", "20Δ", "15Δ", "10Δ"], index=1, horizontal=True, key="rec_delta")
+    dsel = ca.radio("Target Δ", ["35Δ", "30Δ", "25Δ", "20Δ", "15Δ", "10Δ"], index=3, horizontal=True, key="rec_delta")
     wsel = cb.radio("CC expiry", ["2w", "3w", "4w"], horizontal=True, key="rec_weeks")
     layout = cc.radio("Layout", ["By Expiry", "Positions"], horizontal=True, key="rec_layout")
-    target_delta = {"25Δ": 0.25, "20Δ": 0.20, "15Δ": 0.15, "10Δ": 0.10}[dsel]
+    target_delta = {"35Δ": 0.35, "30Δ": 0.30, "25Δ": 0.25, "20Δ": 0.20, "15Δ": 0.15, "10Δ": 0.10}[dsel]
     weeks = {"2w": 2, "3w": 3, "4w": 4}[wsel]
 
     df = gsheet.tradelog()
@@ -283,7 +283,7 @@ def render(c: dict) -> None:
             tot_prem = sum((sug[p["stock"]]["prem"] * p["shares"]) for p in members if sug.get(p["stock"]))
             tot_sh = sum(p["shares"] for p in members)
             mhdrs = ("STOCK", "ACCOUNT", "ORIG STRIKE", "BREAK EVEN", "CURRENT", f"CC {weeks}w",
-                     "AOR", "PREM/SH", "PREMIUM", "CASH RESERVE", "% CAP", "QTY", "YESTERDAY", "% CHG")
+                     "IF CALLED", "AOR", "PREM/SH", "PREMIUM", "CASH RESERVE", "% CAP", "QTY", "YESTERDAY", "% CHG")
             mhead = "".join(f"<th style='background:{c['panel']};color:{c['muted']};border:1px solid {c['border']};"
                             f"padding:6px 12px;text-align:{'left' if i < 2 else 'right'};font-weight:800;"
                             f"font-size:11px;white-space:nowrap;'>{h}</th>" for i, h in enumerate(mhdrs))
@@ -295,6 +295,7 @@ def render(c: dict) -> None:
                 # at/above that level (called there = good), red below. Orig strike vs wstrike, BE vs wbe.
                 strike_col = (c["pos"] if s["strike"] >= p["wstrike"] else c["neg"]) if s else None
                 be_col = (c["pos"] if s["strike"] >= p["wbe"] else c["neg"]) if s else None
+                loss_ifc = (s["strike"] - p["wbe"]) * sh if s else None   # $ P/L if called at the suggested CC
                 mcells = [
                     (p["stock"], "left", c["text"], 800),
                     (p["acct"], "left", c["muted"], 700),
@@ -302,6 +303,8 @@ def render(c: dict) -> None:
                     (_m2(p["wbe"]), "right", be_col or c["text"], 800),
                     (_m2(p["cur"]), "right", c["muted"], 600),
                     (_m2(s["strike"]) if s else "…", "right", c["text"], 700),
+                    (_money(loss_ifc) if s else "…", "right",
+                     (c["pos"] if loss_ifc >= 0 else c["neg"]) if s else c["muted"], 800),
                     (f"{s['aor']:.0f}%" if (s and s["aor"] is not None) else "…", "right", warn if s else c["muted"], 800),
                     (_m2(s["prem"]) if s else "…", "right", c["muted"], 600),             # per-share option price
                     (_money(s["prem"] * sh) if s else "…", "right", c["pos"] if s else c["muted"], 800),
@@ -317,11 +320,14 @@ def render(c: dict) -> None:
                               for v, al, cl, fw in mcells)
                 mrows += f"<tr style='background:{c['panel']};'>{tds}</tr>"
             # TOTAL row: average AOR (capital-weighted), total premium, total cash reserve, total shares
+            tot_loss = sum((sug[p["stock"]]["strike"] - p["wbe"]) * p["shares"]
+                           for p in members if sug.get(p["stock"]))     # total $ P/L if all called
             fcells = [
                 ("TOTAL", "left", c["text"], 900), ("", "left", c["muted"], 600),
                 ("", "right", c["muted"], 600), ("", "right", c["muted"], 600),    # orig strike, break even
                 ("", "right", c["muted"], 600),                                    # current
                 ("", "right", c["muted"], 600),                                    # CC Nw
+                (_money(tot_loss), "right", c["pos"] if tot_loss >= 0 else c["neg"], 900),   # if called
                 (f"{g['aor']:.0f}%", "right", warn, 900),
                 ("", "right", c["muted"], 600),                                    # prem/sh (no total)
                 (_money(tot_prem), "right", c["pos"], 900),
@@ -342,7 +348,7 @@ def render(c: dict) -> None:
 
     # ── Positions table ──
     hdrs = ("STOCK", "AC", "STRK", "BREAK EVEN", "NOW", "↓ %", "SH",
-            f"CC {weeks}w", "↑ vs NOW", "Δ", "PREM", "AOR")
+            f"CC {weeks}w", "IF CALLED", "↑ vs NOW", "Δ", "PREM", "AOR")
     head = "".join(f"<th style='position:sticky;top:0;background:{c['raised']};color:{c['text']};"
                    f"border:1px solid {c['border']};padding:8px 12px;text-align:{'left' if i < 2 else 'right'};"
                    f"font-weight:800;font-size:12.5px;white-space:nowrap;'>{h}</th>" for i, h in enumerate(hdrs))
@@ -364,6 +370,8 @@ def render(c: dict) -> None:
             (f"{p['under']:+.0f}%" if p["under"] is not None else "—", "right", under_col, 800),
             (f"{p['shares']}", "right", c["muted"], 600),
             (_m2(s["strike"]) if s else "…", "right", c["text"], 700),
+            (_money((s["strike"] - p["wbe"]) * p["shares"]) if s else "…", "right",
+             (c["pos"] if (s["strike"] - p["wbe"]) >= 0 else c["neg"]) if s else c["muted"], 800),
             (f"+{otm:.0f}%" if otm is not None else "—", "right", c["accent"] if "accent" in c else c["text"], 700),
             (f"{s['delta']:.2f}" if s else "…", "right", c["muted"], 600),
             (_m2(s["prem"]) if s else "…", "right", c["pos"] if s else c["muted"], 700),
