@@ -1032,6 +1032,17 @@ def _called_away_risk_card(df, c: dict) -> str:
     if od.empty or "Opt Typ" not in od.columns:
         return ""
     basis = cc._cc_basis_map(df)                        # {(STOCK,ACCT): (orig_strike, break_even)}
+
+    def _level(req, itm):
+        # severity of a BELOW-COST covered call by the DAILY %-move the stock must make to reach the
+        # strike before expiry (gap% ÷ DTE) — a big gap with few days left is SAFE; a small gap with
+        # many days is the real threat. 🔴 ITM · 🟠 ≤1.0%/day · 🟡 1.0–2.0%/day · 🟢 >2.0%/day.
+        if itm:                                   return (0, "🔴", "CRITICAL", P["red"])
+        if req is None:                           return (3, "🟢", "SAFE", P["green"])
+        if req <= 1.0:                            return (1, "🟠", "ALERT", P["orange"])
+        if req <= 2.0:                            return (2, "🟡", "WARN", P["amber"])
+        return (3, "🟢", "SAFE", P["green"])
+
     items = []
     for _, x in od.iterrows():
         if str(x.get("Opt Typ", "")).upper() != "CALL":
@@ -1049,39 +1060,57 @@ def _called_away_risk_card(df, c: dict) -> str:
             continue
         shares = int(round(qty)) * 100
         to_k = ((k - cur) / cur * 100) if cur else None   # % price must rise to hit the CC strike (<0 = ITM)
+        dte = engine._money(x.get("DTE"))
+        itm = bool(cur and cur >= k)
+        req = (to_k / max(dte, 1)) if (to_k is not None and to_k > 0 and dte) else None  # %/day to reach strike
         ifc = (k - be) * shares                            # $ if called away (negative = loss)
-        items.append((to_k if to_k is not None else 9e9, stock, acct, orig, k, cur, be, to_k, ifc,
-                      bool(cur and cur >= k)))
+        lv = _level(req, itm)
+        items.append(dict(stock=stock, acct=acct, orig=orig, k=k, cur=cur, be=be,
+                          to_k=to_k, dte=dte, req=req, ifc=ifc, itm=itm, lv=lv))
     if not items:
         return ""
-    items.sort(key=lambda z: z[0])                     # closest to the strike first (most urgent)
+    items.sort(key=lambda z: (z["lv"][0], z["req"] if z["req"] is not None else 9e9))
+    from collections import Counter
+    cnt = Counter(z["lv"][2] for z in items)
     mono = 'font-family:"IBM Plex Mono",ui-monospace,monospace;'
     hd = f"font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:{P['mut']};font-weight:700;padding:4px 8px;"
-    head = (f"<tr><th style='{hd}text-align:left'>Stock</th><th style='{hd}text-align:left'>Acct</th>"
-            f"<th style='{hd}text-align:right'>Orig Strike</th><th style='{hd}text-align:right'>CC Strike</th>"
-            f"<th style='{hd}text-align:right'>Price</th><th style='{hd}text-align:right'>Break-even</th>"
-            f"<th style='{hd}text-align:right'>→ strike</th><th style='{hd}text-align:right'>If called</th></tr>")
-    body, n_itm = "", 0
-    for _, stock, acct, orig, k, cur, be, to_k, ifc, itm in items:
-        n_itm += 1 if itm else 0
-        rc = P["red"] if itm else (P["amber"] if (to_k is not None and to_k < 5) else P["mut"])
-        tok_lbl = "ITM" if itm else (f"{to_k:+.1f}%" if to_k is not None else "—")
-        acc_c = P["blue"] if acct == "IRA" else P["gold"]
+    head = (f"<tr><th style='{hd}text-align:left'>Risk</th><th style='{hd}text-align:left'>Stock</th>"
+            f"<th style='{hd}text-align:left'>Acct</th><th style='{hd}text-align:right'>Orig Strike</th>"
+            f"<th style='{hd}text-align:right'>CC Strike</th><th style='{hd}text-align:right'>Price</th>"
+            f"<th style='{hd}text-align:right'>Break-even</th><th style='{hd}text-align:right'>→ strike</th>"
+            f"<th style='{hd}text-align:right'>DTE</th><th style='{hd}text-align:right'>Daily req</th>"
+            f"<th style='{hd}text-align:right'>If called</th></tr>")
+    body = ""
+    for z in items:
+        rank, dot, lab, lcol = z["lv"]
+        tok_lbl = "ITM" if z["itm"] else (f"{z['to_k']:+.1f}%" if z["to_k"] is not None else "—")
+        req_lbl = "ITM" if z["itm"] else (f"{z['req']:.2f}%/d" if z["req"] is not None else "—")
+        dte_lbl = f"{int(z['dte'])}" if z["dte"] else "—"
+        acc_c = P["blue"] if z["acct"] == "IRA" else P["gold"]
         body += (f"<tr style='border-top:1px solid {P['line']}'>"
-                 f"<td style='padding:6px 8px;font-weight:800;color:{P['ink']}'>{stock}</td>"
-                 f"<td style='padding:6px 8px;color:{acc_c};font-weight:700'>{acct}</td>"
-                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${orig:,.2f}</td>"
-                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['ink']}'>${k:,.2f}</td>"
-                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${cur:,.2f}</td>"
-                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${be:,.2f}</td>"
-                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{rc};font-weight:800'>{tok_lbl}</td>"
-                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['red']};font-weight:800'>{_m(ifc)}</td></tr>")
-    accent = P["red"] if n_itm else P["amber"]
-    sub = (f"{n_itm} ITM now · {len(items)} below cost — ACT" if n_itm
-           else f"{len(items)} covered calls below cost · roll up before ITM")
-    hint = f"{n_itm} ITM · {len(items)}" if n_itm else f"{len(items)} below cost"
+                 f"<td style='padding:6px 8px;white-space:nowrap'>{dot} <span style='color:{lcol};"
+                 f"font-weight:800;font-size:11px'>{lab}</span></td>"
+                 f"<td style='padding:6px 8px;font-weight:800;color:{P['ink']}'>{z['stock']}</td>"
+                 f"<td style='padding:6px 8px;color:{acc_c};font-weight:700'>{z['acct']}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${z['orig']:,.2f}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['ink']}'>${z['k']:,.2f}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${z['cur']:,.2f}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${z['be']:,.2f}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']};font-weight:700'>{tok_lbl}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>{dte_lbl}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{lcol};font-weight:800'>{req_lbl}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['red']};font-weight:800'>{_m(z['ifc'])}</td></tr>")
+    legend = (f"<div style='font-size:10px;color:{P['mut']};padding:7px 8px 2px'>"
+              f"Severity = daily %-move to reach the strike (gap ÷ DTE) &nbsp;·&nbsp; "
+              f"🟠 ≤1%/day = plan roll-up &nbsp;·&nbsp; 🔴 ITM = buy back &amp; reset</div>")
+    parts = " · ".join(f"{e} {cnt[l]}" for l, e in
+                       [("CRITICAL", "🔴"), ("ALERT", "🟠"), ("WARN", "🟡"), ("SAFE", "🟢")] if cnt[l])
+    sub = f"{parts} · {len(items)} below cost"
+    accent = (P["red"] if cnt["CRITICAL"] else P["orange"] if cnt["ALERT"]
+              else P["amber"] if cnt["WARN"] else P["green"])
+    hint = parts or f"{len(items)} below cost"
     table = (f"<div style='overflow:auto;margin-top:6px'><table style='border-collapse:collapse;width:100%'>"
-             f"{head}{body}</table></div>")
+             f"{head}{body}</table></div>{legend}")
     tag = _btag('⚠️ CALLED-AWAY RISK', sub, P)
     return (f"<div class='ck-card ck-fcard' style='border-left:3px solid {accent}'>"
             f"{_collapsible(tag, table, hint)}</div>")
