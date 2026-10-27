@@ -1041,16 +1041,16 @@ def _called_away_risk_card(df, c: dict) -> str:
         b = basis.get((stock, acct))
         if not b:
             continue
-        _orig, be = b
+        orig, be = b
         k = engine._money(x.get("Strike Price")) or 0
         cur = engine._money(x.get("Current Price")) or 0
         qty = engine._money(x.get("Qty")) or 0
         if k <= 0 or be <= 0 or k >= be:               # only covered calls sold BELOW break-even
             continue
         shares = int(round(qty)) * 100
-        to_k = ((k - cur) / cur * 100) if cur else None   # % price must rise to hit strike (<0 = ITM)
+        to_k = ((k - cur) / cur * 100) if cur else None   # % price must rise to hit the CC strike (<0 = ITM)
         ifc = (k - be) * shares                            # $ if called away (negative = loss)
-        items.append((to_k if to_k is not None else 9e9, stock, acct, k, cur, be, to_k, ifc,
+        items.append((to_k if to_k is not None else 9e9, stock, acct, orig, k, cur, be, to_k, ifc,
                       bool(cur and cur >= k)))
     if not items:
         return ""
@@ -1058,11 +1058,11 @@ def _called_away_risk_card(df, c: dict) -> str:
     mono = 'font-family:"IBM Plex Mono",ui-monospace,monospace;'
     hd = f"font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:{P['mut']};font-weight:700;padding:4px 8px;"
     head = (f"<tr><th style='{hd}text-align:left'>Stock</th><th style='{hd}text-align:left'>Acct</th>"
-            f"<th style='{hd}text-align:right'>CC Strike</th><th style='{hd}text-align:right'>Price</th>"
-            f"<th style='{hd}text-align:right'>Break-even</th><th style='{hd}text-align:right'>→ strike</th>"
-            f"<th style='{hd}text-align:right'>If called</th></tr>")
+            f"<th style='{hd}text-align:right'>Orig Strike</th><th style='{hd}text-align:right'>CC Strike</th>"
+            f"<th style='{hd}text-align:right'>Price</th><th style='{hd}text-align:right'>Break-even</th>"
+            f"<th style='{hd}text-align:right'>→ strike</th><th style='{hd}text-align:right'>If called</th></tr>")
     body, n_itm = "", 0
-    for _, stock, acct, k, cur, be, to_k, ifc, itm in items:
+    for _, stock, acct, orig, k, cur, be, to_k, ifc, itm in items:
         n_itm += 1 if itm else 0
         rc = P["red"] if itm else (P["amber"] if (to_k is not None and to_k < 5) else P["mut"])
         tok_lbl = "ITM" if itm else (f"{to_k:+.1f}%" if to_k is not None else "—")
@@ -1070,6 +1070,7 @@ def _called_away_risk_card(df, c: dict) -> str:
         body += (f"<tr style='border-top:1px solid {P['line']}'>"
                  f"<td style='padding:6px 8px;font-weight:800;color:{P['ink']}'>{stock}</td>"
                  f"<td style='padding:6px 8px;color:{acc_c};font-weight:700'>{acct}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${orig:,.2f}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['ink']}'>${k:,.2f}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${cur:,.2f}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${be:,.2f}</td>"
@@ -1078,10 +1079,12 @@ def _called_away_risk_card(df, c: dict) -> str:
     accent = P["red"] if n_itm else P["amber"]
     sub = (f"{n_itm} ITM now · {len(items)} below cost — ACT" if n_itm
            else f"{len(items)} covered calls below cost · roll up before ITM")
+    hint = f"{n_itm} ITM · {len(items)}" if n_itm else f"{len(items)} below cost"
+    table = (f"<div style='overflow:auto;margin-top:6px'><table style='border-collapse:collapse;width:100%'>"
+             f"{head}{body}</table></div>")
+    tag = _btag('⚠️ CALLED-AWAY RISK', sub, P)
     return (f"<div class='ck-card ck-fcard' style='border-left:3px solid {accent}'>"
-            f"{_btag('⚠️ CALLED-AWAY RISK', sub, P)}"
-            f"<div style='overflow:auto;margin-top:6px'><table style='border-collapse:collapse;width:100%'>"
-            f"{head}{body}</table></div></div>")
+            f"{_collapsible(tag, table, hint)}</div>")
 
 
 def _assignment_card(df, c: dict, r: dict | None = None) -> str:
