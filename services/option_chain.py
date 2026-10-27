@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date as _date
 
 import pandas as pd
+import requests
 
 from services import rh as rh_svc
 from services.cache import TTL, cached
@@ -42,13 +43,35 @@ def _safe_float(v, default: float = 0.0) -> float:
 
 
 @cached(TTL["chain"])
-def load_chain(ticker: str, max_dte: int = 90) -> pd.DataFrame:
-    """Option chain for `ticker`, expiries within `max_dte` days. RH first,
-    yfinance fallback. A 'source' column marks which one served. Empty only if
-    both fail."""
-    df = _load_chain_rh(ticker, max_dte)
+def load_chain(ticker: str, max_dte: int = 90,
+               lo_band: float = _RH_STRIKE_BAND, hi_band: float = _RH_STRIKE_BAND,
+               cboe_first: bool = False) -> pd.DataFrame:
+    """Option chain for `ticker`, expiries within `max_dte` days. A 'source' column
+    marks which feed served. Empty only if all fail.
+
+    Feeds, fastest-accurate tradeoff:
+      • CBOE  — ONE bulk request returns the whole chain (every strike + expiry)
+                with REAL delta/IV/OI, ~15-min delayed. Fast.
+      • RH    — live broker data, but one HTTP call PER CONTRACT (slow across a
+                wide band / many expiries); needs login.
+      • yfinance — fallback.
+
+    `cboe_first=True` tries the bulk CBOE feed before RH — used by the Recovery tool
+    so it loads in one round-trip with true delta instead of dozens of per-contract
+    RH calls. `lo_band`/`hi_band` size the RH strike window (CBOE returns all strikes,
+    so the band doesn't apply there)."""
+    if cboe_first:
+        df = _load_chain_cboe(ticker, max_dte)
+        if df is not None and not df.empty:
+            df["source"] = "CBOE"
+            return df
+    df = _load_chain_rh(ticker, max_dte, lo_band, hi_band)
     if df is not None and not df.empty:
         df["source"] = "RH"
+        return df
+    df = _load_chain_cboe(ticker, max_dte)       # bulk + real delta, before the yfinance guess
+    if df is not None and not df.empty:
+        df["source"] = "CBOE"
         return df
     df = _load_chain_yfinance(ticker, max_dte)
     if not df.empty:
@@ -56,8 +79,64 @@ def load_chain(ticker: str, max_dte: int = 90) -> pd.DataFrame:
     return df
 
 
+# ─── CBOE delayed bulk (one request = the whole chain, with real delta) ───────
+def _load_chain_cboe(ticker: str, max_dte: int) -> pd.DataFrame | None:
+    """Whole option chain in a single public request (~15-min delayed). Includes
+    delta/IV/OI/bid/ask, so no Black-Scholes estimate is needed. Mirrors the iPhone
+    app's CBOE fallback (cdn.cboe.com delayed_quotes)."""
+    sym = ticker.strip().upper()
+    url = f"https://cdn.cboe.com/api/global/delayed_quotes/options/{sym}.json"
+    try:
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        if resp.status_code != 200:
+            return None
+        obj = resp.json()
+    except Exception:
+        return None
+    d = (obj or {}).get("data") or {}
+    spot = _safe_float(d.get("current_price")) or _safe_float(d.get("close"))
+    opts = d.get("options") or []
+    if not spot or not opts:
+        return None
+    prev_close = _safe_float(d.get("prev_day_close"))                 # yesterday's close
+    chg_pct = _safe_float(d.get("price_change_percent"))              # today's % move
+    if prev_close and not chg_pct and spot:
+        chg_pct = (spot - prev_close) / prev_close * 100
+    today = _date.today()
+    rows: list[dict] = []
+    for o in opts:
+        occ = o.get("option") or ""          # e.g. AAPL261219C00150000
+        if len(occ) < 15:
+            continue
+        n = len(occ)
+        kind = {"C": "call", "P": "put"}.get(occ[n - 9])
+        if kind is None:
+            continue
+        try:
+            strike = int(occ[-8:]) / 1000.0
+            exp = f"20{occ[n-15:n-13]}-{occ[n-13:n-11]}-{occ[n-11:n-9]}"   # YYMMDD → ISO
+            dte = (_date.fromisoformat(exp) - today).days
+        except Exception:
+            continue
+        if dte < 0 or dte > max_dte:
+            continue
+        bid = _safe_float(o.get("bid")); ask = _safe_float(o.get("ask"))
+        last = _safe_float(o.get("last_trade_price"))
+        mark = round((bid + ask) / 2, 2) if (bid > 0 and ask > 0) else last
+        rows.append({
+            "ticker": sym, "expiry": exp, "dte": dte, "type": kind, "strike": strike,
+            "oi": _safe_int(o.get("open_interest")), "volume": _safe_int(o.get("volume")),
+            "iv": _safe_float(o.get("iv")), "last": last, "mark": mark,
+            "bid": bid, "ask": ask,                    # bid = what a seller actually collects
+            "delta": _safe_float(o.get("delta")),      # signed: calls +, puts −
+            "spot": spot, "prev_close": prev_close, "chg_pct": chg_pct,
+        })
+    return pd.DataFrame(rows) if rows else None
+
+
 # ─── Robinhood (primary) ─────────────────────────────────────────────────────
-def _load_chain_rh(ticker: str, max_dte: int) -> pd.DataFrame | None:
+def _load_chain_rh(ticker: str, max_dte: int,
+                   lo_band: float = _RH_STRIKE_BAND, hi_band: float = _RH_STRIKE_BAND) -> pd.DataFrame | None:
     if not rh_svc._ensure_login():     # dormant until RH login is configured
         return None
     try:
@@ -67,7 +146,7 @@ def _load_chain_rh(ticker: str, max_dte: int) -> pd.DataFrame | None:
         spot = _safe_float(price_list[0]) if price_list else 0.0
         if not spot:
             return None
-        lo, hi = spot * (1 - _RH_STRIKE_BAND), spot * (1 + _RH_STRIKE_BAND)
+        lo, hi = spot * (1 - lo_band), spot * (1 + hi_band)
 
         chain_info = rh.get_chains(ticker)
         exp_dates = (chain_info or {}).get("expiration_dates") or []
@@ -110,6 +189,13 @@ def _load_chain_rh(ticker: str, max_dte: int) -> pd.DataFrame | None:
                     "volume": _safe_int(md.get("volume")),
                     "iv": _safe_float(md.get("implied_volatility")),
                     "last": _safe_float(md.get("last_trade_price")),
+                    # mark = live mid; last-trade can be 0 on a far-OTM strike that
+                    # hasn't traded today, so suggestions fall back to mark.
+                    "mark": (_safe_float(md.get("adjusted_mark_price"))
+                             or _safe_float(md.get("mark_price"))
+                             or _safe_float(md.get("last_trade_price"))),
+                    "bid": _safe_float(md.get("bid_price")),     # what a seller actually collects
+                    "ask": _safe_float(md.get("ask_price")),
                     "spot": spot,
                 })
         return pd.DataFrame(rows) if rows else None
@@ -146,13 +232,18 @@ def _load_chain_yfinance(ticker: str, max_dte: int) -> pd.DataFrame:
                     strike = float(r.get("strike", 0) or 0)
                     if strike <= 0:
                         continue
+                    bid = _safe_float(r.get("bid")); ask = _safe_float(r.get("ask"))
+                    last = float(r.get("lastPrice", 0) or 0)
                     rows.append({
                         "ticker": ticker.upper(), "expiry": exp, "dte": dte,
                         "type": kind, "strike": strike,
                         "oi": _safe_int(r.get("openInterest")),
                         "volume": _safe_int(r.get("volume")),
                         "iv": float(r.get("impliedVolatility", 0) or 0),
-                        "last": float(r.get("lastPrice", 0) or 0),
+                        "last": last,
+                        # mark = mid; last-trade is often 0 on far-OTM strikes.
+                        "mark": (round((bid + ask) / 2, 2) if (bid or ask) else last),
+                        "bid": bid, "ask": ask,                 # bid = what a seller actually collects
                         "spot": spot,
                     })
         return pd.DataFrame(rows)

@@ -156,3 +156,13 @@ def render(c: dict) -> None:
             hdr = [str(x).strip() for x in rows[1]]
             data = [r for r in rows[2:] if str(r[0]).strip()]
             st.markdown(_table(c, hdr, data), unsafe_allow_html=True)
+
+    # 🧭 Sector Scoreboard — SPDR sectors vs SPY, YTD→20y (live from Yahoo).
+    from ui import sector_board
+    st.write("")
+    st.markdown(
+        f"<div style='display:flex;align-items:baseline;gap:10px;margin:6px 0 8px;'>"
+        f"<span style='font-size:17px;font-weight:800;color:{c['text']};'>🧭 Sector Scoreboard</span>"
+        f"<span style='font-size:12px;color:{c['muted']};'>SPDR sectors vs SPY · total return, annualized</span>"
+        f"</div>", unsafe_allow_html=True)
+    st.markdown(sector_board.table_html(c), unsafe_allow_html=True)

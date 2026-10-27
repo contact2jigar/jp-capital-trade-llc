@@ -38,11 +38,15 @@ WORKBOOK_ID = str(settings.get_secret("gsheet.workbook_id", "")).strip()
 
 # Logical tab name → gid. Stable across copies; edit only if a tab is recreated.
 TABS: dict[str, str] = {
-    "watchlist": "337359953",
+    # The standalone WatchList tab was removed (consolidated into TradeRadar); the
+    # universe now reads from TradeRadar, which carries the same Stock / Stock Type.
+    "traderadar": "921423444",      # RH scanner + Stock / Stock Type (the live universe)
     "tradelog": "1662549766",
     "monitorboard": "700303030",
     "performance": "1485071492",
     "scoreboard": "1784110097",     # daily J vs Rayan vs SPY
+    "rhsecret": "1624192832",       # RH_ACCESS/REFRESH/DEVICE token block (label col A, value col B)
+    "vixboard": "764840241",        # VIX/VXN/SMH-RV30 volatility regime board (VXN drives)
 }
 
 

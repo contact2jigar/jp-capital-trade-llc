@@ -34,7 +34,7 @@ from services import gsheet, option_chain, screeners, yahoo
 from ui import state
 from ui.fundamentals_cache import fund_row as _fund_row
 
-_DEFAULT_TYPES = ["01-Growth", "01-Core", "02-Alternate", "03-Speculation", "04-Scanner"]
+_DEFAULT_TYPES = ["01-Core", "02-Growth", "03-Speculative"]   # the 3 wheel buckets (default scan)
 _VETO_DTE = 30
 
 # Column order (Jigar's layout): identity → pricing → signal → context.

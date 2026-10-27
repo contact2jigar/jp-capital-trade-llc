@@ -17,9 +17,9 @@ from ui import benchmark
 from ui.pages import command_center as cc
 
 # VIX bands: label + segment color (bright in either theme, so dark text on them).
-BANDS = [("8–13", "#ef4444"), ("13–15", "#f97316"), ("15–20", "#f5c518"),
-         ("20–25", "#84cc16"), ("25–30", "#34c759"), ("30–100", "#16a34a")]
-EDGES = [8, 13, 15, 20, 25, 30, 100]
+BANDS = [("8–14", "#dc2626"), ("14–15", "#ea580c"), ("15–18", "#2563eb"),
+         ("18–22", "#65a30d"), ("22–28", "#16a34a"), ("28+", "#15803d")]
+EDGES = [8, 14, 15, 18, 22, 28, 100]
 
 # ── two palettes; data-hues shift darker on the light skin for contrast ──────
 DARK = dict(
@@ -72,7 +72,7 @@ def _pct(part, whole) -> float:
 
 # ── semicircle CC-breaker gauge: 40% cap = full deflection (the freeze redline) ─
 def _gauge(v: float, P: dict, uid: str = "") -> str:
-    cx, cy, r, S = 90, 86, 70, 40.0     # full arc = the 40% breaker cap (freeze redline)
+    cx, cy, r, S = 90, 86, 70, 55.0     # 0–55 scale; 55 = FREEZE line (no new-capital CSPs ≥55%)
 
     def pol(deg):
         a = math.radians(deg)
@@ -84,7 +84,7 @@ def _gauge(v: float, P: dict, uid: str = "") -> str:
         return (f'<path d="M{x1:.1f} {y1:.1f} A{r} {r} 0 0 1 {x2:.1f} {y2:.1f}" '
                 f'fill="none" stroke="{col}" stroke-width="12" stroke-linecap="round"/>')
 
-    # Zones against the 40% cap: green 0–25 · yellow 25–30 · orange 30–35 · red 35–40 (freeze at 40).
+    # Zones on the 0–55 scale: green 0–25 · yellow 25–35 · orange 35–45 · red 45–55 (FREEZE at 55).
     gz, yz, oz, rz = "#43c463", "#f2c436", "#f08a24", "#f2555a"
 
     def lbl(val, col=None):                          # boundary number just outside the arc
@@ -92,22 +92,22 @@ def _gauge(v: float, P: dict, uid: str = "") -> str:
         lx, ly = cx + (r + 9) * math.cos(a), cy - (r + 9) * math.sin(a)
         return (f'<text x="{lx:.1f}" y="{ly:.1f}" font-size="9.5" fill="{col or P['ink']}" '
                 f'font-weight="800" text-anchor="middle" dominant-baseline="middle">{val}</text>')
-    # 0 (start) + band boundaries + 40 (the cap, in red — the line a crash crosses).
-    ticks = lbl(0) + lbl(25) + lbl(30) + lbl(35) + lbl(40, rz)
+    # 0 (start) · 25 · 55 (the FREEZE line, red).
+    ticks = lbl(0) + lbl(25) + lbl(55, rz)
     by = cy - 8                                     # raised, shorter needle so it clears the % below
-    over = v > S                                     # breached the 40% cap (crash)
+    over = v > S                                     # breached the 55% freeze line
     ndl = rz if over else P['ink']                   # needle goes red when over the cap
     ang = math.radians(180 - min(v, S) / S * 180)    # needle stops short; arrowhead reaches the band
     nx, ny = cx + 46 * math.cos(ang), by - 46 * math.sin(ang)
     mid = f"ccbrktip{uid}"
-    # When breached, a red ">>" sits just past the 40 end — the needle is pinned, so this shows
+    # When breached, a red ">>" sits just past the 55 end — the needle is pinned, so this shows
     # it has run OFF the scale.
     ox, oy = pol(-9)
     overmark = (f'<text x="{ox + 2:.1f}" y="{oy - 10:.1f}" font-size="12" fill="{rz}" '
                 f'font-weight="900" text-anchor="middle">»</text>') if over else ""
-    return f"""<svg viewBox="0 0 180 94" width="100%" style="max-width:172px" aria-label="CC breaker {v:.1f}% of 40% cap">
+    return f"""<svg viewBox="0 0 180 94" width="100%" style="max-width:172px" aria-label="CC breaker {v:.1f}% of 55% freeze">
       <defs><marker id="{mid}" markerUnits="userSpaceOnUse" markerWidth="15" markerHeight="15" refX="3" refY="7.5" orient="auto"><path d="M0,0 L15,7.5 L0,15 Z" fill="{ndl}"/></marker></defs>
-      {arc(0, 24, gz)}{arc(25, 29, yz)}{arc(30, 34, oz)}{arc(35, 40, rz)}{ticks}{overmark}
+      {arc(0, 24, gz)}{arc(25, 34, yz)}{arc(35, 44, oz)}{arc(45, 55, rz)}{ticks}{overmark}
       <line x1="{cx}" y1="{by}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{ndl}" stroke-width="2.5" stroke-linecap="round" marker-end="url(#{mid})"/>
       <circle cx="{cx}" cy="{by}" r="4" fill="{ndl}"/>
       <circle cx="{cx}" cy="{by}" r="7" fill="none" stroke="{P['line']}" stroke-width="1.5"/>
@@ -196,12 +196,12 @@ def _card(name: str, cls_col: str, d: dict, P: dict) -> str:
     rtd, rtdp = d.get("rtd", 0), _pct(d.get("rtd"), wcap)
     itm = float(d.get("cspitm", 0)) * 100          # % of CSP collateral in-the-money
     brk = float(d.get("ccbrk", 0)) * 100
-    # 5-zone: <25 green · 25-30 yellow · 30-35 orange · 35-40 red · ≥40 freeze.
-    zc = (P["green"] if brk < 25 else P["amber"] if brk < 30
-          else P["orange"] if brk < 35 else P["red"])
-    ztx = ("Normal · below 25%" if brk < 25 else "Caution · selective" if brk < 30
-           else "Elite only · 60%+ AOR" if brk < 35 else "Exceptional only · alert" if brk < 40
-           else "⛔ FROZEN · hard stop")
+    # speedometer zones (0–55% scale): <25 green · 25-35 amber · 35-45 orange · 45-55 red · ≥55 FREEZE.
+    zc = (P["green"] if brk < 25 else P["amber"] if brk < 35
+          else P["orange"] if brk < 45 else P["red"])
+    ztx = ("Normal · below 25%" if brk < 25 else "Caution · selective" if brk < 35
+           else "Elite only · 60%+ AOR" if brk < 45 else "🔒 FREEZE · no new CSP" if brk >= 55
+           else "High · exceptional only")
     ring = (f"conic-gradient({P['blue']} 0 {csp:.2f}%,{P['gold']} {csp:.2f}% {csp + ccp:.2f}%,"
             f"{P['purple']} {csp + ccp:.2f}% {csp + ccp + leap:.2f}%,"
             f"{P['steel']} {csp + ccp + leap:.2f}% 100%)")
@@ -232,7 +232,7 @@ def _card(name: str, cls_col: str, d: dict, P: dict) -> str:
         </div>
         <div class="ck-gauge">{_gauge(brk, P, name)}
           <div class="ck-gv">{brk:.1f}%</div>
-          <div class="ck-gl">CC Breaker · cap 40%</div>
+          <div class="ck-gl">Speedometer · 0–55 · FREEZE 55</div>
           <div class="ck-gz" style="color:{zc}">{ztx}</div>
         </div>
       </div>
@@ -257,11 +257,11 @@ def _vix_meter(vix: float, band: int, up: bool, cash_pct: float | None = None, P
     segs = ""
     for k, (lbl, col) in enumerate(BANDS):
         b = engine.BANDS[k]
-        lo, hi = (b[1], b[2]) if up else (b[3], b[4])
+        emoji, lo, hi = b[2], b[3], b[4]                 # emoji · cash min · cash max (single range)
         segs += (f"<div class='ck-seg{'' if k == i else ' ck-dim'}' style='background:{col}'>"
-                 f"<span class='ck-sr'>{lbl}</span>"
+                 f"<span class='ck-sr'>{emoji} {lbl}</span>"
                  f"<span class='ck-sd'>{lo * 100:.0f}–{hi * 100:.0f}%</span></div>")
-    tgt = engine.allocation(vix, "Uptrend" if up else "Downtrend") * 100   # live interpolated cash % target
+    tgt = engine.allocation(vix) * 100                   # live interpolated cash % target
     # Split the label across the needle (no pill): the colored % on the LEFT, 'CASH 💵' on the
     # RIGHT. Only the % number carries the status color.
     bcol = P["ink"] if P else None
@@ -463,9 +463,9 @@ def render(c: dict) -> None:
         _mdf = None
     band = r.get("band", 2)
     bdef = engine.BANDS[band] if 0 <= band < len(engine.BANDS) else engine.BANDS[2]
-    up = str(trend).lower().startswith("up")
-    dmin, dmax = (bdef[1] if up else bdef[3]) * 100, (bdef[2] if up else bdef[4]) * 100
-    band_lbl = bdef[0]
+    up = str(trend).lower().startswith("up")               # kept for callers; no longer gates cash
+    dmin, dmax = bdef[3] * 100, bdef[4] * 100              # single cash range per regime
+    band_lbl, regime_name, regime_emoji = bdef[0], bdef[1], bdef[2]
     chg_col = P["red"] if vix_chg > 0 else P["green"]
     fg = yahoo.fear_greed()                                # CNN Fear & Greed (None if unavailable)
     fg_block, vcols = "", "auto 1fr auto"
@@ -476,9 +476,9 @@ def render(c: dict) -> None:
         fg_block = _fg_gauge(s, fg["rating"], fgc, P)
         vcols = "auto auto 1fr auto"                        # add a column for the F&G dial
 
-    tc = P["green"] if up else P["red"]                    # trend badge — green up / red down
-    trend_badge = (f"<span class='ck-trend' style='color:{tc};background:{tc}22;border:1px solid {tc}55'>"
-                   f"{'↑' if up else '↓'} {trend}</span>")
+    _rcol = BANDS[band][1] if 0 <= band < len(BANDS) else P["blue"]   # regime badge (emoji + name)
+    trend_badge = (f"<span class='ck-trend' style='color:{P['ink']};background:{_rcol}33;"
+                   f"border:1px solid {_rcol}'>{regime_emoji} {regime_name}</span>")
 
     html = f"""{_css(P)}
     <div class="ck-wrap">
@@ -489,7 +489,7 @@ def render(c: dict) -> None:
         {fg_block}
         <div class="ck-meter">{_vix_meter(vix, band, up)}</div>
         <div class="ck-regime">
-          <div class="ck-tl-row"><span class="ck-tl">Target</span>{trend_badge}</div>
+          <div class="ck-tl-row"><span class="ck-tl">Cash Target</span>{trend_badge}</div>
           <div class="ck-target">{dmin:.0f}–{dmax:.0f}%</div>
           <div class="s">band {band_lbl} · now {r.get('alloc', 0) * 100:.0f}%</div>
         </div>

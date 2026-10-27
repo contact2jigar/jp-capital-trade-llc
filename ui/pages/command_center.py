@@ -17,9 +17,12 @@ from services import gsheet, yahoo
 from ui import benchmark
 
 # Column order mirrors the sheet's TradeLog, + Cash Reserve/Release, DTE & Action at the end.
+# Orig Strike / Break Even sit just before Action — filled for covered-CALL rows (the cost the
+# shares sit on, reconstructed from the PUT assignment, same as the Recovery tool).
 _TL_COLS = ["Stock", "Account", "Status", "Opt Typ", "Close Date", "Open Date", "Exp Date",
-            "Current Price", "Strike Price", "Init Prem", "Return", "Qty", "Profit Loss",
-            "Cash Reserve", "Cash Release", "Current Prem", "GTC", "% Captured", "Action", "DTE"]
+            "Earnings", "Current Price", "Strike Price", "Init Prem", "Return", "Qty", "Profit Loss",
+            "Cash Reserve", "Cash Release", "Current Prem", "GTC", "% Captured",
+            "Orig Strike", "Break Even", "Action", "DTE"]
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -188,6 +191,9 @@ def board_data() -> dict | None:
     vix_chg = vc if vc is not None else (ext.get("vix_chg") or 0.0)
     trend = mkt.get("trend") or ext.get("trend") or "Uptrend"
     r = engine.monitor_board(df, ext.get("ath_ira", 0), ext.get("ath_llc", 0), vix, vix_chg, trend)
+    # Single source of truth: overlay the sheet's computed board (VIX alloc / targets / goals)
+    # so web = sheet = mobile. TradeLog recompute above remains the fallback if the read fails.
+    r = engine.apply_sheet_board(r, gsheet.monitor_board_cells())
     return {"r": r, "df": df, "vix": vix, "vix_chg": vix_chg, "trend": trend,
             "ext": ext, "live": bool(mkt.get("vix"))}
 
@@ -294,8 +300,9 @@ def _pl_stats(c: dict, yt: pd.DataFrame) -> str:
 
 
 def _pl_tree(c: dict, df: pd.DataFrame, levels: list, open_keys: set, depth: int) -> str:
-    """Recursive collapsible pivot: one <details> per group at each level, with the
-    level's subtotal (P/L + Cash Reserve) on the summary row. Leaf level = stock rows."""
+    """Recursive collapsible pivot in the Stock-Scope chevron style: one bordered
+    <details> box per group at each level (Year → Month → Week → Account), the level's
+    P/L + Cash Reserve subtotal on the summary row, and leaf Stock rows at the bottom."""
     key = levels[0]
     leaf = len(levels) == 1
     if key == "Year":
@@ -314,46 +321,48 @@ def _pl_tree(c: dict, df: pd.DataFrame, levels: list, open_keys: set, depth: int
         g = df[df[key] == val]
         pl, cash = g["P/L"].sum(), g["Cash Reserve"].sum()
         plc = c["pos"] if pl >= 0 else c["neg"]
-        lbl = (f"<span class='pltr-lbl' style='padding-left:{depth * 20}px'>"
-               f"<span class='pltr-chev'>{'' if leaf else '▸'}</span>{val}</span>")
-        vals = (f"<span class='pltr-pl' style='color:{plc}'>{_m0(pl)}</span>"
-                f"<span class='pltr-cash'>{_m0(cash)}</span>")
+        summ = (f"<span class='per'>{val}</span>"
+                f"<span class='pl' style='color:{plc}'>{_m0(pl)}</span>"
+                f"<span class='csh'>{_m0(cash)}</span>")
         if leaf:
-            out += f"<div class='pltr-row pltr-leaf'>{lbl}{vals}</div>"
+            out += f"<div class='prow'>{summ}</div>"
         else:
             op = "open" if val in open_keys else ""
-            out += (f"<details {op}><summary class='pltr-row'>{lbl}{vals}</summary>"
+            out += (f"<details {op}><summary>{summ}</summary>"
                     f"{_pl_tree(c, g, levels[1:], open_keys, depth + 1)}</details>")
     return out
 
 
 def _pl_tree_html(c: dict, df: pd.DataFrame, levels: list, open_keys: set) -> str:
     css = f"""<style>
-.pltr{{border:1px solid {c['border']};border-radius:10px;overflow:hidden;font-variant-numeric:tabular-nums}}
-.pltr summary{{list-style:none;outline:none}}
-.pltr summary::-webkit-details-marker{{display:none}}
-.pltr-row{{display:flex;align-items:center;padding:8px 14px;border-top:1px solid {c['border_soft']};font-size:13.5px}}
-.pltr summary.pltr-row{{cursor:pointer}}
-.pltr summary.pltr-row:hover{{background:{c['nav_hover']}}}
-.pltr-lbl{{flex:1;white-space:nowrap;font-weight:700;color:{c['text']}}}
-.pltr-leaf .pltr-lbl{{font-weight:500;color:{c['mid']}}}
-.pltr-pl{{width:120px;text-align:right;font-weight:800}}
-.pltr-cash{{width:150px;text-align:right;color:{c['muted']};font-weight:600}}
-.pltr-chev{{display:inline-block;width:15px;color:{c['muted']};font-size:10px;transition:transform .15s}}
-.pltr details[open]>summary .pltr-chev{{transform:rotate(90deg)}}
-.pltr-hdr,.pltr-tot{{background:{c['raised']}}}
-.pltr-hdr{{font-size:11px;letter-spacing:.05em;text-transform:uppercase}}
-.pltr-hdr .pltr-lbl,.pltr-hdr .pltr-pl,.pltr-hdr .pltr-cash{{color:{c['muted']};font-weight:800}}
-.pltr-tot{{border-top:2px solid {c['border']};font-weight:800;font-size:14px}}
+.ptree{{font-variant-numeric:tabular-nums;margin-top:4px}}
+.ptree details{{border:1px solid {c['border']};border-radius:8px;margin:5px 0;background:{c['panel']}}}
+.ptree details details{{margin:5px 8px}}
+.ptree summary{{list-style:none;outline:none;cursor:pointer;padding:9px 12px;display:flex;align-items:center;gap:10px}}
+.ptree summary::-webkit-details-marker{{display:none}}
+.ptree summary::before{{content:"▸";color:{c['muted']};font-size:11px;transition:transform .15s}}
+.ptree details[open]>summary::before{{transform:rotate(90deg)}}
+.ptree summary:hover{{background:{c['nav_hover']};border-radius:8px}}
+.ptree .prow{{display:flex;align-items:center;gap:10px;padding:7px 12px 7px 32px;border-top:1px solid {c['border_soft']}}}
+.ptree .per{{flex:1;white-space:nowrap;font-weight:700;color:{c['text']}}}
+.ptree details details .per{{font-weight:600}}
+.ptree .prow .per{{font-weight:500;color:{c['mid']}}}
+.ptree .pl{{width:110px;text-align:right;font-weight:800}}
+.ptree .csh{{width:140px;text-align:right;color:{c['muted']};font-weight:600}}
+.ptree .hd{{display:flex;align-items:center;gap:10px;padding:4px 12px 4px 32px;font-size:10px;
+  letter-spacing:.05em;text-transform:uppercase;color:{c['muted']};font-weight:800}}
+.ptree .hd .per{{color:{c['muted']};font-weight:800}}
+.ptree .tot{{display:flex;align-items:center;gap:10px;padding:10px 12px 10px 32px;margin-top:6px;
+  border-radius:8px;background:{c['raised']};font-weight:800;font-size:14px}}
 </style>"""
-    hdr = (f"<div class='pltr-row pltr-hdr'><span class='pltr-lbl'>Year → Month → Week → Acct → Stock</span>"
-           f"<span class='pltr-pl'>Profit / Loss</span><span class='pltr-cash'>Cash Reserve</span></div>")
+    hdr = (f"<div class='hd'><span class='per'>Year → Month → Week → Acct → Stock</span>"
+           f"<span class='pl'>Profit / Loss</span><span class='csh'>Cash Reserve</span></div>")
     tpl, tcash = df["P/L"].sum(), df["Cash Reserve"].sum()
-    tot = (f"<div class='pltr-row pltr-tot'><span class='pltr-lbl'>Grand Total</span>"
-           f"<span class='pltr-pl' style='color:{c['pos'] if tpl >= 0 else c['neg']}'>{_m0(tpl)}</span>"
-           f"<span class='pltr-cash'>{_m0(tcash)}</span></div>")
+    tot = (f"<div class='tot'><span class='per'>Grand Total</span>"
+           f"<span class='pl' style='color:{c['pos'] if tpl >= 0 else c['neg']}'>{_m0(tpl)}</span>"
+           f"<span class='csh'>{_m0(tcash)}</span></div>")
     body = _pl_tree(c, df, levels, open_keys, 0)
-    return f"{css}<div class='pltr'>{hdr}{body}{tot}</div>"
+    return f"{css}<div class='ptree'>{hdr}{body}{tot}</div>"
 
 
 def _pl_section(c: dict, icon: str, title: str, sub: str, rollup: pd.DataFrame, key: str) -> None:
@@ -369,6 +378,43 @@ def _pl_section(c: dict, icon: str, title: str, sub: str, rollup: pd.DataFrame, 
 
 
 @st.cache_data(ttl=120, show_spinner=False)
+def _pdate(s):
+    """Parse a sheet date ('M/D/YYYY', 'M/D/YY', 'YYYY-MM-DD') → date, else None."""
+    s = str(s or "").strip()
+    if not s:
+        return None
+    import datetime as _dt
+    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
+        try:
+            return _dt.datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _earnings_map() -> dict:
+    """{STOCK → 'M/D/YY'} earnings dates from the TradeRadar sheet's 'Earning Date' column."""
+    try:
+        wl = gsheet.watchlist()
+    except Exception:
+        return {}
+    if wl is None or wl.empty:
+        return {}
+    wl.columns = [str(x).strip() for x in wl.columns]
+    scol = next((c for c in wl.columns if c.strip().lower() == "stock"), None)
+    ecol = next((c for c in wl.columns if "earning" in c.strip().lower()), None)
+    if not scol or not ecol:
+        return {}
+    out = {}
+    for _, row in wl.iterrows():
+        s = str(row.get(scol, "")).strip().upper()
+        d = _pdate(row.get(ecol))
+        if s and d:
+            out[s] = d.strftime("%-m/%-d/%y")
+    return out
+
+
 def _tradelog_full() -> pd.DataFrame:
     df = gsheet.tradelog()
     if df.empty:
@@ -384,6 +430,10 @@ def _tradelog_full() -> pd.DataFrame:
             return f"${t:.2f}" if t is not None else "—"
         return "—"
     df["GTC"] = df.apply(_gtc, axis=1)
+    # Earnings date per stock (from TradeRadar) — so every position table flags when its
+    # underlying reports. Red in the table when earnings lands on/before the position's expiry.
+    emap = _earnings_map()
+    df["Earnings"] = df["Stock"].astype(str).str.strip().str.upper().map(emap).fillna("")
     return df
 
 
@@ -481,8 +531,9 @@ def _tl_styler(vv, cols, light=False):
 
 
 _RIGHT = {"Current Price", "Strike Price", "Init Prem", "Return", "Qty", "Profit Loss",
-          "Cash Reserve", "Cash Release", "Current Prem", "GTC", "% Captured", "DTE", "% Alloc"}
-_F2SET = {"Current Price", "Strike Price", "Init Prem", "Current Prem"}
+          "Cash Reserve", "Cash Release", "Current Prem", "GTC", "% Captured", "DTE", "% Alloc",
+          "Orig Strike", "Break Even"}
+_F2SET = {"Current Price", "Strike Price", "Init Prem", "Current Prem", "Orig Strike", "Break Even"}
 
 
 def _tl_palette(c, light):
@@ -525,7 +576,65 @@ def _logo_cell(tk: str, url: str) -> str:
             f"{logo}</span>")
 
 
-def _tl_html(vv, cols, c, light) -> str:
+def _cc_basis_map(df) -> dict:
+    """{(STOCK, ACCT): (orig_strike, break_even)} from the PUT assignments in the full
+    TradeLog — the share-weighted assignment strike and the break-even (strike − premium
+    collected). Same reconstruction the Recovery tool uses, so a covered CALL can display
+    the cost its shares sit on. Weighted per share (contract weights cancel)."""
+    if df is None or getattr(df, "empty", True):
+        return {}
+    cols = {str(col).strip(): col for col in df.columns}
+    sc, ac, stc = cols.get("Stock"), cols.get("Account"), cols.get("Status")
+    oc, kc = cols.get("Opt Typ"), cols.get("Strike Price")
+    pc, qc = cols.get("Init Prem"), cols.get("Qty")
+    if not (sc and ac and stc and oc and kc):
+        return {}
+    lots: dict[tuple, list] = {}
+    for _, r in df.iterrows():
+        if not str(r.get(stc, "")).upper().startswith("ASSI"):
+            continue
+        if "PUT" not in str(r.get(oc, "")).upper():
+            continue
+        k = _n(r.get(kc))
+        if not k or k <= 0:
+            continue
+        stock = str(r.get(sc, "")).strip().upper()
+        acct = str(r.get(ac, "")).strip().upper()
+        lots.setdefault((stock, acct), []).append(
+            (k, _n(r.get(pc)) or 0.0, _n(r.get(qc)) or 0.0))
+    out: dict[tuple, tuple] = {}
+    for key, ll in lots.items():
+        sh = sum(q for _, _, q in ll)
+        if sh <= 0:
+            continue
+        out[key] = (sum(k * q for k, _, q in ll) / sh,
+                    sum((k - pm) * q for k, pm, q in ll) / sh)
+    return out
+
+
+def _attach_cc_basis(view, full_df):
+    """Add 'Orig Strike' + 'Break Even' columns to `view` for covered-CALL rows — the
+    assignment strike and break-even the shares sit on (blank for puts / cash / no basis).
+    `full_df` is the complete TradeLog (needs the ASSIGNED rows to reconstruct the basis)."""
+    v = view.copy()
+    bmap = _cc_basis_map(full_df)
+    if not bmap or "Opt Typ" not in v.columns:
+        v["Orig Strike"] = ""
+        v["Break Even"] = ""
+        return v
+    ostr, bev = [], []
+    for _, r in v.iterrows():
+        is_call = "CALL" in str(r.get("Opt Typ", "")).upper()
+        b = bmap.get((str(r.get("Stock", "")).strip().upper(),
+                      str(r.get("Account", "")).strip().upper())) if is_call else None
+        ostr.append(f"{b[0]:.2f}" if b else "")
+        bev.append(f"{b[1]:.2f}" if b else "")
+    v["Orig Strike"] = ostr
+    v["Break Even"] = bev
+    return v
+
+
+def _tl_html(vv, cols, c, light, max_h: int | None = 600) -> str:
     p = _tl_palette(c, light)
     head = "".join(
         f"<th style='position:sticky;top:0;z-index:2;background:{p['hbg']};color:{p['htxt']};"
@@ -568,9 +677,21 @@ def _tl_html(vv, cols, c, light) -> str:
                 style += f"color:{p['pos']};font-weight:700;"
             elif col == "% Captured" and _n(v) is not None:
                 style += f"color:{p['pos'] if (_n(v) or 0) >= 0 else p['neg']};font-weight:700;"
+            elif col in ("Orig Strike", "Break Even") and _n(v) is not None:
+                # tint each column INDEPENDENTLY vs the CC strike: green when the call's strike is
+                # at/above this level (called there = good), red when below. Orig Strike compares to
+                # the assigned strike, Break Even to the break-even — each against its own value.
+                k = _n(row.get("Strike Price"))
+                if k is not None:
+                    style += f"color:{p['pos'] if k >= (_n(v) or 0) else p['neg']};font-weight:700;"
+            elif col == "Earnings" and v.strip():
+                ed, xp = _pdate(v), _pdate(row.get("Exp Date"))
+                if ed and xp and ed <= xp:          # earnings on/before expiry → CSP assignment risk
+                    style += f"color:{p['neg']};font-weight:700;"
             tds += f"<td style='{style}'>{disp}</td>"
         body += f"<tr style='background:{p['row']};'>{tds}</tr>"
-    return (f"<div style='overflow:auto;max-height:600px;border:1px solid {p['bd']};border-radius:8px;'>"
+    mh = f"max-height:{max_h}px;" if max_h else ""
+    return (f"<div style='overflow:auto;{mh}border:1px solid {p['bd']};border-radius:8px;'>"
             f"<table style='border-collapse:collapse;font-size:14.5px;width:100%;'>"
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>")
 
@@ -580,50 +701,58 @@ def _trade_log(c: dict) -> None:
     if df.empty:
         st.warning("Couldn't load the TradeLog tab.")
         return
-    open_mask = df["Status"].str.lower().str.startswith("open")
-
-    # Trade Log shows OPEN orders — the daily working set (Expiry list stays short).
-    base = df[open_mask]
-
-    def _uniq(col):
-        return sorted(base[col].dropna().astype(str).str.strip().replace("", pd.NA).dropna().unique().tolist()) \
-            if col in base.columns else []
-
-    a1, a2, a3 = st.columns([1, 1, 2.6])
-    with a1:
-        acct = st.selectbox("Account", ["All accounts"] + _uniq("Account"), key="cc_tl_acct")
-    with a2:
-        otf = st.selectbox("Opt Type", ["All types"] + _uniq("Opt Typ"), key="cc_tl_opt")
-    with a3:
-        exp_vals = sorted(_uniq("Exp Date"), key=lambda x: pd.to_datetime(x, errors="coerce"))
-        expf = st.multiselect("Expiry", exp_vals, key="cc_tl_exp",
-                              placeholder="All expiries")
-
-    view = base
-
-    def _cash(d):   # CASH / VAULT rows — always kept through Opt Type / Expiry filters
-        return d["Stock"].astype(str).str.upper().isin(["CASH", "VAULT"])
-
-    if acct != "All accounts":
-        view = view[view["Account"].astype(str).str.strip() == acct]
-    if otf != "All types":
-        view = view[_cash(view) | (view["Opt Typ"].astype(str).str.strip() == otf)]
-    if expf:
-        view = view[_cash(view) | (view["Exp Date"].astype(str).str.strip().isin(expf))]
+    base = df[df["Status"].str.lower().str.startswith("open")].copy()
+    if base.empty:
+        st.info("No open positions.")
+        return
 
     _MONEY = "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f4b0.png"  # 💰
 
     def _logo(t):
-        tu = t.upper()
+        tu = str(t).upper()
         if tu in ("CASH", "VAULT"):
             return _MONEY
         return f"https://financialmodelingprep.com/image-stock/{t}.png" if t else ""
 
-    view = view.copy()
-    view["Logo"] = view["Stock"].astype(str).str.strip().apply(_logo)
-    cols = ["Logo"] + [x for x in _TL_COLS if x in view.columns]
-    vv = view[cols].reset_index(drop=True)
-    st.markdown(_tl_html(vv, cols, c, _is_light(c.get("bg", ""))), unsafe_allow_html=True)
+    base["Logo"] = base["Stock"].astype(str).str.strip().apply(_logo)
+    base = _attach_cc_basis(base, df)               # Orig Strike + Break Even on covered-call rows
+    light = _is_light(c.get("bg", ""))
+    cols = ["Logo"] + [x for x in _TL_COLS if x in base.columns]
+
+    # iPhone-style: one section per EXPIRY (soonest first), rows ordered by Stock, with a
+    # Reserve / P-L subtotal under each. No filters — the daily working set is short.
+    import datetime as _dt
+    base["_exp"] = pd.to_datetime(base["Exp Date"], errors="coerce")
+    today = pd.Timestamp(_dt.date.today()).normalize()
+    groups = [(g["_exp"].min(), exp, g) for exp, g in base.groupby("Exp Date", dropna=False)]
+    groups.sort(key=lambda x: (pd.isna(x[0]), x[0]))
+
+    muted, text, panel, border = c["muted"], c["text"], c["panel"], c["border"]
+    pos, neg = c["pos"], c["neg"]
+    for order, exp, g in groups:
+        g = g.assign(_s=g["Stock"].astype(str).str.upper()).sort_values("_s")   # order by stock
+        reserve = g["Cash Reserve"].map(lambda x: _n(x) or 0).sum() if "Cash Reserve" in g else 0.0
+        pl = g["Profit Loss"].map(lambda x: _n(x) or 0).sum() if "Profit Loss" in g else 0.0
+        contracts = int(g["Qty"].map(lambda x: _n(x) or 0).sum()) if "Qty" in g else len(g)
+        if pd.notna(order):
+            exp_lbl = order.strftime("%b %-d")
+            dte = (order.normalize() - today).days
+            dte_lbl = f"{dte} DTE" if dte > 0 else ("today" if dte == 0 else "expired")
+        else:
+            exp_lbl, dte_lbl = (str(exp) or "No expiry"), "—"
+        plc = pos if pl >= 0 else neg
+        st.markdown(
+            f"<div style='display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:18px 0 5px;'>"
+            f"<span style='font-size:16px;font-weight:900;color:{text};'>📅 {exp_lbl}</span>"
+            f"<span style='font-size:12px;font-weight:700;color:{muted};'>{dte_lbl} · "
+            f"{len(g)} open · {contracts} contracts</span></div>", unsafe_allow_html=True)
+        vv = g[cols].reset_index(drop=True)
+        st.markdown(_tl_html(vv, cols, c, light, max_h=None), unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='text-align:right;font-size:12.5px;font-weight:700;color:{muted};margin:5px 2px 2px;'>"
+            f"Reserve <b style='color:{text};'>${reserve:,.0f}</b> &nbsp;·&nbsp; "
+            f"P/L <b style='color:{plc};'>{'+' if pl >= 0 else '−'}${abs(pl):,.0f}</b></div>",
+            unsafe_allow_html=True)
 
     b1, b2 = st.columns([3, 1])
     with b1:

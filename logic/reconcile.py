@@ -15,7 +15,9 @@ import pandas as pd
 
 # Fidelity account number → our label. EDIT to your current numbers (a fresh
 # Fidelity export can change these). Accounts not listed here are skipped.
-ACCOUNT_MAP = {"Z52229635": "LLC", "148537624": "IRA", "X77951079": "IRA"}
+# Only the wheel accounts reconcile. X77951079 (Individual-TOD, taxable) is intentionally
+# excluded — it holds non-wheel positions like the CRDO Jan-2028 LEAP call.
+ACCOUNT_MAP = {"Z52229635": "LLC", "148537624": "IRA"}
 
 _OPT_RE = re.compile(r"^([A-Z]+)(\d{6})([CP])([\d.]+)$")
 
@@ -151,25 +153,45 @@ def _row(t, f, state) -> dict:
             "state": state}
 
 
+def _aggregate(positions: list) -> dict:
+    """Collapse positions that share a match key into one, summing Qty (and $ value).
+    The TradeLog can hold the same contract on several rows (opened on different dates);
+    Fidelity reports it as one line, so both sides must be summed before comparing."""
+    agg: dict = {}
+    for p in positions:
+        k = _key(p)
+        if k not in agg:
+            a = dict(p)
+            a["qty"] = 0
+            if "cur_val" in p:
+                a["cur_val"] = 0.0
+            agg[k] = a
+        agg[k]["qty"] += int(p.get("qty") or 0)
+        if p.get("cur_val") is not None:
+            agg[k]["cur_val"] = (agg[k].get("cur_val") or 0.0) + p["cur_val"]
+    return agg
+
+
 def reconcile(tracked: list, fidelity: list) -> dict:
     """Compare tracked vs Fidelity options. Returns rows + summary counts + cash.
 
-    Matched on account · ticker · type · expiry · strike. Anything that doesn't
-    line up — qty off, in Fidelity only, or tracked only — is a discrepancy, and
-    the 'Mismatched' count is the umbrella of all three (matches the legacy view)."""
+    Matched on account · ticker · type · expiry · strike. Each side is first aggregated
+    by that key (so multiple TradeLog rows for one contract sum to one), then anything
+    that doesn't line up — qty off, in Fidelity only, or tracked only — is a discrepancy,
+    and the 'Mismatched' count is the umbrella of all three (matches the legacy view)."""
     fid_opts = [p for p in fidelity if p["pos_type"] in ("PUT", "CALL")]
-    fid_idx = {_key(fp): fp for fp in fid_opts}
-    tr_keys = {_key(p) for p in tracked}
+    tr_agg = _aggregate(tracked)
+    fid_agg = _aggregate(fid_opts)
 
     rows = []
-    for p in tracked:
-        fp = fid_idx.get(_key(p))
+    for k, p in tr_agg.items():
+        fp = fid_agg.get(k)
         matched = fp is not None
         state = ("MATCHED" if (matched and fp["qty"] == p["qty"]) else
                  "MISMATCH" if matched else "TRACKED_ONLY")
         rows.append(_row(p, fp, state))
-    for fp in fid_opts:
-        if _key(fp) not in tr_keys:
+    for k, fp in fid_agg.items():
+        if k not in tr_agg:
             rows.append(_row(None, fp, "FID_ONLY"))
 
     def count(s):

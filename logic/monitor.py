@@ -86,33 +86,35 @@ def detail_for(rollup: pd.DataFrame, year: int, month: str) -> pd.DataFrame:
 # derived from a TradeLog snapshot). Verified cell-for-cell against the sheet.
 # ═══════════════════════════════════════════════════════════════════════════
 
-# VIX 2-state allocation bands (static, from the sheet): Range, Up Min/Max, Dn Min/Max.
+# VIX regime bands (revamped Oct 2026, from the MonitorBoard): Range, Name, Emoji, Cash Min/Max.
+# Contrarian: calm/complacent (low VIX) → HOARD cash; fear/panic (high VIX) → DEPLOY. Single
+# cash range per regime now (the old uptrend/downtrend split is retired).
 BANDS = [
-    ("8–13",   0.40, 0.65, 0.60, 0.80),
-    ("13–15",  0.30, 0.40, 0.45, 0.60),
-    ("15-20",  0.20, 0.30, 0.40, 0.45),
-    ("20-25",  0.10, 0.20, 0.35, 0.40),
-    ("25-30",  0.05, 0.10, 0.30, 0.35),
-    ("30–100", 0.00, 0.05, 0.20, 0.30),
+    ("8–14",  "Extreme Bullish", "🥵", 0.60, 0.80),
+    ("14–15", "Bullish",         "😊", 0.40, 0.60),
+    ("15–18", "Normal",          "😐", 0.20, 0.40),
+    ("18–22", "Fear",            "😬", 0.15, 0.20),
+    ("22–28", "Extreme Fear",    "😨", 0.05, 0.10),
+    ("28+",   "Panic",           "😱", 0.00, 0.05),
 ]
 
 
 # VIX bounds of each band (parallel to BANDS), for within-band interpolation.
-_BAND_BOUNDS = [(8, 13), (13, 15), (15, 20), (20, 25), (25, 30), (30, 100)]
+_BAND_BOUNDS = [(8, 14), (14, 15), (15, 18), (18, 22), (22, 28), (28, 100)]
 
 
 def band_index(vix: float) -> int:
     v = float(vix or 0)
-    return 0 if v < 13 else 1 if v < 15 else 2 if v < 20 else 3 if v < 25 else 4 if v < 30 else 5
+    return 0 if v < 14 else 1 if v < 15 else 2 if v < 18 else 3 if v < 22 else 4 if v < 28 else 5
 
 
-def allocation(vix: float, trend: str) -> float:
-    """VIX Allocation % — interpolated by WHERE VIX sits within its band, not the band
-    midpoint. Lower VIX → more cash (ammunition doctrine), so VIX at the band's low edge
-    maps to the band's MAX cash and the high edge to its MIN. Continuous across band edges
-    (e.g. VIX 15 gives the same value from either side); clamps outside the band range."""
+def allocation(vix: float, trend: str = None) -> float:
+    """Cash target % — interpolated by WHERE VIX sits within its regime band. Lower VIX → more
+    cash (ammunition doctrine): VIX at the band's low edge maps to the band's MAX cash, the high
+    edge to its MIN. Continuous across edges; clamps outside the range. `trend` is accepted for
+    backward compatibility but ignored (bands are single-range now)."""
     i = band_index(vix)
-    cmin, cmax = (BANDS[i][1], BANDS[i][2]) if str(trend) == "Uptrend" else (BANDS[i][3], BANDS[i][4])
+    cmin, cmax = BANDS[i][3], BANDS[i][4]
     lo, hi = _BAND_BOUNDS[i]
     frac = (float(vix or 0) - lo) / (hi - lo) if hi > lo else 0.0
     frac = min(max(frac, 0.0), 1.0)
@@ -157,10 +159,10 @@ def _account_money(od: pd.DataFrame, acct: str, ath: float, alloc: float) -> dic
     leap = _sumres(od, account=acct, opt="LEAP")
     itm = _sumres(od, account=acct, itmput=True)               # ITM short-put reserve
     rtd = vtgt - dep                                           # Ready to deploy / CSP Gap
-    ccbrk = (cc + itm) / wcap if wcap else 0.0                 # CC Breaker (40% cap, Framework 2.0)
+    ccbrk = (cc + itm) / wcap if wcap else 0.0                 # Speedometer (50% cap)
     return dict(cap=cap, ath=ath, ath0=ath0, vault=vault, wcap=wcap, vtgt=vtgt, cih=cih, dep=dep,
                 cc=cc, csp=csp, leap=leap, itm=itm, rtd=rtd, ccbrk=ccbrk,
-                brkgap=(0.40 - ccbrk) * wcap, cspitm=(itm / wcap if wcap else 0.0),
+                brkgap=(0.55 - ccbrk) * wcap, cspitm=(itm / wcap if wcap else 0.0),
                 leappct=(leap / wcap if wcap else 0.0), leapgap=0.02 * wcap - leap)
 
 
@@ -212,3 +214,54 @@ def monitor_board(df: pd.DataFrame, ath_ira: float, ath_llc: float,
 
     return dict(ira=I, llc=L, total=total, alloc=alloc, vix=vix, vix_chg=vix_chg,
                 trend=trend, band=band_index(vix), premium=premium)
+
+
+def apply_sheet_board(r: dict, cells: dict) -> dict:
+    """Overlay the Monitor Board SHEET's computed figures onto the recomputed `r` so the web
+    shows the exact same numbers as the sheet + mobile (the single source of truth). Only the
+    sheet's DOLLAR values are trusted; every percentage, gap and total is re-derived from them
+    here, so the sheet's CSV %-formatting never matters. `itm` (ITM short-put reserve) isn't on
+    the sheet, so it stays recomputed — the breaker already matches the sheet to 0.1%. Any field
+    the sheet doesn't provide keeps its TradeLog-recomputed value (graceful fallback)."""
+    if not cells:
+        return r
+    for acct in ("ira", "llc"):
+        src = cells.get(acct) or {}
+        d = r.get(acct) or {}
+        for k in ("cap", "ath", "vault", "wcap", "vtgt", "cih", "dep", "cc", "csp", "leap", "rtd"):
+            v = src.get(k)
+            if v is not None:
+                d[k] = v
+        wcap = d.get("wcap") or 0                         # re-derive % / gaps from sheet dollars
+        itm = d.get("itm") or 0
+        # Ready to deploy / CSP Gap is ALWAYS VIX Target − Deployed from the overlaid sheet
+        # dollars, so it can never contradict the VIX Target / Deployed shown beside it.
+        d["rtd"] = (d.get("vtgt") or 0) - (d.get("dep") or 0)
+        if wcap:
+            d["ccbrk"] = (d.get("cc", 0) + itm) / wcap
+            d["cspitm"] = itm / wcap
+            d["leappct"] = d.get("leap", 0) / wcap
+        d["brkgap"] = (0.55 - d.get("ccbrk", 0)) * wcap
+        d["leapgap"] = 0.02 * wcap - d.get("leap", 0)
+        r[acct] = d
+
+    I, L = r["ira"], r["llc"]                              # totals + VIX alloc from overlaid accounts
+    wsum = (I.get("wcap") or 0) + (L.get("wcap") or 0)
+
+    def wavg(k):
+        return (I[k] * I["wcap"] + L[k] * L["wcap"]) / wsum if wsum else 0.0
+
+    r["total"] = dict(rtd=(I.get("rtd") or 0) + (L.get("rtd") or 0), ccbrk=wavg("ccbrk"),
+                      brkgap=(I.get("brkgap") or 0) + (L.get("brkgap") or 0), cspitm=wavg("cspitm"),
+                      leappct=((I.get("leap", 0) + L.get("leap", 0)) / wsum if wsum else 0.0),
+                      leapgap=0.02 * wsum - (I.get("leap", 0) + L.get("leap", 0)))
+    if I.get("wcap"):
+        r["alloc"] = 1 - (I["vtgt"] / I["wcap"])          # VIX allocation = 1 − (VIX Target / Wheel Cap)
+
+    prem = cells.get("premium") or {}                     # Gate-9 goals straight from the sheet
+    wk_goal, wk_earn = prem.get("wk_goal"), prem.get("wk_earn")
+    mo_goal, mo_earn = prem.get("mo_goal"), prem.get("mo_earn")
+    if None not in (wk_goal, wk_earn, mo_goal, mo_earn):
+        r["premium"] = [("🎯 Wk Goal", wk_goal), ("💰 Wk Earned", wk_earn), ("⏳ Wk Gap", wk_goal - wk_earn),
+                        ("🎯 Mo Goal", mo_goal), ("💰 Mo Earned", mo_earn), ("⏳ Mo Gap", mo_goal - mo_earn)]
+    return r

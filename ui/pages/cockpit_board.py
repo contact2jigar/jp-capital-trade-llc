@@ -35,6 +35,17 @@ def _btag(icon_label: str, sub: str, P: dict) -> str:
             f"<span class='ck-sub'>{sub}</span></div></div>")
 
 
+def _collapsible(tag: str, body: str, hint: str = "", open_: bool = False) -> str:
+    """Wrap a card's header+body in a native <details> so the whole card collapses
+    (default CLOSED), matching the iPhone's collapsible cards. `tag` is a _btag header;
+    `hint` is a short status (e.g. '21 ITM', '11 this week') shown on the closed summary."""
+    op = " open" if open_ else ""
+    hintspan = f"<span class='ck-colhint'>{hint}</span>" if hint else ""
+    return (f"<details class='ck-col'{op}>"
+            f"<summary class='ck-colsum'>{tag}{hintspan}<span class='ck-colmk'></span></summary>"
+            f"<div class='ck-colbody'>{body}</div></details>")
+
+
 def _goals(prem: list, P: dict, mo_earned: float | None = None) -> str:
     """Premium goals — Week & Month: Goal / Earned / Gap ($) + run-rate %."""
     d = {}
@@ -95,7 +106,7 @@ def _wheel_table(r: dict, P: dict) -> str:
 def _matrix_table(r: dict, P: dict) -> str:
     """Focus matrix — the gate/risk table: gaps · breaker · itm · leap, per account."""
     rows = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
-    cols = ["CSP Gap", "CC Breaker", "Breaker Gap", "%CSP ITM", "LEAP %", "LEAP Gap"]
+    cols = ["CSP Gap", "Speedometer", "Freeze Gap", "%CSP ITM", "LEAP %", "LEAP Gap"]
     head = "<tr><th>Account</th>" + "".join(f"<th>{col}</th>" for col in cols) + "</tr>"
     body = ""
     for name, a in rows:
@@ -427,20 +438,17 @@ def _breaker_card(r: dict, P: dict, df=None) -> str:
     expandable breakdown of the CCs + ITM CSPs that fill it."""
     def one(name, a):
         brk = (a.get("ccbrk") or 0) * 100
-        over = brk >= 40                                    # ≥40% = FREEZE (hard stop)
-        # 5-zone colour: <25 green · 25-30 yellow · 30-35 orange · 35-40 red · ≥40 freeze.
-        zc = (P["green"] if brk < 25 else P["amber"] if brk < 30
-              else P["orange"] if brk < 35 else P["red"])
-        gap = a.get("brkgap", 0)                            # $ headroom to the 40% cap (neg = over)
-        gv = (f"<div class='ck-gv' style='color:{P['red']}'>{brk:.1f}% "
-              f"<span style='font-size:9px;font-weight:900;letter-spacing:.04em;color:#fff;"
-              f"background:{P['red']};border-radius:4px;padding:1px 5px;vertical-align:2px;'>⛔ FREEZE</span></div>"
-              if over else f"<div class='ck-gv' style='color:{zc}'>{brk:.1f}%</div>")
+        # speedometer on the 0–55% scale — 55 = FREEZE (no new-capital CSPs ≥55%).
+        # zones: <25 green · 25-35 amber · 35-45 orange · 45-55 red.
+        zc = (P["green"] if brk < 25 else P["amber"] if brk < 35
+              else P["orange"] if brk < 45 else P["red"])
+        gap = a.get("brkgap", 0)                            # $ headroom to the 55% freeze line (neg = over)
+        gv = f"<div class='ck-gv' style='color:{zc}'>{brk:.1f}%</div>"
         return (f"<div class='ck-bg'><div class='ck-bglabel'>{name}</div>"
                 f"{ck._gauge(brk, P, 'b' + name)}{gv}"
                 f"<div class='ck-gz' style='color:{zc}'>{_m(gap)} <span>gap</span></div></div>")
     accts = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
-    return (f"<div class='ck-card ck-brkcard'>{_btag('🚦 CIRCUIT BREAKER', 'Cap 40%', P)}"
+    return (f"<div class='ck-card ck-brkcard'>{_btag('🏎️ SPEEDOMETER', '0–55% · FREEZE 55', P)}"
             f"<div class='ck-bgrow'>{''.join(one(n, a) for n, a in accts)}</div>"
             f"{_breaker_detail(df, P)}</div>")
 
@@ -472,20 +480,20 @@ def _money_card(r: dict, P: dict) -> str:
                           f"font-weight:700'>↓{ddk} ({dd / ath_v * 100:.1f}%)</span> {val}</div>")
             else:
                 cells += f"<div class='ck-mv'>{val}</div>"
-    # Cash In Hand row — free cash (not tied in CSP collateral = cih + vault) as a % of each
-    # account's own capital; the Total reads the "CASH %" that used to sit in the subtitle.
+    # Cash In Hand row — dry powder (cash ABOVE the vault) as a % of WHEEL capital, matching
+    # the sheet's Cash In Hand row and the Wheel Summary, so every surface shows one number.
     cells += "<div class='ck-ml'>Cash In Hand</div>"
     for _, a in accts:
-        cap_a = a.get("cap") or 0
-        free_a = (a.get("cih") or 0) + (a.get("vault") or 0)
-        cells += f"<div class='ck-mv'>{(free_a / cap_a * 100) if cap_a else 0:.0f}%</div>"
+        wcap_a = (a.get("cap") or 0) - (a.get("vault") or 0)
+        cih_a = a.get("cih") or 0
+        cells += f"<div class='ck-mv'>{(cih_a / wcap_a * 100) if wcap_a else 0:.0f}%</div>"
     # Money-market cash (CSP collateral + cash in hand + vault) as a share of TOTAL capital.
     _cash = sum((a.get("csp") or 0) + (a.get("cih") or 0) + (a.get("vault") or 0)
                 for a in (r["ira"], r["llc"]))
     _cap = sum((a.get("cap") or 0) for a in (r["ira"], r["llc"]))
     _cashp = (_cash / _cap * 100) if _cap else 0
     _ck = f"${_cash / 1e6:.1f}M" if _cash >= 1e6 else f"${_cash / 1e3:.0f}K"
-    msub = f"{_cashp:.0f}% ({_ck}) @ ~{_MMF_YIELD:.1f}% · Vault 30%"
+    msub = f"{_cashp:.0f}% ({_ck}) @ ~{_MMF_YIELD:.1f}% yield · Vault 30%"
     return (f"<div class='ck-card ck-bcard'>{_btag('🏦 MONEY', msub, P)}"
             f"<div class='ck-mgrid'>{cells}</div></div>")
 
@@ -509,26 +517,17 @@ def _perf_ytd(mdf, year: int) -> dict:
 
 
 def _ytd_card(r: dict, ext: dict, P: dict, perf: dict | None = None) -> str:
-    """📅 THIS YEAR — overall YTD gain across ALL accounts. IRA/LLC come from the PERFORMANCE
-    tab (point-to-point Jan start → latest end, so they match the Performance card); the LLC
-    end adds the parked $30K. Rollover/Roth come from the Z/AA config. Gain = now − start; only
-    accounts with a start value show. Falls back to live capital − Z/AA start if Performance is
-    unavailable."""
+    """📅 THIS YEAR — mirrors the sheet's COMPUTED S9:W15 block verbatim (the single source of
+    truth). The MonitorBoard script computes Start/Now/Gain for IRA, LLC, Wheel Total, Rollover,
+    Roth, Retirement Total and Grand Total; the web only lays them out, so it can never drift
+    from the sheet or mobile. A row lights up once it has a Now value; Gain/% show only when a
+    Start (Jan anchor) is set in the Z/AA config. `r`/`perf` are unused now (kept for the
+    caller's signature)."""
     ext = ext or {}
-    perf = perf or {}
-    tag = _btag("📅 THIS YEAR", "from Performance · + parked LLC · Wheel + Retirement", P)
-    park = ext.get("park_llc") or 0
-    if "ira" in perf and "llc" in perf:                  # Performance basis (preferred)
-        ira_s, ira_e = perf["ira"]
-        llc_s, llc_e = perf["llc"]
-        wheel = [("IRA", ira_e, ira_s), ("LLC", llc_e + park, llc_s)]
-    else:                                                 # fallback — live capital − Z/AA start
-        llc_cur = (r["llc"].get("cap") or 0) + park
-        wheel = [("IRA", (r["ira"].get("cap") or 0), ext.get("ytd_ira") or 0),
-                 ("LLC", llc_cur, ext.get("ytd_llc") or 0)]
-    groups = [("Wheel", wheel),
-              ("Retirement", [("Rollover", ext.get("cur_rollover") or 0, ext.get("ytd_rollover") or 0),
-                              ("Roth", ext.get("cur_roth") or 0, ext.get("ytd_roth") or 0)])]
+    tag = _btag("📅 THIS YEAR", "live from the MonitorBoard sheet · Wheel + Retirement", P)
+    blk = {d["label"]: d for d in (ext.get("this_year") or []) if d.get("label")}
+    group_defs = [("Wheel", ["IRA", "LLC"], "Wheel Total"),
+                  ("Retirement", ["Rollover", "Roth"], "Retirement Total")]
     mono = 'font-family:"IBM Plex Mono",ui-monospace,monospace;'   # DOUBLE quotes inside style=''
     accents = {"Wheel": P["blue"], "Retirement": P["purple"]}
     # Grid columns live in a scoped stylesheet so a media query can stack the two groups and
@@ -540,18 +539,26 @@ def _ytd_card(r: dict, ext: dict, P: dict, perf: dict | None = None) -> str:
            ".ytr{grid-template-columns:minmax(34px,1fr) auto auto auto;gap:6px}"
            ".ytr>div{font-size:10.5px !important}.ytr>div>span{font-size:9px !important}}</style>")
 
-    def cell(label, start, gain, accent, kind=""):        # kind: "" (account) | "sub" (group total)
-        pc = (gain / start * 100) if start else 0.0
-        col = P["green"] if gain >= 0 else P["red"]
+    def row(label, d, accent, kind=""):          # kind: "" (account) | "sub" (group total)
+        start = d.get("start")
+        now = d.get("now") or 0
+        gain = d.get("gain")
+        if gain is None and start is not None:
+            gain = now - start
+        has_gain = start is not None and start > 0 and gain is not None
+        pc = (gain / start * 100) if has_gain else 0.0
+        col = (P["green"] if gain >= 0 else P["red"]) if has_gain else P["mut"]
         bg = f"background:{accent}22;" if kind == "sub" else ""     # tinted subtotal row
         lw = "800" if kind == "sub" else "600"
+        start_html = _m(start) if start is not None else "—"
+        gain_html = (f"{_m(gain)} <span style='font-size:10px;color:{P['mut']}'>({pc:+.1f}%)</span>"
+                     if has_gain else "—")
         return (f"<div class='ytr' style='align-items:center;gap:10px;"
                 f"border-left:3px solid {accent};{bg}padding:3px 11px;border-radius:6px;margin-bottom:3px'>"
                 f"<div style='font-weight:{lw};color:{P['ink']};font-size:13px'>{label}</div>"
-                f"<div style='{mono}text-align:right;color:{P['mut']};font-size:12px'>{_m(start)}</div>"
-                f"<div style='{mono}text-align:right;color:{P['ink']};font-size:12px'>{_m(start + gain)}</div>"
-                f"<div style='{mono}text-align:right;color:{col};font-weight:700;font-size:13px'>"
-                f"{_m(gain)} <span style='font-size:10px;color:{P['mut']}'>({pc:+.1f}%)</span></div></div>")
+                f"<div style='{mono}text-align:right;color:{P['mut']};font-size:12px'>{start_html}</div>"
+                f"<div style='{mono}text-align:right;color:{P['ink']};font-size:12px'>{_m(now)}</div>"
+                f"<div style='{mono}text-align:right;color:{col};font-weight:700;font-size:13px'>{gain_html}</div></div>")
 
     hd = f"font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:{P['mut']};font-weight:700;"
     header = (f"<div class='ytr' style='gap:10px;padding:0 11px 2px'>"
@@ -559,34 +566,27 @@ def _ytd_card(r: dict, ext: dict, P: dict, perf: dict | None = None) -> str:
               f"<div style='{hd}text-align:right'>Now</div>"
               f"<div style='{hd}text-align:right'>YTD Gain</div></div>")
 
-    cols_html, all_live = [], []
-    for gname, members in groups:
-        live = [(n, cur, s) for n, cur, s in members if s > 0]
+    cols_html = []
+    for gname, members, subtot in group_defs:
+        live = [(n, blk[n]) for n in members if n in blk and blk[n].get("now") is not None]
         if not live:
             continue
-        all_live += live
         acc = accents.get(gname, P["blue"])
-        body = header + "".join(cell(n, s, cur - s, acc) for n, cur, s in live)
-        gstart = sum(s for _, _, s in live)
-        body += cell(f"{gname} Total", gstart, sum(cur - s for _, cur, s in live), acc, kind="sub")
+        body = header + "".join(row(n, d, acc) for n, d in live)
+        if subtot in blk:
+            body += row(f"{gname} Total", blk[subtot], acc, kind="sub")
         cols_html.append(f"<div>{body}</div>")
-    if not all_live:
+    if not cols_html:
         return (f"<div class='ck-card ck-bcard'>{tag}<div class='ck-sub' style='margin-top:6px'>"
-                f"Fill the <b>YTD Start</b> values in the sheet's Z/AA config to light this up.</div></div>")
-    # Grand Total: prefer the TRUE all-accounts start from the config (per-account starts are
-    # only estimates that won't sum to the real Jan-1); current = the live sum.
-    sum_start = sum(s for _, _, s in all_live)
-    sum_cur = sum(cur for _, cur, _ in all_live)
-    gstart_all = ext.get("ytd_start_total") or 0.0
-    gcur_all = ext.get("cur_total") or 0.0        # optional manual override; else use live sum
-    if gstart_all > 0:
-        tstart = gstart_all
-        tcur = gcur_all if gcur_all > 0 else sum_cur
-        glabel = "Grand Total · all accounts"
-    else:
-        tstart, tcur = sum_start, sum_cur
-        glabel = "Grand Total"
-    tgain = tcur - tstart
+                f"Run <b>Build Monitor Board</b>, then fill the <b>YTD Start</b> values in the sheet's "
+                f"Z/AA config to light this up.</div></div>")
+    # Grand Total — taken straight from the sheet's computed row (never re-summed here).
+    g = blk.get("Grand Total", {})
+    tstart = g.get("start") or 0
+    tcur = g.get("now") or 0
+    tgain = g.get("gain")
+    if tgain is None:
+        tgain = tcur - tstart
     tpct = (tgain / tstart * 100) if tstart else 0.0
     gc = P["green"] if tgain >= 0 else P["red"]
     head = (f"<div style='display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:2px 0 6px'>"
@@ -597,12 +597,153 @@ def _ytd_card(r: dict, ext: dict, P: dict, perf: dict | None = None) -> str:
     ggain = "#4ade80" if tgain >= 0 else "#f87171"     # bright on the dark bar
     grand = (f"<div class='ytr' style='align-items:center;gap:10px;background:#141b2b;"
              f"padding:6px 11px;border-radius:7px;margin-top:5px'>"
-             f"<div style='font-weight:800;color:#fff;font-size:13px'>{glabel}</div>"
+             f"<div style='font-weight:800;color:#fff;font-size:13px'>Grand Total</div>"
              f"<div style='{mono}text-align:right;color:#cbd5e1;font-size:12px'>{_m(tstart)}</div>"
              f"<div style='{mono}text-align:right;color:#fff;font-size:12px'>{_m(tcur)}</div>"
              f"<div style='{mono}text-align:right;color:{ggain};font-weight:800;font-size:14px'>"
              f"{_m(tgain)} <span style='font-size:10px;color:#94a3b8'>({tpct:+.1f}%)</span></div></div>")
     return f"{css}<div class='ck-card ck-bcard'>{tag}{head}{cols}{grand}</div>"
+
+
+def _premium_pivot_html(c: dict, roll, open_set) -> str:
+    """Close-Date premium drill-down in the clean cockpit style: one indented label column
+    (Year → Month → Week → Account → Stock) with `+`/`−` toggles, then Profit Loss · Cash
+    Reserve · ROC. Theme-aware (uses the cockpit palette `c`), minimal row separators."""
+    levels = ["Year", "Month", "Week", "Account", "Stock"]
+    pos, neg, text, mut = c["pos"], c["neg"], c["text"], c["muted"]
+
+    def vals(pl, cash):
+        r = (pl / cash * 100) if cash else None
+        plc = neg if pl < 0 else text
+        rcl = neg if (r is not None and r < 0) else mut
+        rtx = f"{r:.2f}%" if r is not None else "—"
+        return (f"<span class='pv-v pv-pl' style='color:{plc}'>{pl:,.0f}</span>"
+                f"<span class='pv-v pv-cash'>{cash:,.0f}</span>"
+                f"<span class='pv-v pv-roc' style='color:{rcl}'>{rtx}</span>")
+
+    def node(df, lv, depth):
+        key = lv[0]
+        leaf = len(lv) == 1
+        if key == "Year":
+            order = sorted(df[key].unique(), reverse=True)
+        elif key == "Month":
+            order = df.drop_duplicates("Month").sort_values("_m", ascending=False)["Month"].tolist()
+        elif key == "Week":
+            order = sorted(df["Week"].unique())
+        else:                                           # Account, Stock → alphabetical
+            order = sorted(df[key].astype(str).unique())
+        out = ""
+        for val in order:
+            g = df[df[key] == val]
+            pl, cash = g["P/L"].sum(), g["Cash Reserve"].sum()
+            pad = depth * 22
+            if leaf:
+                out += (f"<div class='pv-row pv-leaf'><span class='pv-lbl' style='padding-left:{pad + 22}px'>"
+                        f"{val}</span>{vals(pl, cash)}</div>")
+            else:
+                op = "open" if val in open_set else ""
+                out += (f"<details {op}><summary class='pv-row' style='--lv:{depth}'>"
+                        f"<span class='pv-lbl' style='padding-left:{pad}px'>"
+                        f"<span class='pv-mk'></span>{val}</span>{vals(pl, cash)}</summary>"
+                        f"{node(g, lv[1:], depth + 1)}</details>")
+        return out
+
+    hd = (f"<div class='pv-row pv-hd'><span class='pv-lbl'>Year · Month · Week · Account · Stock</span>"
+          f"<span class='pv-v'>Profit Loss</span><span class='pv-v'>Cash Reserve</span>"
+          f"<span class='pv-v'>ROC</span></div>")
+    css = f"""<style>
+.pvt{{font-variant-numeric:tabular-nums;border:1px solid {c['border']};border-radius:12px;
+  overflow:hidden;background:{c['panel']}}}
+.pvt .pv-row{{display:grid;grid-template-columns:1fr 120px 136px 78px;align-items:center;
+  padding:8px 12px;border-top:1px solid {c['border_soft']};font-size:13.5px}}
+.pvt .pv-hd{{border-top:0;background:{c['raised']};font-size:10px;letter-spacing:.05em;
+  text-transform:uppercase;color:{mut};font-weight:800}}
+.pvt .pv-hd .pv-lbl,.pvt .pv-hd .pv-v{{color:{mut};font-weight:800}}
+.pvt .pv-lbl{{white-space:nowrap;font-weight:700;color:{text}}}
+.pvt .pv-leaf .pv-lbl{{font-weight:500;color:{c['mid']}}}
+.pvt .pv-v{{text-align:right;font-weight:700}}
+.pvt .pv-cash{{color:{mut};font-weight:600}}
+.pvt details{{border:0;margin:0}}
+.pvt summary{{list-style:none;outline:none;cursor:pointer}}
+.pvt summary::-webkit-details-marker{{display:none}}
+.pvt summary.pv-row:hover{{background:{c['nav_hover']}}}
+.pvt .pv-mk{{display:inline-block;width:16px;color:{mut};font-weight:700;font-size:14px}}
+.pvt .pv-mk::before{{content:"+"}}
+.pvt details[open]>summary .pv-mk::before{{content:"−"}}
+</style>"""
+    body = node(roll, levels, 0)
+    return f"{css}<div class='pvt'>{hd}{body}</div>"
+
+
+def _premium_collection_card(c: dict, tdf) -> str:
+    """📅 PREMIUM COLLECTION — premium BOOKED (open-date pivot) next to premium REALIZED
+    (close-date pivot), side by side, one row per month. Replaces the deep drill: the two
+    columns let you compare what was sold vs what settled each month. '' when empty."""
+    try:
+        ro = engine.pl_rollup(tdf, "Open Date")
+        rc = engine.pl_rollup(tdf, "Close Date")
+    except Exception:
+        return ""
+    mo_t, mc_t = engine.monthly_totals(ro), engine.monthly_totals(rc)
+    if (mo_t is None or mo_t.empty) and (mc_t is None or mc_t.empty):
+        return ""
+
+    def idx(mt):
+        m = {}
+        if mt is not None and not mt.empty:
+            for _, r in mt.iterrows():
+                m[(int(r["Year"]), str(r["Month"]))] = (float(r["P/L"]), int(r["Trades"]))
+        return m
+    O, C = idx(mo_t), idx(mc_t)
+    mnum = {mm: i for i, mm in enumerate(_MONTHS, 1)}
+    keys = sorted(set(O) | set(C), key=lambda k: (k[0], mnum.get(k[1], 0)), reverse=True)
+
+    def money_cell(entry):
+        if entry is None:
+            return (f"<td class='pc-n' style='color:{c['muted']}'>—</td>"
+                    f"<td class='pc-t'></td>")
+        pl, n = entry
+        col = c["pos"] if pl >= 0 else c["neg"]
+        return (f"<td class='pc-n' style='color:{col}'>{pl:,.0f}</td>"
+                f"<td class='pc-t'>{n}</td>")
+
+    rows_html, to, tc = [], 0.0, 0.0
+    for k in keys:
+        o, cc_ = O.get(k), C.get(k)
+        to += (o[0] if o else 0); tc += (cc_[0] if cc_ else 0)
+        label = f"{k[1]} {k[0]}"
+        rows_html.append(
+            f"<tr><td class='pc-m'>{label}</td>{money_cell(o)}{money_cell(cc_)}</tr>")
+    tcol_o = c["pos"] if to >= 0 else c["neg"]
+    tcol_c = c["pos"] if tc >= 0 else c["neg"]
+    total = (f"<tr class='pc-tot'><td class='pc-m'>Total</td>"
+             f"<td class='pc-n' style='color:{tcol_o}'>{to:,.0f}</td><td class='pc-t'></td>"
+             f"<td class='pc-n' style='color:{tcol_c}'>{tc:,.0f}</td><td class='pc-t'></td></tr>")
+
+    th = (f"position:sticky;top:0;z-index:2;background:{c['raised']};color:{c['muted']};"
+          f"font-size:10px;letter-spacing:.04em;text-transform:uppercase;font-weight:800;"
+          f"padding:8px 12px;border-bottom:2px solid {c['border']};")
+    head_row = (f"<tr><th style='{th}text-align:left'>Month</th>"
+                f"<th style='{th}text-align:right' colspan='2'>Booked · open date</th>"
+                f"<th style='{th}text-align:right' colspan='2'>Realized · close date</th></tr>")
+    css = f"""<style>
+.pc-tbl{{font-variant-numeric:tabular-nums;border:1px solid {c['border']};border-radius:12px;
+  overflow:hidden;width:100%;border-collapse:collapse;background:{c['panel']}}}
+.pc-tbl td{{padding:8px 12px;border-bottom:1px solid {c['border_soft']};font-size:13.5px}}
+.pc-m{{font-weight:700;color:{c['text']};white-space:nowrap}}
+.pc-n{{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}}
+.pc-t{{text-align:right;color:{c['muted']};font-size:10.5px;width:38px}}
+.pc-tbl .pc-tot td{{border-top:2px solid {c['border']};border-bottom:0;background:{c['raised']};font-weight:800}}
+.pc-tbl .pc-tot .pc-m{{color:{c['text']}}}
+</style>"""
+    head = (f"<div style='display:flex;align-items:baseline;gap:10px;margin:14px 0 10px;flex-wrap:wrap'>"
+            f"<span style='font-size:13px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;"
+            f"color:{c['text']}'>📅 Premium Collection</span>"
+            f"<span style='font-size:11px;color:{c['muted']}'>booked (open date) vs realized (close date) · by month · small # = trades</span></div>")
+    table = (f"{css}<div style='max-height:560px;overflow-y:auto;border-radius:12px'>"
+             f"<table class='pc-tbl'><thead>{head_row}</thead>"
+             f"<tbody>{''.join(rows_html)}{total}</tbody></table></div>")
+    return head + table
 
 
 def _ccotm(df) -> dict:
@@ -669,7 +810,7 @@ def _summary_grid(r: dict, P: dict) -> str:
 def _matrix_grid(r: dict, P: dict) -> str:
     """Focus matrix — IRA/LLC/Total as rows, gates as columns, with green/red cell fills."""
     rows = [("IRA", r["ira"]), ("LLC", r["llc"]), ("Total", r["total"])]
-    cols = ["Account", "CSP Gap", "CC Breaker", "Breaker Gap", "%CSP ITM", "LEAP %", "LEAP Gap"]
+    cols = ["Account", "CSP Gap", "Speedometer", "Freeze Gap", "%CSP ITM", "LEAP %", "LEAP Gap"]
     cells = "".join(f"<div class='ck-fh{' ck-fhl' if i == 0 else ''}'>{c}</div>"
                     for i, c in enumerate(cols))
     for name, a in rows:
@@ -688,8 +829,15 @@ def _matrix_grid(r: dict, P: dict) -> str:
             f"<div class='ck-fgrid'>{cells}</div></div>")
 
 
-_ITYPE_ORDER = ["01-Growth", "02-Alternate", "03-Speculation",
-                "04-WatchList", "04-LEAP", "5-Others"]
+def _itype_rank(it: str) -> int:
+    """Leading category number of an Invest Type, e.g. '01-Core'→1, '5-Others'→5; 99 if none."""
+    num = ""
+    for ch in str(it).strip():
+        if ch.isdigit():
+            num += ch
+        else:
+            break
+    return int(num) if num else 99
 
 
 def _alloc_groups(df, acct_upper: str) -> list:
@@ -717,14 +865,14 @@ def _alloc_groups(df, acct_upper: str) -> list:
     has_ret = "Return" in d.columns
     d["_aor"] = (d["Return"].map(lambda v: engine._money(str(v).replace("%", "")))
                  if has_ret else 0.0)
-    # Known types in canonical order, then ANY other real category found in the data
-    # (e.g. a newly added 04-WatchList / 5-Others), so a bucket never silently vanishes.
-    # Only the X-list cash bucket is excluded.
+    # Order groups by their leading category number (01-Core → 02-Growth → 03-Speculative →
+    # 04-Scanner → 5-Others), robust to 0-padding ("01" vs "1"). Only the X-list cash bucket
+    # is excluded; anything without a number sorts last.
     present = list(dict.fromkeys(d["_it"].tolist()))
-    extras = [it for it in present
-              if it and it not in _ITYPE_ORDER and not it.upper().startswith("X")]
+    ordered = sorted((it for it in present if it and not it.upper().startswith("X")),
+                     key=lambda it: (_itype_rank(it), it))
     out = []
-    for it in [t for t in _ITYPE_ORDER if t in present] + extras:
+    for it in ordered:
         g = d[d["_it"] == it]
         if g.empty:
             continue
@@ -743,7 +891,7 @@ def _alloc_groups(df, acct_upper: str) -> list:
 def _alloc_card(df, name: str, a: dict, P: dict) -> str:
     """One account's holdings grouped by Invest Type with per-group subtotals:
     Stock · P/L · %Alloc · Cash Reserved · Current · Qty · Strike. %Alloc = Cash Reserve as a
-    share of WHEEL capital (after the 30% vault); over the 5% cap shows red."""
+    share of WHEEL capital (after the 30% vault); over the 8% cap shows red."""
     base = a.get("wcap") or 0
     groups = _alloc_groups(df, name.upper())
     cols = ["Stock", "Profit Loss", "% Alloc", "AOR", "Cash Reserved", "Current", "Qty", "Strike"]
@@ -767,10 +915,10 @@ def _alloc_card(df, name: str, a: dict, P: dict) -> str:
         gaor_num = gaor_den = 0.0
         for s in stocks:
             p = (s["cash"] / base * 100) if base else 0
-            # % Alloc color: <5% green · 5–7% with a single 1-lot amber (starter) · otherwise red
-            if p < 5:
+            # % Alloc color: <8% green · 8–10% with a single 1-lot gold (starter) · otherwise red
+            if p < 8:
                 acol = P["green"]
-            elif p <= 7 and s["qty"] <= 1:
+            elif p <= 10 and s["qty"] <= 1:
                 acol = P["gold"]                         # yellow caution (amber reads coppery in Grey)
             else:
                 acol = P["red"]
@@ -796,15 +944,15 @@ def _alloc_card(df, name: str, a: dict, P: dict) -> str:
                  f"<div class='ck-ac ck-xtot'></div>")
     inner = (head + body) if groups else "<div class='ck-fa'>No open positions.</div>"
     return (f"<div class='ck-card ck-fcard'>"
-            f"{_btag(f'🧮 {name} ALLOCATION', '5% Wheel cap · 7% 1 lot', P)}"
+            f"{_btag(f'🧮 {name} ALLOCATION', '8% cap · 10% 1 lot', P)}"
             f"<div class='ck-xgw'><div class='ck-xgrid'>{inner}</div></div></div>")
 
 
 def _combined_alloc_card(df, r, P: dict) -> str:
     """Combined exposure per stock ACROSS both accounts — cash reserve summed over IRA+LLC
-    as a % of TOTAL wheel capital. The cap on the combined is a flat 5% (no 7% starter
-    exception), so any name over 5% combined shows BOLD red. Just Stock · % Alloc."""
-    tag = _btag("🔗 COMBINED BY STOCK", "5% Wheel cap · 7% 1 lot", P)
+    as a % of TOTAL wheel capital. The cap on the combined is a flat 8% (no 10% starter
+    exception), so any name over 8% combined shows BOLD red. Just Stock · % Alloc."""
+    tag = _btag("🔗 COMBINED BY STOCK", "8% cap · 10% 1 lot", P)
     if df is None or getattr(df, "empty", True):
         return ""
     base = (r["ira"].get("wcap") or 0) + (r["llc"].get("wcap") or 0)
@@ -843,10 +991,10 @@ def _combined_alloc_card(df, r, P: dict) -> str:
     body = ""
     for _, row in g.iterrows():
         pc = row["pct"]
-        # % Alloc color: <5% green · 5–7% with a single 1-lot amber (starter) · otherwise red
-        if pc < 5:
+        # % Alloc color: <8% green · 8–10% with a single 1-lot gold (starter) · otherwise red
+        if pc < 8:
             col, w = P["green"], "700"
-        elif pc <= 7 and row["_qty"] <= 1:
+        elif pc <= 10 and row["_qty"] <= 1:
             col, w = P["gold"], "700"                     # yellow caution (amber reads coppery in Grey)
         else:
             col, w = P["red"], "800"
@@ -921,11 +1069,12 @@ def _assignment_card(df, c: dict, r: dict | None = None) -> str:
 
     body = (section(itm_put, "🔴 ITM Puts · will be assigned", "#f2555a")
             + section(itm_call, "🟠 ITM Calls · called away", "#e3a63a"))
+    n_itm = int(itm_put.sum() + itm_call.sum())
     if not body:
         body = f"<div class='ck-sub' style='margin-top:6px'>No ITM puts or calls right now.</div>"
-    return (f"<div class='ck-card ck-fcard'>"
-            f"{_btag('📒 ASSIGNMENT WATCH', 'ITM puts → assigned · ITM calls → called away', P)}"
-            f"{body}</div>")
+    tag = _btag('📒 ASSIGNMENT WATCH', 'ITM puts → assigned · ITM calls → called away', P)
+    hint = f"{n_itm} ITM" if n_itm else "none"
+    return f"<div class='ck-card ck-fcard'>{_collapsible(tag, body, hint)}</div>"
 
 
 def _week_expiry_card(df, c: dict) -> str:
@@ -952,11 +1101,12 @@ def _week_expiry_card(df, c: dict) -> str:
             sub = sub.assign(_d=sub["DTE"].map(engine._money)).sort_values("_d")
         sub["Logo"] = sub["Stock"].astype(str).str.strip().apply(
             lambda t: f"https://financialmodelingprep.com/image-stock/{t}.png" if t else "")
+        sub = cc._attach_cc_basis(sub, df)          # Orig Strike + Break Even on covered-call rows
         cols = ["Logo"] + [x for x in cc._TL_COLS if x in sub.columns]
         body = cc._tl_html(sub[cols], cols, c, light)
-    return (f"<div class='ck-card ck-fcard'>"
-            f"{_btag('📅 EXPIRING THIS WEEK', f'open puts/calls rolling off by {wk_end:%b %-d}', P)}"
-            f"{body}</div>")
+    tag = _btag('📅 EXPIRING THIS WEEK', f'open puts/calls rolling off by {wk_end:%b %-d}', P)
+    hint = f"{len(sub)} this week" if not sub.empty else "none"
+    return f"<div class='ck-card ck-fcard'>{_collapsible(tag, body, hint)}</div>"
 
 
 def _expiry_summary_card(df, name: str, c: dict) -> str:
@@ -1026,7 +1176,8 @@ def _expiry_summary_card(df, name: str, c: dict) -> str:
              f"<div class='ck-exn'>{tret:.2f}%</div>"
              f"<div class='ck-exn' style='color:{P['gold']}'>{_m(trel)}</div></div>")
     tbl = f"<div class='ck-exw'><div class='ck-ext'>{head}{body}{total}</div></div>"
-    return f"<div class='ck-card ck-fcard'>{tag}{tbl}</div>"
+    hint = f"{len(groups)} expiries · {_m(tpl)} P/L"
+    return f"<div class='ck-card ck-fcard'>{_collapsible(tag, tbl, hint)}</div>"
 
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -1194,8 +1345,8 @@ def _acct_card(name: str, a: dict, accent: str, P: dict) -> str:
         ("LEAP", _m(a.get("leap")), ink, pc(a.get("leap")), mut),
         ("SEP", None, None, None, None),
         ("Ready / CSP Gap", _m(a.get("rtd")), g, pc(a.get("rtd")), g),
-        ("CC Breaker", f"{ccb:.1f}%", bc, "", mut),
-        ("Breaker Gap", _m(a.get("brkgap")), g, "", mut),
+        ("Speedometer", f"{ccb:.1f}%", bc, "", mut),
+        ("Freeze Gap", _m(a.get("brkgap")), g, "", mut),
         ("%CSP ITM", f"{(a.get('cspitm') or 0) * 100:.1f}%", ink, "", mut),
         ("LEAP Gap", _m(lg), g if lg >= 0 else P["red"], "", mut),
     ]
@@ -1309,6 +1460,15 @@ def _extra_css(P: dict) -> str:
 .ck-exsum .ck-exlbl::before{{content:'▸';display:inline-block;width:11px;color:{P['mut']};font-size:9px;margin-right:3px}}
 details[open]>.ck-exsum .ck-exlbl::before{{content:'▾'}}
 .ck-exstk{{background:{P['plo']}}}
+.ck-col{{border:0}}
+.ck-colsum{{cursor:pointer;list-style:none;outline:none;position:relative;padding-right:26px}}
+.ck-colsum::-webkit-details-marker{{display:none}}
+.ck-colhint{{display:block;margin-top:4px;font-size:11.5px;font-weight:700;color:{P['mut']}}}
+.ck-colmk{{position:absolute;right:2px;top:4px}}
+.ck-colmk::before{{content:'▸';color:{P['mut']};font-size:12px;font-weight:800}}
+details.ck-col[open]>.ck-colsum .ck-colmk::before{{content:'▾'}}
+details.ck-col[open]>.ck-colsum .ck-colhint{{display:none}}
+.ck-colbody{{margin-top:8px}}
 .ck-exstk .ck-exlbl{{padding-left:24px;color:{P['mid']};font-size:11.5px}}
 .ck-extot{{background:{P['glow']};font-weight:800;border-bottom:0}}
 .ck-extot .ck-exlbl{{color:{P['ink']}}}
@@ -1457,6 +1617,79 @@ def _leap_alert(df, P: dict) -> str:
             f"font-weight:800;margin-bottom:6px'>🚀 LEAP in profit · {msg}</div>{chips}</div>")
 
 
+def _vol_board_html(c: dict, P: dict) -> str:
+    """VIX · VXN · SMH-RV30 volatility regime cards from the VIXBoard tab (VIX drives the
+    cash target; VXN training-only). Each card: value + day change, regime badge, its own 6-band scale
+    with a needle, and the driver's cash-to-HOLD % (band range interpolated by where VIX sits in it)."""
+    from services import gsheet
+    vb = gsheet.vix_board() or {}
+    idxs = vb.get("indices") or []
+    if not idxs:
+        return ""
+    you = vb.get("you")
+    text, mut, gold = c["text"], c["muted"], c["gold"]
+    pos, neg, panel, border = c["pos"], c["neg"], c["panel"], c["border"]
+    amber = c.get("amber", "#d97706")
+    cards = ""
+    for ix in idxs:
+        driver = ix["key"] == "VIX"
+        bands, cur = ix["bands"], ix["cur"]
+        b = bands[cur] if 0 <= cur < len(bands) else None
+        val, chg = ix["value"], (ix["change"] or 0)
+        chgcol = neg if chg >= 0 else pos                 # vol up = risk up
+        tgt = f"{b['cmin'] * 100:.0f}–{b['cmax'] * 100:.0f}%" if b else "—"
+        segs = ""
+        for k, bd in enumerate(bands):
+            lo, hi = bd["lo"], bd["hi"]
+            rng = (f"&lt;{hi:.0f}" if lo == 0 else f"{lo:.0f}+" if hi == lo + 10 else f"{lo:.0f}–{hi:.0f}")
+            on = " vb-on" if k == cur else ""
+            segs += (f"<div class='vb-seg{on}' style='background:{bd['color']};color:{bd['on']}'>"
+                     f"<span class='vb-sr'>{bd['short']}</span><span class='vb-sd'>{rng}</span></div>")
+        frac = 0.5
+        if b and val is not None and b["hi"] > b["lo"]:
+            frac = min(1.0, max(0.0, (val - b["lo"]) / (b["hi"] - b["lo"])))
+        left = (cur + frac) / max(len(bands), 1) * 100
+        bcol = b["color"] if b else P.get("blue", "#3b82f6")
+        valtxt = f"{val:.2f}" if val is not None else "—"
+        # cash you SHOULD hold — band cash range interpolated by index position in its regime
+        # range (band-low/calmer = cmax, band-high/more fear = cmin).
+        hold = (b["cmax"] - frac * (b["cmax"] - b["cmin"])) if (b and val is not None) else None
+        if driver and hold is not None:
+            cashspan = (f"<span class='vb-cash'>HOLD <b style='color:{gold}'>{hold * 100:.1f}%</b>"
+                        f" <span style='color:{mut}'>band {tgt}</span></span>")
+        else:
+            cashspan = f"<span class='vb-cash'>CASH <b style='color:{text}'>{tgt}</b></span>"
+        cards += (f"<div class='vb-card' style='border-color:{gold if driver else border}'>"
+                  f"<div class='vb-head'><span class='vb-key'>{ix['emoji']} {ix['key']}</span>"
+                  f"<span class='vb-badge' style='color:{text};background:{bcol}33;border:1px solid {bcol}'>"
+                  f"{ix['regime'].title()}</span></div>"
+                  f"<div class='vb-sub'>{ix['universe']} · {'drives cash target' if driver else 'reference'}</div>"
+                  f"<div class='vb-vrow'><span class='vb-val'>{valtxt}</span>"
+                  f"<span class='vb-chg' style='color:{chgcol}'>{chg * 100:+.1f}%</span>"
+                  f"{cashspan}</div>"
+                  f"<div class='vb-strip'>{segs}<div class='vb-needle' style='left:{left:.1f}%'></div></div></div>")
+    css = f"""<style>
+.vb-row{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}}
+@media(max-width:900px){{.vb-row{{grid-template-columns:1fr}}}}
+.vb-card{{background:{panel};border:1px solid {border};border-radius:14px;padding:14px}}
+.vb-head{{display:flex;align-items:center;justify-content:space-between;gap:8px}}
+.vb-key{{font-size:15px;font-weight:800;color:{text}}}
+.vb-badge{{font-size:10px;font-weight:800;padding:2px 8px;border-radius:6px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}}
+.vb-sub{{font-size:11px;color:{mut};margin:2px 0 9px}}
+.vb-vrow{{display:flex;align-items:baseline;gap:8px;margin-bottom:9px;flex-wrap:wrap}}
+.vb-val{{font-size:24px;font-weight:800;color:{text};font-variant-numeric:tabular-nums}}
+.vb-chg{{font-size:12px;font-weight:700}}
+.vb-cash{{margin-left:auto;font-size:11px;color:{mut};font-weight:700;white-space:nowrap}}
+.vb-strip{{position:relative;display:flex;gap:2px}}
+.vb-seg{{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:4px 1px;border-radius:4px}}
+.vb-seg.vb-on{{outline:2px solid {text};outline-offset:-2px}}
+.vb-sr{{font-size:8.5px;font-weight:800;line-height:1.1}}
+.vb-sd{{font-size:8px;font-weight:600;opacity:.85}}
+.vb-needle{{position:absolute;top:-4px;width:2px;height:calc(100% + 8px);background:{text};transform:translateX(-50%)}}
+</style>"""
+    return f"{css}<div class='vb-row'>{cards}</div>"
+
+
 def render(c: dict) -> None:
     data = cc.board_data()
     if data is None:
@@ -1488,9 +1721,9 @@ def render(c: dict) -> None:
 
     band = r.get("band", 2)
     bdef = engine.BANDS[band] if 0 <= band < len(engine.BANDS) else engine.BANDS[2]
-    up = str(trend).lower().startswith("up")
-    dmin, dmax = (bdef[1] if up else bdef[3]) * 100, (bdef[2] if up else bdef[4]) * 100
-    band_lbl = bdef[0]
+    up = str(trend).lower().startswith("up")               # kept for callers; no longer gates cash
+    dmin, dmax = bdef[3] * 100, bdef[4] * 100              # single cash range per regime
+    band_lbl, regime_name, regime_emoji = bdef[0], bdef[1], bdef[2]
     chg_col = P["red"] if vix_chg > 0 else P["green"]
     idx_block = _index_chips(P)
     fg = yahoo.fear_greed()
@@ -1506,25 +1739,13 @@ def render(c: dict) -> None:
         cols.append("auto")                                # Fear & Greed gauge
     cols += ["1fr", "auto"]                                # meter · regime
     vcols = " ".join(cols)
-    tc = P["green"] if up else P["red"]
-    trend_badge = (f"<span class='ck-trend' style='color:{tc};background:{tc}22;border:1px solid {tc}55'>"
-                   f"{'↑' if up else '↓'} {trend}</span>")
+    _rcol = ck.BANDS[band][1] if 0 <= band < len(ck.BANDS) else P["blue"]   # regime badge (emoji + name)
+    trend_badge = (f"<span class='ck-trend' style='color:{P['ink']};background:{_rcol}33;"
+                   f"border:1px solid {_rcol}'>{regime_emoji} {regime_name}</span>")
 
     html = f"""{ck._css(P)}{_extra_css(P)}
     <div class="ck-wrap">
-      <div class="ck-panel ck-vix" style="grid-template-columns:{vcols}">
-        <div class="ck-vixnow"><span class="l">VIX</span><span class="vv">{vix:.2f}</span>
-          <span class="ck-chg" style="color:{chg_col};background:{chg_col}22;border:1px solid {chg_col}55">
-          {vix_chg * 100:+.1f}%</span></div>
-        {idx_block}
-        {fg_block}
-        <div class="ck-meter">{ck._vix_meter(vix, band, up, cash_pct, P)}</div>
-        <div class="ck-regime">
-          <div class="ck-tl-row"><span class="ck-tl">Target</span>
-            <span class="ck-target">{dmin:.0f}–{dmax:.0f}%</span></div>
-          <div style="margin-top:4px">{trend_badge}</div>
-        </div>
-      </div>
+      {_vol_board_html(c, P)}
       {_leap_alert(tdf, P)}
       <div class="ck-brow">
         {_money_card(r, P)}
@@ -1532,10 +1753,10 @@ def render(c: dict) -> None:
         {_goalbar_card(_pd, P)}
       </div>
       {_summary_grid(r, P)}
+      {_ytd_card(r, data.get("ext"), P, _perf_ytd_d)}
       {_perf}
       {_assignment_card(tdf, c, r)}
       {_week_expiry_card(tdf, c)}
-      {_ytd_card(r, data.get("ext"), P, _perf_ytd_d)}
       <div class="ck-brow3">
         {_alloc_card(tdf, 'IRA', r['ira'], P)}
         {_alloc_card(tdf, 'LLC', r['llc'], P)}
@@ -1548,3 +1769,10 @@ def render(c: dict) -> None:
     </div>"""
     html = "\n".join(line.lstrip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
+
+    # 📅 Premium Collection drill-down (Year → Month → Week → Account → Stock). Rendered with
+    # st.html, not folded into the markdown above, so the <details> chevron tree and its CSS come
+    # through verbatim (no markdown code-fence / LaTeX mangling).
+    _pc = _premium_collection_card(c, tdf)
+    if _pc:
+        st.html(_pc)

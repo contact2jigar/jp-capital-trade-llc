@@ -26,7 +26,8 @@ def render_sidebar(c: dict, active: str, theme: str) -> None:
 
         html = ""
         for section, items in nav.SIDE_GROUPS.items():
-            html += f'<span class="sb-section">{section}</span>'
+            if section:                                   # "" = standalone group (e.g. Cockpit), no header
+                html += f'<span class="sb-section">{section}</span>'
             for label, icon, target in items:
                 cls = "sb-item active" if target == active else "sb-item"
                 html += (f'<a href="{_href(target, theme)}" target="_self" class="{cls}">'

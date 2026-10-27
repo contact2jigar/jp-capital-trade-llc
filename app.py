@@ -24,7 +24,7 @@ st.set_page_config(page_title="WheelEngine", page_icon=brand.write_favicon(),
 
 from ui import nav                       # noqa: E402
 from ui.sidebar import render_sidebar    # noqa: E402
-from ui.topnav import render_topnav      # noqa: E402
+# render_topnav removed from the layout — sidebar is the single menu (iPhone-style)
 from ui.theme import apply_theme         # noqa: E402
 
 # ── State (URL-driven, so nav + theme survive every anchor click) ────────────
@@ -47,7 +47,8 @@ if "refresh" in st.query_params:
 # ── Chrome ────────────────────────────────────────────────────────────────────
 c = apply_theme(theme)            # inject CSS, return palette
 render_sidebar(c, page, theme)
-render_topnav(page, theme)        # top tabs = WheelEngine's 3 workflow sections
+# Horizontal top tabs removed — the sidebar is the single, clean menu now (matches the
+# iPhone app, which Jigar prefers). render_topnav kept in the tree but no longer called.
 
 # ── Route ─────────────────────────────────────────────────────────────────────
 module_path = nav.ROUTES.get(page)
