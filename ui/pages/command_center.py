@@ -706,6 +706,21 @@ def _trade_log(c: dict) -> None:
         st.info("No open positions.")
         return
 
+    # Two filters only — Account + Opt Type — above the expiry groups.
+    accts = sorted(base["Account"].dropna().astype(str).str.strip().replace("", pd.NA).dropna().unique().tolist())
+    fa, fo = st.columns([1, 1])
+    with fa:
+        acct = st.selectbox("Account", ["All accounts"] + accts, key="cc_tl_acct")
+    with fo:
+        otf = st.selectbox("Opt Type", ["All types", "Call", "Put"], key="cc_tl_opt")
+    if acct != "All accounts":
+        base = base[base["Account"].astype(str).str.strip() == acct]
+    if otf != "All types":
+        base = base[base["Opt Typ"].astype(str).str.strip().str.upper() == otf.upper()]
+    if base.empty:
+        st.info("No positions match the filter.")
+        return
+
     _MONEY = "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f4b0.png"  # 💰
 
     def _logo(t):
