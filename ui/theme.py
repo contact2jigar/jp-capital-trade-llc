@@ -66,6 +66,20 @@ def apply_theme(name: str) -> dict:
         border:1px solid {c['border']} !important; font-weight:600 !important; }}
       .stButton > button[kind="secondary"]:hover, .stButton > button:not([kind="primary"]):hover {{
         border-color:{c['accent']} !important; color:{c['accent']} !important; }}
+      /* segmented-control filter buttons (Account/Opt Type/Moneyness) — follow the theme; the
+         UNSELECTED segments were rendering dark on the light Grey theme (dark-on-dark, invisible). */
+      [data-testid="stButtonGroup"] button[kind="segmented_control"] {{
+        background:{c['panel']} !important; border:1px solid {c['border']} !important; }}
+      [data-testid="stButtonGroup"] button[kind="segmented_control"],
+      [data-testid="stButtonGroup"] button[kind="segmented_control"] * {{ color:{c['text']} !important; }}
+      [data-testid="stButtonGroup"] button[kind="segmented_control"]:hover,
+      [data-testid="stButtonGroup"] button[kind="segmented_control"]:hover * {{
+        border-color:{c['accent']} !important; color:{c['accent']} !important; }}
+      [data-testid="stButtonGroup"] button[kind="segmented_controlActive"] {{
+        background:{c['nav_active_bg']} !important; border:1px solid {c['accent']} !important; }}
+      [data-testid="stButtonGroup"] button[kind="segmented_controlActive"],
+      [data-testid="stButtonGroup"] button[kind="segmented_controlActive"] * {{
+        color:{c['accent']} !important; }}
       [data-testid="stSlider"] [role="slider"] {{ background:#347fd1 !important; }}
       /* download buttons follow the theme (were stuck dark on Grey) — selectors kept
          broad so they match across Streamlit DOM versions (direct child, descendant,
