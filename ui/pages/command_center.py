@@ -779,11 +779,12 @@ def _trade_log(c: dict) -> None:
             f"P/L <b style='color:{plc};'>{'+' if pl >= 0 else '−'}${abs(pl):,.0f}</b></div>",
             unsafe_allow_html=True)
 
+    csv_df = base[[x for x in cols if x != "Logo"]]
     b1, b2 = st.columns([3, 1])
     with b1:
-        st.caption(f"**{len(vv)}** rows · **{int(open_mask.sum())}** open of {len(df)} total")
+        st.caption(f"**{len(base)}** positions · **{len(groups)}** expiries")
     with b2:
-        st.download_button("Download CSV", vv.to_csv(index=False).encode(),
+        st.download_button("Download CSV", csv_df.to_csv(index=False).encode(),
                            "trade_log.csv", "text/csv", use_container_width=True)
 
 
