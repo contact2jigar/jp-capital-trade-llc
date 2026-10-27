@@ -706,17 +706,27 @@ def _trade_log(c: dict) -> None:
         st.info("No open positions.")
         return
 
-    # Two filters only — Account + Opt Type — above the expiry groups.
+    # Filters above the expiry groups — Account · Opt Type · Moneyness (ITM/OTM).
     accts = sorted(base["Account"].dropna().astype(str).str.strip().replace("", pd.NA).dropna().unique().tolist())
-    fa, fo = st.columns([1, 1])
+    fa, fo, fm = st.columns([1, 1, 1])
     with fa:
         acct = st.selectbox("Account", ["All accounts"] + accts, key="cc_tl_acct")
     with fo:
         otf = st.selectbox("Opt Type", ["All types", "Call", "Put"], key="cc_tl_opt")
+    with fm:
+        mon = st.selectbox("Moneyness", ["All", "ITM", "OTM"], key="cc_tl_money")
     if acct != "All accounts":
         base = base[base["Account"].astype(str).str.strip() == acct]
     if otf != "All types":
         base = base[base["Opt Typ"].astype(str).str.strip().str.upper() == otf.upper()]
+    if mon != "All":
+        _cp = base["Current Price"].map(engine._money)
+        _k = base["Strike Price"].map(engine._money)
+        _ot = base["Opt Typ"].astype(str).str.strip().str.upper()
+        # PUT ITM = price below strike (assignment risk); CALL ITM = price above strike (called away)
+        itm = (((_ot == "PUT") & _cp.notna() & _k.notna() & (_cp < _k))
+               | ((_ot == "CALL") & _cp.notna() & _k.notna() & (_cp > _k)))
+        base = base[itm if mon == "ITM" else ~itm]
     if base.empty:
         st.info("No positions match the filter.")
         return
