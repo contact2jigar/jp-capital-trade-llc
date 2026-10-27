@@ -1105,7 +1105,9 @@ def _called_away_risk_card(df, c: dict) -> str:
               f"🟠 ≤1%/day = plan roll-up &nbsp;·&nbsp; 🔴 ITM = buy back &amp; reset</div>")
     parts = " · ".join(f"{e} {cnt[l]}" for l, e in
                        [("CRITICAL", "🔴"), ("ALERT", "🟠"), ("WARN", "🟡"), ("SAFE", "🟢")] if cnt[l])
-    sub = f"{parts} · {len(items)} below cost"
+    tot_ifc = sum(z["ifc"] for z in items)             # total $ loss if every below-cost CC is called
+    sub = (f"{parts} · {len(items)} below cost · "
+           f"<b style='color:{P['red']}'>{_m(tot_ifc)}</b> if all called")
     accent = (P["red"] if cnt["CRITICAL"] else P["orange"] if cnt["ALERT"]
               else P["amber"] if cnt["WARN"] else P["green"])
     hint = parts or f"{len(items)} below cost"
