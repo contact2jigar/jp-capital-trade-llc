@@ -706,18 +706,18 @@ def _trade_log(c: dict) -> None:
         st.info("No open positions.")
         return
 
-    # Filters above the expiry groups — Account · Opt Type · Moneyness (ITM/OTM).
+    # Filters above the expiry groups — iPhone-style segmented buttons: Account · Opt Type · Moneyness.
     accts = sorted(base["Account"].dropna().astype(str).str.strip().replace("", pd.NA).dropna().unique().tolist())
-    fa, fo, fm = st.columns([1, 1, 1])
+    fa, fo, fm = st.columns([1.3, 1, 1])
     with fa:
-        acct = st.selectbox("Account", ["All accounts"] + accts, key="cc_tl_acct")
+        acct = st.segmented_control("Account", ["All"] + accts, default="All", key="cc_tl_acct") or "All"
     with fo:
-        otf = st.selectbox("Opt Type", ["All types", "Call", "Put"], key="cc_tl_opt")
+        otf = st.segmented_control("Opt Type", ["All", "Call", "Put"], default="All", key="cc_tl_opt") or "All"
     with fm:
-        mon = st.selectbox("Moneyness", ["All", "ITM", "OTM"], key="cc_tl_money")
-    if acct != "All accounts":
+        mon = st.segmented_control("Moneyness", ["All", "ITM", "OTM"], default="All", key="cc_tl_money") or "All"
+    if acct != "All":
         base = base[base["Account"].astype(str).str.strip() == acct]
-    if otf != "All types":
+    if otf != "All":
         base = base[base["Opt Typ"].astype(str).str.strip().str.upper() == otf.upper()]
     if mon != "All":
         _cp = base["Current Price"].map(engine._money)
