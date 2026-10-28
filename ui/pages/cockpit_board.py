@@ -1129,7 +1129,7 @@ def _called_away_risk_card(df, c: dict) -> str:
                  f"<td style='padding:6px 8px;font-weight:800;color:{P['ink']}'>{z['stock']}</td>"
                  f"<td style='padding:6px 8px;color:{acc_c};font-weight:700'>{z['acct']}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${z['orig']:,.2f}</td>"
-                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['ink']}'>${z['k']:,.2f}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;font-weight:700;color:{P['green'] if z['k'] >= z['orig'] else P['red']}'>${z['k']:,.2f}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${z['cur']:,.2f}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${z['be']:,.2f}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']};font-weight:700'>{tok_lbl}</td>"
