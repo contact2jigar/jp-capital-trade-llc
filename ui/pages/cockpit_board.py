@@ -1063,7 +1063,7 @@ def _called_away_risk_card(df, c: dict) -> str:
         dte = engine._money(x.get("DTE"))
         itm = bool(cur and cur >= k)
         req = (to_k / max(dte, 1)) if (to_k is not None and to_k > 0 and dte) else None  # %/day to reach strike
-        ifc = (k - be) * shares                            # $ if called away (negative = loss)
+        ifc = (k - orig) * shares                          # capital loss if called, vs ORIGINAL assigned strike (premium booked separately)
         lv = _level(req, itm)
         items.append(dict(stock=stock, acct=acct, orig=orig, k=k, cur=cur, be=be,
                           to_k=to_k, dte=dte, req=req, ifc=ifc, itm=itm, lv=lv))

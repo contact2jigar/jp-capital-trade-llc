@@ -295,7 +295,7 @@ def render(c: dict) -> None:
                 # at/above that level (called there = good), red below. Orig strike vs wstrike, BE vs wbe.
                 strike_col = (c["pos"] if s["strike"] >= p["wstrike"] else c["neg"]) if s else None
                 be_col = (c["pos"] if s["strike"] >= p["wbe"] else c["neg"]) if s else None
-                loss_ifc = (s["strike"] - p["wbe"]) * sh if s else None   # $ P/L if called at the suggested CC
+                loss_ifc = (s["strike"] - p["wstrike"]) * sh if s else None   # capital P/L if called, vs ORIGINAL assigned strike (premium booked separately)
                 mcells = [
                     (p["stock"], "left", c["text"], 800),
                     (p["acct"], "left", c["muted"], 700),
@@ -320,8 +320,8 @@ def render(c: dict) -> None:
                               for v, al, cl, fw in mcells)
                 mrows += f"<tr style='background:{c['panel']};'>{tds}</tr>"
             # TOTAL row: average AOR (capital-weighted), total premium, total cash reserve, total shares
-            tot_loss = sum((sug[p["stock"]]["strike"] - p["wbe"]) * p["shares"]
-                           for p in members if sug.get(p["stock"]))     # total $ P/L if all called
+            tot_loss = sum((sug[p["stock"]]["strike"] - p["wstrike"]) * p["shares"]
+                           for p in members if sug.get(p["stock"]))     # total capital P/L if all called (= header 'vs strike')
             fcells = [
                 ("TOTAL", "left", c["text"], 900), ("", "left", c["muted"], 600),
                 ("", "right", c["muted"], 600), ("", "right", c["muted"], 600),    # orig strike, break even
@@ -370,8 +370,8 @@ def render(c: dict) -> None:
             (f"{p['under']:+.0f}%" if p["under"] is not None else "—", "right", under_col, 800),
             (f"{p['shares']}", "right", c["muted"], 600),
             (_m2(s["strike"]) if s else "…", "right", c["text"], 700),
-            (_money((s["strike"] - p["wbe"]) * p["shares"]) if s else "…", "right",
-             (c["pos"] if (s["strike"] - p["wbe"]) >= 0 else c["neg"]) if s else c["muted"], 800),
+            (_money((s["strike"] - p["wstrike"]) * p["shares"]) if s else "…", "right",
+             (c["pos"] if (s["strike"] - p["wstrike"]) >= 0 else c["neg"]) if s else c["muted"], 800),
             (f"+{otm:.0f}%" if otm is not None else "—", "right", c["accent"] if "accent" in c else c["text"], 700),
             (f"{s['delta']:.2f}" if s else "…", "right", c["muted"], 600),
             (_m2(s["prem"]) if s else "…", "right", c["pos"] if s else c["muted"], 700),
