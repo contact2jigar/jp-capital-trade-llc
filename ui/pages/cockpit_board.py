@@ -1078,13 +1078,12 @@ def _called_away_risk_card(df, c: dict) -> str:
             f"<th style='{hd}text-align:left'>Acct</th><th style='{hd}text-align:right'>Orig Strike</th>"
             f"<th style='{hd}text-align:right'>CC Strike</th><th style='{hd}text-align:right'>Price</th>"
             f"<th style='{hd}text-align:right'>Break-even</th><th style='{hd}text-align:right'>→ strike</th>"
-            f"<th style='{hd}text-align:right'>DTE</th><th style='{hd}text-align:right'>Daily req</th>"
+            f"<th style='{hd}text-align:right'>DTE</th>"
             f"<th style='{hd}text-align:right'>If called</th></tr>")
     body = ""
     for z in items:
         rank, dot, lab, lcol = z["lv"]
         tok_lbl = "ITM" if z["itm"] else (f"{z['to_k']:+.1f}%" if z["to_k"] is not None else "—")
-        req_lbl = "ITM" if z["itm"] else (f"{z['req']:.2f}%/d" if z["req"] is not None else "—")
         dte_lbl = f"{int(z['dte'])}" if z["dte"] else "—"
         acc_c = P["blue"] if z["acct"] == "IRA" else P["gold"]
         body += (f"<tr style='border-top:1px solid {P['line']}'>"
@@ -1098,11 +1097,10 @@ def _called_away_risk_card(df, c: dict) -> str:
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${z['be']:,.2f}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']};font-weight:700'>{tok_lbl}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>{dte_lbl}</td>"
-                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{lcol};font-weight:800'>{req_lbl}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['red']};font-weight:800'>{_m(z['ifc'])}</td></tr>")
     legend = (f"<div style='font-size:10px;color:{P['mut']};padding:7px 8px 2px'>"
-              f"Severity = daily %-move to reach the strike (gap ÷ DTE) &nbsp;·&nbsp; "
-              f"🟠 ≤1%/day = plan roll-up &nbsp;·&nbsp; 🔴 ITM = buy back &amp; reset</div>")
+              f"🟠 ALERT = plan roll-up &nbsp;·&nbsp; 🔴 CRITICAL = buy back &amp; reset "
+              f"&nbsp;·&nbsp; If called = $ loss if assigned at the CC strike</div>")
     parts = " · ".join(f"{e} {cnt[l]}" for l, e in
                        [("CRITICAL", "🔴"), ("ALERT", "🟠"), ("WARN", "🟡"), ("SAFE", "🟢")] if cnt[l])
     tot_ifc = sum(z["ifc"] for z in items)             # total $ loss if every below-cost CC is called
