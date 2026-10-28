@@ -1056,20 +1056,22 @@ def _called_away_risk_card(df, c: dict) -> str:
         k = engine._money(x.get("Strike Price")) or 0
         cur = engine._money(x.get("Current Price")) or 0
         qty = engine._money(x.get("Qty")) or 0
-        if k <= 0 or be <= 0 or k >= be:               # only covered calls sold BELOW break-even
+        if k <= 0 or be <= 0:                          # every covered call that has a basis
             continue
         shares = int(round(qty)) * 100
+        below = k < be                                 # below break-even = called away at a loss (the risk)
         to_k = ((k - cur) / cur * 100) if cur else None   # % price must rise to hit the CC strike (<0 = ITM)
         dte = engine._money(x.get("DTE"))
         itm = bool(cur and cur >= k)
         req = (to_k / max(dte, 1)) if (to_k is not None and to_k > 0 and dte) else None  # %/day to reach strike
         ifc = (k - orig) * shares                          # capital loss if called, vs ORIGINAL assigned strike (premium booked separately)
-        lv = _level(req, itm)
+        uw = (cur - orig) * shares if cur else None        # current paper P/L vs ORIGINAL strike (same basis as If called)
+        lv = _level(req, itm) if below else (3, "🟢", "SAFE", P["green"])   # above cost = called at a gain
         items.append(dict(stock=stock, acct=acct, orig=orig, k=k, cur=cur, be=be,
-                          to_k=to_k, dte=dte, req=req, ifc=ifc, itm=itm, lv=lv))
+                          to_k=to_k, dte=dte, req=req, ifc=ifc, uw=uw, itm=itm, below=below, lv=lv))
     if not items:
         return ""
-    items.sort(key=lambda z: (z["lv"][0], z["req"] if z["req"] is not None else 9e9))
+    items.sort(key=lambda z: (0 if z["below"] else 1, z["lv"][0], z["req"] if z["req"] is not None else 9e9))
     from collections import Counter
     cnt = Counter(z["lv"][2] for z in items)
     mono = 'font-family:"IBM Plex Mono",ui-monospace,monospace;'
@@ -1079,14 +1081,17 @@ def _called_away_risk_card(df, c: dict) -> str:
             f"<th style='{hd}text-align:right'>CC Strike</th><th style='{hd}text-align:right'>Price</th>"
             f"<th style='{hd}text-align:right'>Break-even</th><th style='{hd}text-align:right'>→ strike</th>"
             f"<th style='{hd}text-align:right'>DTE</th>"
-            f"<th style='{hd}text-align:right'>If called</th></tr>")
+            f"<th style='{hd}text-align:right'>Under Water</th><th style='{hd}text-align:right'>If called</th></tr>")
     body = ""
-    for z in items:
+    for i, z in enumerate(items):
         rank, dot, lab, lcol = z["lv"]
         tok_lbl = "ITM" if z["itm"] else (f"{z['to_k']:+.1f}%" if z["to_k"] is not None else "—")
         dte_lbl = f"{int(z['dte'])}" if z["dte"] else "—"
+        uw_lbl = _m(z["uw"]) if z["uw"] is not None else "—"
+        uw_c = (P["green"] if (z["uw"] or 0) >= 0 else P["red"]) if z["uw"] is not None else P["mut"]
         acc_c = P["blue"] if z["acct"] == "IRA" else P["gold"]
-        body += (f"<tr style='border-top:1px solid {P['line']}'>"
+        rowbg = f"background:{P['steel']}20;" if i % 2 else ""           # zebra stripe → trace a row across
+        body += (f"<tr style='border-top:1px solid {P['line']};{rowbg}'>"
                  f"<td style='padding:6px 8px;white-space:nowrap'>{dot} <span style='color:{lcol};"
                  f"font-weight:800;font-size:11px'>{lab}</span></td>"
                  f"<td style='padding:6px 8px;font-weight:800;color:{P['ink']}'>{z['stock']}</td>"
@@ -1097,21 +1102,23 @@ def _called_away_risk_card(df, c: dict) -> str:
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${z['be']:,.2f}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']};font-weight:700'>{tok_lbl}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>{dte_lbl}</td>"
+                 f"<td style='{mono}text-align:right;padding:6px 8px;color:{uw_c};font-weight:800'>{uw_lbl}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['red']};font-weight:800'>{_m(z['ifc'])}</td></tr>")
     legend = (f"<div style='font-size:10px;color:{P['mut']};padding:7px 8px 2px'>"
               f"🟠 ALERT = plan roll-up &nbsp;·&nbsp; 🔴 CRITICAL = buy back &amp; reset "
               f"&nbsp;·&nbsp; If called = $ loss if assigned at the CC strike</div>")
     parts = " · ".join(f"{e} {cnt[l]}" for l, e in
                        [("CRITICAL", "🔴"), ("ALERT", "🟠"), ("WARN", "🟡"), ("SAFE", "🟢")] if cnt[l])
-    tot_ifc = sum(z["ifc"] for z in items)             # total $ loss if every below-cost CC is called
-    sub = (f"{parts} · {len(items)} below cost · "
-           f"<b style='color:{P['red']}'>{_m(tot_ifc)}</b> if all called")
+    tot_ifc = sum(z["ifc"] for z in items)             # total capital P/L if every CC is called
+    below_n = sum(1 for z in items if z["below"]); above_n = len(items) - below_n
+    sub = (f"{below_n} below · {above_n} above cost · "
+           f"<b style='color:{P['red'] if tot_ifc < 0 else P['green']}'>{_m(tot_ifc)}</b> if all called")
     accent = (P["red"] if cnt["CRITICAL"] else P["orange"] if cnt["ALERT"]
               else P["amber"] if cnt["WARN"] else P["green"])
-    hint = parts or f"{len(items)} below cost"
+    hint = f"{below_n} below · {above_n} above"
     table = (f"<div style='overflow:auto;margin-top:6px'><table style='border-collapse:collapse;width:100%'>"
              f"{head}{body}</table></div>{legend}")
-    tag = _btag('⚠️ CALLED-AWAY RISK', sub, P)
+    tag = _btag('⚠️ COVERED CALLS', sub, P)
     return (f"<div class='ck-card ck-fcard' style='border-left:3px solid {accent}'>"
             f"{_collapsible(tag, table, hint)}</div>")
 
