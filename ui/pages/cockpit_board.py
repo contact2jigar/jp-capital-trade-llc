@@ -1852,7 +1852,6 @@ def render(c: dict) -> None:
       {_summary_grid(r, P)}
       {_ytd_card(r, data.get("ext"), P, _perf_ytd_d)}
       {_perf}
-      {_week_expiry_card(tdf, c)}
       <div class="ck-brow3">
         {_alloc_card(tdf, 'IRA', r['ira'], P)}
         {_alloc_card(tdf, 'LLC', r['llc'], P)}

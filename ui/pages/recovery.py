@@ -282,7 +282,7 @@ def render(c: dict) -> None:
             tot_cap = sum(p["cur"] * p["shares"] for p in members)
             tot_prem = sum((sug[p["stock"]]["prem"] * p["shares"]) for p in members if sug.get(p["stock"]))
             tot_sh = sum(p["shares"] for p in members)
-            mhdrs = ("STOCK", "ACCOUNT", "ORIG STRIKE", "BREAK EVEN", "CURRENT", f"CC {weeks}w",
+            mhdrs = ("STOCK", "ACCOUNT", "ORIG STRIKE", "BREAK EVEN", "CURRENT", "UNDER WATER", f"CC {weeks}w",
                      "IF CALLED", "AOR", "PREM/SH", "PREMIUM", "CASH RESERVE", "% CAP", "QTY", "YESTERDAY", "% CHG")
             mhead = "".join(f"<th style='background:{c['panel']};color:{c['muted']};border:1px solid {c['border']};"
                             f"padding:6px 12px;text-align:{'left' if i < 2 else 'right'};font-weight:800;"
@@ -296,12 +296,14 @@ def render(c: dict) -> None:
                 strike_col = (c["pos"] if s["strike"] >= p["wstrike"] else c["neg"]) if s else None
                 be_col = (c["pos"] if s["strike"] >= p["wbe"] else c["neg"]) if s else None
                 loss_ifc = (s["strike"] - p["wstrike"]) * sh if s else None   # capital P/L if called, vs ORIGINAL assigned strike (premium booked separately)
+                uw = (p["cur"] - p["wstrike"]) * sh                           # current paper P/L vs ORIGINAL strike (same basis as IF CALLED)
                 mcells = [
                     (p["stock"], "left", c["text"], 800),
                     (p["acct"], "left", c["muted"], 700),
                     (_m2(p["wstrike"]), "right", strike_col or c["muted"], 700),
                     (_m2(p["wbe"]), "right", be_col or c["text"], 800),
                     (_m2(p["cur"]), "right", c["muted"], 600),
+                    (_money(uw), "right", c["pos"] if uw >= 0 else c["neg"], 800),
                     (_m2(s["strike"]) if s else "…", "right", c["text"], 700),
                     (_money(loss_ifc) if s else "…", "right",
                      (c["pos"] if loss_ifc >= 0 else c["neg"]) if s else c["muted"], 800),
@@ -322,10 +324,12 @@ def render(c: dict) -> None:
             # TOTAL row: average AOR (capital-weighted), total premium, total cash reserve, total shares
             tot_loss = sum((sug[p["stock"]]["strike"] - p["wstrike"]) * p["shares"]
                            for p in members if sug.get(p["stock"]))     # total capital P/L if all called (= header 'vs strike')
+            tot_uw = sum((p["cur"] - p["wstrike"]) * p["shares"] for p in members)   # total current paper P/L vs original strike
             fcells = [
                 ("TOTAL", "left", c["text"], 900), ("", "left", c["muted"], 600),
                 ("", "right", c["muted"], 600), ("", "right", c["muted"], 600),    # orig strike, break even
                 ("", "right", c["muted"], 600),                                    # current
+                (_money(tot_uw), "right", c["pos"] if tot_uw >= 0 else c["neg"], 900),   # under water
                 ("", "right", c["muted"], 600),                                    # CC Nw
                 (_money(tot_loss), "right", c["pos"] if tot_loss >= 0 else c["neg"], 900),   # if called
                 (f"{g['aor']:.0f}%", "right", warn, 900),
@@ -347,7 +351,7 @@ def render(c: dict) -> None:
         return
 
     # ── Positions table ──
-    hdrs = ("STOCK", "AC", "STRK", "BREAK EVEN", "NOW", "↓ %", "SH",
+    hdrs = ("STOCK", "AC", "STRK", "BREAK EVEN", "NOW", "UNDER WATER", "↓ %", "SH",
             f"CC {weeks}w", "IF CALLED", "↑ vs NOW", "Δ", "PREM", "AOR")
     head = "".join(f"<th style='position:sticky;top:0;background:{c['raised']};color:{c['text']};"
                    f"border:1px solid {c['border']};padding:8px 12px;text-align:{'left' if i < 2 else 'right'};"
@@ -367,6 +371,8 @@ def render(c: dict) -> None:
             (_m2(p["wstrike"]), "right", strike_col or c["muted"], 700),
             (_m2(p["wbe"]), "right", be_col or c["text"], 800),
             (_m2(p["cur"]), "right", c["muted"], 600),
+            (_money((p["cur"] - p["wstrike"]) * p["shares"]), "right",
+             c["pos"] if (p["cur"] - p["wstrike"]) >= 0 else c["neg"], 800),
             (f"{p['under']:+.0f}%" if p["under"] is not None else "—", "right", under_col, 800),
             (f"{p['shares']}", "right", c["muted"], 600),
             (_m2(s["strike"]) if s else "…", "right", c["text"], 700),
