@@ -1020,6 +1020,27 @@ def _combined_alloc_card(df, r, P: dict) -> str:
             f"<div class='ck-caw'><div class='ck-ca-grid'>{head}{body}</div></div></div>")
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _cc_delta_map(stock: str, max_dte: int) -> dict:
+    """{strike(int): {dte:int → delta}} of a symbol's calls — real CBOE delta, cached 5 min.
+    Powers the live-delta badge on the Covered Calls card (≈ assignment probability)."""
+    try:
+        from services import option_chain
+        cdf = option_chain.load_chain(stock, max_dte=max_dte, lo_band=0.02, hi_band=0.95, cboe_first=True)
+    except Exception:
+        return {}
+    if cdf is None or getattr(cdf, "empty", True) or "type" not in cdf.columns:
+        return {}
+    out: dict = {}
+    for _, r in cdf[cdf["type"] == "call"].iterrows():
+        k = engine._money(r.get("strike")) or 0
+        dte = int(engine._money(r.get("dte")) or 0)
+        d = engine._money(r.get("delta")) or 0
+        if k > 0 and dte > 0 and d > 0:
+            out.setdefault(int(round(k)), {})[dte] = d
+    return out
+
+
 def _called_away_risk_card(df, c: dict) -> str:
     """⚠️ Called-away risk — open covered CALLs whose strike is BELOW the share break-even, so if the
     stock reaches the strike the shares get called at a LOSS. Ranked by how close the price is to the
@@ -1067,8 +1088,14 @@ def _called_away_risk_card(df, c: dict) -> str:
         ifc = (k - orig) * shares                          # capital loss if called, vs ORIGINAL assigned strike (premium booked separately)
         uw = (cur - orig) * shares if cur else None        # current paper P/L vs ORIGINAL strike (same basis as If called)
         lv = _level(req, itm) if below else (3, "🟢", "SAFE", P["green"])   # above cost = called at a gain
+        dlt = None                                         # live CC delta ×100 (≈ assignment odds)
+        dm = _cc_delta_map(stock, int(dte) + 10) if dte else {}
+        dd = dm.get(int(round(k)))
+        if dd:
+            bd = min(dd.keys(), key=lambda x: abs(x - int(dte)))
+            dlt = int(round(dd[bd] * 100))
         items.append(dict(stock=stock, acct=acct, orig=orig, k=k, cur=cur, be=be,
-                          to_k=to_k, dte=dte, req=req, ifc=ifc, uw=uw, itm=itm, below=below, lv=lv))
+                          to_k=to_k, dte=dte, req=req, ifc=ifc, uw=uw, itm=itm, below=below, lv=lv, dlt=dlt))
     if not items:
         return ""
     items.sort(key=lambda z: (0 if z["below"] else 1, z["lv"][0], z["req"] if z["req"] is not None else 9e9))
@@ -1091,9 +1118,14 @@ def _called_away_risk_card(df, c: dict) -> str:
         uw_c = (P["green"] if (z["uw"] or 0) >= 0 else P["red"]) if z["uw"] is not None else P["mut"]
         acc_c = P["blue"] if z["acct"] == "IRA" else P["gold"]
         rowbg = f"background:{P['steel']}20;" if i % 2 else ""           # zebra stripe → trace a row across
+        if z["dlt"] is not None:                                          # live delta replaces the dot
+            dc = P["red"] if z["dlt"] >= 45 else P["orange"] if z["dlt"] >= 30 else P["green"]
+            risk_cell = (f"<span style='color:{P['mut']};font-size:9px'>Δ</span>"
+                         f"<span style='{mono}color:{dc};font-weight:800;font-size:13px'>{z['dlt']}</span>")
+        else:
+            risk_cell = f"{dot} <span style='color:{lcol};font-weight:800;font-size:11px'>{lab}</span>"
         body += (f"<tr style='border-top:1px solid {P['line']};{rowbg}'>"
-                 f"<td style='padding:6px 8px;white-space:nowrap'>{dot} <span style='color:{lcol};"
-                 f"font-weight:800;font-size:11px'>{lab}</span></td>"
+                 f"<td style='padding:6px 8px;white-space:nowrap'>{risk_cell}</td>"
                  f"<td style='padding:6px 8px;font-weight:800;color:{P['ink']}'>{z['stock']}</td>"
                  f"<td style='padding:6px 8px;color:{acc_c};font-weight:700'>{z['acct']}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['mut']}'>${z['orig']:,.2f}</td>"
@@ -1105,8 +1137,8 @@ def _called_away_risk_card(df, c: dict) -> str:
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{uw_c};font-weight:800'>{uw_lbl}</td>"
                  f"<td style='{mono}text-align:right;padding:6px 8px;color:{P['red']};font-weight:800'>{_m(z['ifc'])}</td></tr>")
     legend = (f"<div style='font-size:10px;color:{P['mut']};padding:7px 8px 2px'>"
-              f"🟠 ALERT = plan roll-up &nbsp;·&nbsp; 🔴 CRITICAL = buy back &amp; reset "
-              f"&nbsp;·&nbsp; If called = $ loss if assigned at the CC strike</div>")
+              f"Δ = live CC delta ×100 (assignment odds); high = red &nbsp;·&nbsp; "
+              f"Under Water = paper P/L now &nbsp;·&nbsp; If called = P/L at the CC strike (both vs original strike)</div>")
     parts = " · ".join(f"{e} {cnt[l]}" for l, e in
                        [("CRITICAL", "🔴"), ("ALERT", "🟠"), ("WARN", "🟡"), ("SAFE", "🟢")] if cnt[l])
     tot_ifc = sum(z["ifc"] for z in items)             # total capital P/L if every CC is called
