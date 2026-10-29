@@ -41,7 +41,6 @@ SIDE_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("Price Wall", "🏛️", "Price Wall Map"),            # iPhone label; routes to Price Wall Map
         ("Seasonality", "📅", "Seasonality"),
         ("Scoreboard", "🏁", "Scoreboard"),                # wheel vs SPY: WTD/MTD/since-Sep + weekly
-        ("Market Pulse", "📰", "Market Pulse"),            # why's the market up/down today — Gemini vs Claude
     ],
     # ── below here = web-only (not on the iPhone app) ──
     "PORTFOLIO": [
@@ -78,7 +77,6 @@ ROUTES: dict[str, str] = {
     "Performance":       "ui.pages.performance",
     "Projection":        "ui.pages.projection",
     "Recovery Tool":     "ui.pages.recovery",
-    "Market Pulse":      "ui.pages.market_pulse",
     "CSP Planner":       "ui.pages.csp_planner",
     "Allocation":        "ui.pages.allocation",
     "Stock Scope":       "ui.pages.stock_scope",
