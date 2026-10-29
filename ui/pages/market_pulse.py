@@ -28,10 +28,10 @@ _PROMPT = (
 
 def _key(name: str) -> str | None:
     try:
-        v = st.secrets.get(name)  # type: ignore[attr-defined]
+        return (st.secrets[name] or None)         # Streamlit secrets (loaded at server startup)
     except Exception:
-        v = None
-    return v or None
+        import os
+        return os.environ.get(name) or None       # env-var fallback
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
