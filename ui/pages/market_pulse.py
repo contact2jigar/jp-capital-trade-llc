@@ -36,9 +36,9 @@ def _key(name: str) -> str | None:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _gemini(prompt: str, key: str) -> tuple[bool, str]:
-    """Gemini 2.5 Flash with Google Search grounding. → (ok, text)."""
+    """Gemini 3.8 Flash with Google Search grounding. → (ok, text)."""
     url = ("https://generativelanguage.googleapis.com/v1beta/models/"
-           f"gemini-2.5-flash:generateContent?key={key}")
+           f"gemini-3.8-flash:generateContent?key={key}")
     body = {"contents": [{"parts": [{"text": prompt}]}], "tools": [{"google_search": {}}]}
     try:
         r = requests.post(url, json=body, timeout=40)
